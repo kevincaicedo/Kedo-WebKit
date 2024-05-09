@@ -460,13 +460,12 @@ void NetworkDataTaskSoup::didSendRequest(GRefPtr<GInputStream>&& inputStream)
     m_networkLoadMetrics.responseStart = MonotonicTime::now();
 #endif
 
-    if (!m_networkLoadMetrics.failsTAOCheck) {
-        RefPtr<SecurityOrigin> origin = isTopLevelNavigation() ? SecurityOrigin::create(firstRequest().url()) : m_sourceOrigin;
-        if (origin)
-            m_networkLoadMetrics.failsTAOCheck = !passesTimingAllowOriginCheck(m_response, *origin);
-    }
-
     dispatchDidReceiveResponse();
+}
+
+void NetworkDataTaskSoup::setTimingAllowFailedFlag()
+{
+    m_networkLoadMetrics.failsTAOCheck = true;
 }
 
 void NetworkDataTaskSoup::dispatchDidReceiveResponse()
@@ -1250,7 +1249,7 @@ void NetworkDataTaskSoup::didGetHeaders()
         auto* address = soup_message_get_remote_address(m_soupMessage.get());
         if (G_IS_INET_SOCKET_ADDRESS(address)) {
             GUniquePtr<char> ipAddress(g_inet_address_to_string(g_inet_socket_address_get_address(G_INET_SOCKET_ADDRESS(address))));
-            additionalMetrics.remoteAddress = makeString(ipAddress.get(), ':', g_inet_socket_address_get_port(G_INET_SOCKET_ADDRESS(address)));
+            additionalMetrics.remoteAddress = makeString(span(ipAddress.get()), ':', g_inet_socket_address_get_port(G_INET_SOCKET_ADDRESS(address)));
         }
         additionalMetrics.tlsProtocol = tlsProtocolVersionToString(soup_message_get_tls_protocol_version(m_soupMessage.get()));
         additionalMetrics.tlsCipher = String::fromUTF8(soup_message_get_tls_ciphersuite_name(m_soupMessage.get()));
