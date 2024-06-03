@@ -32,6 +32,7 @@
 #include "Completion.h"
 #include "GlobalObjectMethodTable.h"
 
+#include "APICast.h"
 #include "JSInternalPromise.h"
 #include "JSModuleLoader.h"
 #include "JSNativeStdFunction.h"
@@ -78,7 +79,7 @@ static bool fetchModuleFromLocalFileSystem(const URL& fileURL, Vector& buffer)
     // directory separators as it disables all string parsing on names.
     fileName = makeStringByReplacingAll(fileName, '/', '\\');
     auto pathName = makeString("\\\\?\\", fileName).wideCharacters();
-    struct _stat status { };
+    struct _stat status {};
     if (_wstat(pathName.data(), &status))
         return false;
     if ((status.st_mode & S_IFMT) != S_IFREG)
@@ -87,7 +88,7 @@ static bool fetchModuleFromLocalFileSystem(const URL& fileURL, Vector& buffer)
     FILE* f = _wfopen(pathName.data(), L"rb");
 #else
     auto pathName = fileName.utf8();
-    struct stat status { };
+    struct stat status {};
     if (stat(pathName.data(), &status))
         return false;
     if ((status.st_mode & S_IFMT) != S_IFREG)
@@ -131,7 +132,7 @@ static URL currentWorkingDirectory()
     // In the path utility functions inside the JSC shell, we does not handle the UNC and UNCW including the network host name.
     DWORD bufferLength = ::GetCurrentDirectoryW(0, nullptr);
     if (!bufferLength)
-        return { };
+        return {};
     // In Windows, wchar_t is the UTF-16LE.
     // https://msdn.microsoft.com/en-us/library/dd374081.aspx
     // https://msdn.microsoft.com/en-us/library/windows/desktop/ff381407.aspx
@@ -140,16 +141,16 @@ static URL currentWorkingDirectory()
     String directoryString(buffer.data(), lengthNotIncludingNull);
     // We don't support network path like \\host\share\<path name>.
     if (directoryString.startsWith("\\\\"_s))
-        return { };
+        return {};
 
 #else
     Vector<char> buffer(PATH_MAX);
     if (!getcwd(buffer.data(), PATH_MAX))
-        return { };
+        return {};
     String directoryString = String::fromUTF8(buffer.data());
 #endif
     if (directoryString.isEmpty())
-        return { };
+        return {};
 
     // Add a trailing slash if needed so the URL resolves to a directory and not a file.
     if (directoryString[directoryString.length() - 1] != pathSeparator())
@@ -187,6 +188,10 @@ static bool isDottedRelativePath(StringView path)
 #endif
 }
 
+static bool isFileModule(StringView path)
+{
+   return isAbsolutePath(path) || isDottedRelativePath(path);
+}
 
 template<typename Vector>
 static bool fillBufferWithContentsOfFile(FILE* file, Vector& buffer)
@@ -276,7 +281,7 @@ public:
         if (!FileSystem::truncateFile(fd, m_cachedBytecode->sizeForUpdate()))
             return;
 
-        m_cachedBytecode->commitUpdates([&] (off_t offset, const void* data, size_t size) {
+        m_cachedBytecode->commitUpdates([&](off_t offset, const void* data, size_t size) {
             long long result = FileSystem::seekFile(fd, offset, FileSystem::FileSeekOrigin::Beginning);
             ASSERT_UNUSED(result, result != -1);
             size_t bytesWritten = static_cast<size_t>(FileSystem::writeToFile(fd, data, size));
@@ -288,7 +293,7 @@ private:
     String cachePath() const
     {
         if (!cacheEnabled())
-            return { };
+            return {};
         const char* cachePath = JSC::Options::diskCachePath();
         String filename = FileSystem::encodeForFileName(FileSystem::lastComponentOfPathIgnoringTrailingSlash(sourceOrigin().url().fileSystemPath()));
         return FileSystem::pathByAppendingComponent(StringView::fromLatin1(cachePath), makeString(source().hash(), '-', filename, ".bytecode-cache"_s));
@@ -303,7 +308,7 @@ private:
         if (filename.isNull())
             return;
 
-        auto fd = FileSystem::openAndLockFile(filename, FileSystem::FileOpenMode::Read, {FileSystem::FileLockMode::Shared, FileSystem::FileLockMode::Nonblocking});
+        auto fd = FileSystem::openAndLockFile(filename, FileSystem::FileOpenMode::Read, { FileSystem::FileLockMode::Shared, FileSystem::FileLockMode::Nonblocking });
         if (!FileSystem::isHandleValid(fd))
             return;
 
@@ -336,17 +341,14 @@ private:
     const bool m_cacheEnabled;
 };
 
-static inline JSC::SourceCode jscSource(const String& source, const JSC::SourceOrigin& sourceOrigin, String sourceURL = String(), const TextPosition& startPosition = TextPosition(),JSC:: SourceProviderSourceType sourceType = JSC::SourceProviderSourceType::Program)
+static inline JSC::SourceCode jscSource(const String& source, const JSC::SourceOrigin& sourceOrigin, String sourceURL = String(), const TextPosition& startPosition = TextPosition(), JSC::SourceProviderSourceType sourceType = JSC::SourceProviderSourceType::Program)
 {
     return JSC::SourceCode(APISourceProvider::create(source, sourceOrigin, WTFMove(sourceURL), startPosition, sourceType), startPosition.m_line.oneBasedInt(), startPosition.m_column.oneBasedInt());
 }
 
-
-
 namespace JSC {
 
 const ClassInfo JSAPIGlobalObject::s_info = { "GlobalObject"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSAPIGlobalObject) };
-
 
 const GlobalObjectMethodTable* JSAPIGlobalObject::globalObjectMethodTable()
 {
@@ -360,7 +362,7 @@ const GlobalObjectMethodTable* JSAPIGlobalObject::globalObjectMethodTable()
         &moduleLoaderResolve,
         &moduleLoaderFetch,
         &moduleLoaderCreateImportMetaProperties,
-        nullptr, // moduleLoaderEvaluate
+        &moduleLoaderEvaluate,
         nullptr, // promiseRejectionTracker
         &reportUncaughtExceptionAtEventLoop,
         &currentScriptExecutionOwner,
@@ -378,7 +380,6 @@ void JSAPIGlobalObject::reportUncaughtExceptionAtEventLoop(JSGlobalObject* globa
 {
     Base::reportUncaughtExceptionAtEventLoop(globalObject, exception);
 }
-
 
 JSAPIGlobalObject::JSAPIGlobalObject(VM& vm, Structure* structure)
     : Base(vm, structure, globalObjectMethodTable())
@@ -434,35 +435,48 @@ JSInternalPromise* JSAPIGlobalObject::moduleLoaderImportModule(JSGlobalObject* g
     return result;
 }
 
-Identifier JSAPIGlobalObject::moduleLoaderResolve(JSGlobalObject* globalObject, JSModuleLoader*, JSValue keyValue, JSValue referrerValue, JSValue)
+Identifier JSAPIGlobalObject::moduleLoaderResolve(JSGlobalObject* globalObject, JSModuleLoader*, JSValue keyValue, JSValue referrerValue, JSValue scriptFetcher)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     scope.releaseAssertNoException();
     const Identifier key = keyValue.toPropertyKey(globalObject);
-    RETURN_IF_EXCEPTION(scope, { });
+    RETURN_IF_EXCEPTION(scope, {});
 
     if (key.isSymbol())
         return key;
 
-    auto resolvePath = [&] (const URL& directoryURL) -> Identifier {
+    JSAPIGlobalObject* thisObject = jsCast<JSAPIGlobalObject*>(globalObject);
+    if (thisObject->isApiModuleLoaderValid()) {
+        String specifier = key.impl();
+        if (thisObject->api_moduleLoader.disableBuiltinFileSystemLoader || !isFileModule(specifier)) {
+            JSContextRef contextRef = toRef(globalObject);
+            JSStringRef jsSpecifier = thisObject->api_moduleLoader.moduleLoaderResolve(contextRef, toRef(globalObject, keyValue), toRef(globalObject, referrerValue), toRef(globalObject, scriptFetcher));
+            const Identifier resolveKey = Identifier::fromString(vm, jsSpecifier->string());
+            RETURN_IF_EXCEPTION(scope, {});
+            jsSpecifier->deref();
+            return resolveKey;
+        }
+    }
+
+    auto resolvePath = [&](const URL& directoryURL) -> Identifier {
         String specifier = key.impl();
         bool specifierIsAbsolute = isAbsolutePath(specifier);
         if (!specifierIsAbsolute && !isDottedRelativePath(specifier)) {
             throwTypeError(globalObject, scope, makeString("Module specifier, '"_s, specifier, "' is not absolute and does not start with \"./\" or \"../\". Referenced from: "_s, directoryURL.fileSystemPath()));
-            return { };
+            return {};
         }
 
         if (!directoryURL.protocolIsFile()) {
             throwException(globalObject, scope, createError(globalObject, makeString("Could not resolve the referrer's path: "_s, directoryURL.string())));
-            return { };
+            return {};
         }
 
         auto resolvedURL = specifierIsAbsolute ? URL::fileURLWithFileSystemPath(specifier) : URL(directoryURL, specifier);
         if (!resolvedURL.isValid()) {
             throwException(globalObject, scope, createError(globalObject, makeString("Resolved module url is not valid: "_s, resolvedURL.string())));
-            return { };
+            return {};
         }
         ASSERT(resolvedURL.protocolIsFile());
 
@@ -473,19 +487,30 @@ Identifier JSAPIGlobalObject::moduleLoaderResolve(JSGlobalObject* globalObject, 
         return resolvePath(currentWorkingDirectory());
 
     const Identifier referrer = referrerValue.toPropertyKey(globalObject);
-    RETURN_IF_EXCEPTION(scope, { });
+    RETURN_IF_EXCEPTION(scope, {});
 
     if (referrer.isSymbol())
         return resolvePath(currentWorkingDirectory());
 
     // If the referrer exists, we assume that the referrer is the correct file url.
-    URL url = URL({ }, referrer.impl());
+    URL url = URL({}, referrer.impl());
     ASSERT(url.protocolIsFile());
     return resolvePath(url);
 }
 
+JSValue JSAPIGlobalObject::moduleLoaderEvaluate(JSGlobalObject* globalObject, JSModuleLoader* moduleLoader, JSValue key, JSValue moduleRecordValue, JSValue scriptFetcher, JSValue sentValue, JSValue resumeMode)
+{
+    if (UNLIKELY(scriptFetcher && scriptFetcher.isObject())) {
+        return scriptFetcher;
+    }
 
-JSInternalPromise* JSAPIGlobalObject::moduleLoaderFetch(JSGlobalObject* globalObject, JSModuleLoader*, JSValue key, JSValue attributesValue, JSValue)
+    JSValue result = moduleLoader->evaluateNonVirtual(globalObject, key, moduleRecordValue,
+        scriptFetcher, sentValue, resumeMode);
+
+    return result;
+}
+
+JSInternalPromise* JSAPIGlobalObject::moduleLoaderFetch(JSGlobalObject* globalObject, JSModuleLoader*, JSValue key, JSValue attributesValue, JSValue scriptFetcher)
 {
     VM& vm = globalObject->vm();
     JSInternalPromise* promise = JSInternalPromise::create(vm, globalObject->internalPromiseStructure());
@@ -498,9 +523,36 @@ JSInternalPromise* JSAPIGlobalObject::moduleLoaderFetch(JSGlobalObject* globalOb
     };
 
     String moduleKey = key.toWTFString(globalObject);
+    URL moduleURL({}, moduleKey);
+
+    JSAPIGlobalObject* thisObject = jsCast<JSAPIGlobalObject*>(globalObject);
+    if (thisObject->isApiModuleLoaderValid()) {
+        if (thisObject->api_moduleLoader.disableBuiltinFileSystemLoader || !moduleURL.protocolIsFile()) {
+            JSContextRef contextRef = toRef(globalObject);
+            JSStringRef sourceRef = thisObject->api_moduleLoader.moduleLoaderFetch(contextRef, toRef(globalObject, key), toRef(globalObject, attributesValue), toRef(globalObject, scriptFetcher));
+
+            RETURN_IF_EXCEPTION(scope, promise->rejectWithCaughtException(globalObject, scope));
+
+            String sourceString = sourceRef->string();
+            if (moduleKey.endsWith(".json"_s)) {
+                auto source = SourceCode(StringSourceProvider::create(sourceString, SourceOrigin { moduleURL }, WTFMove(moduleKey), SourceTaintedOrigin::Untainted, TextPosition(), SourceProviderSourceType::JSON));
+                auto sourceCode = JSSourceCode::create(vm, WTFMove(source));
+                sourceRef->deref();
+                scope.release();
+                promise->resolve(globalObject, sourceCode);
+                return promise;
+            }
+
+            auto sourceCode = JSSourceCode::create(vm, jscSource(sourceString, SourceOrigin { moduleURL }, WTFMove(moduleKey), TextPosition(), SourceProviderSourceType::Module));
+            sourceRef->deref();
+            scope.release();
+            promise->resolve(globalObject, sourceCode);
+            return promise;
+        }
+    }
+
     RETURN_IF_EXCEPTION(scope, promise->rejectWithCaughtException(globalObject, scope));
 
-    URL moduleURL({ }, moduleKey);
     ASSERT(moduleURL.protocolIsFile());
     // Strip the URI from our key so Errors print canonical system paths.
     moduleKey = moduleURL.fileSystemPath();
@@ -513,18 +565,18 @@ JSInternalPromise* JSAPIGlobalObject::moduleLoaderFetch(JSGlobalObject* globalOb
     if (!fetchModuleFromLocalFileSystem(moduleURL, buffer))
         RELEASE_AND_RETURN(scope, rejectWithError(createError(globalObject, makeString("Could not open file '"_s, moduleKey, "'."_s))));
 
-//#if ENABLE(WEBASSEMBLY)
-//    // FileSystem does not have mime-type header. The JSC shell recognizes WebAssembly's magic header.
-//    if ((buffer.size() >= 4 && buffer[0] == '\0' && buffer[1] == 'a' && buffer[2] == 's' && buffer[3] == 'm') || (attributes && attributes->type() == ScriptFetchParameters::Type::WebAssembly)) {
-//        auto source = SourceCode(WebAssemblySourceProvider::create(WTFMove(buffer), SourceOrigin { moduleURL }, WTFMove(moduleKey)));
-//        auto sourceCode = JSSourceCode::create(vm, WTFMove(source));
-//        scope.release();
-//        promise->resolve(globalObject, sourceCode);
-//        return promise;
-//    }
-//#endif
+    // #if ENABLE(WEBASSEMBLY)
+    //     // FileSystem does not have mime-type header. The JSC shell recognizes WebAssembly's magic header.
+    //     if ((buffer.size() >= 4 && buffer[0] == '\0' && buffer[1] == 'a' && buffer[2] == 's' && buffer[3] == 'm') || (attributes && attributes->type() == ScriptFetchParameters::Type::WebAssembly)) {
+    //         auto source = SourceCode(WebAssemblySourceProvider::create(WTFMove(buffer), SourceOrigin { moduleURL }, WTFMove(moduleKey)));
+    //         auto sourceCode = JSSourceCode::create(vm, WTFMove(source));
+    //         scope.release();
+    //         promise->resolve(globalObject, sourceCode);
+    //         return promise;
+    //     }
+    // #endif
 
-    if (attributes && attributes->type() == ScriptFetchParameters::Type::JSON) {
+    if (moduleKey.endsWith(".json"_s)) {
         auto source = SourceCode(StringSourceProvider::create(stringFromUTF(buffer), SourceOrigin { moduleURL }, WTFMove(moduleKey), SourceTaintedOrigin::Untainted, TextPosition(), SourceProviderSourceType::JSON));
         auto sourceCode = JSSourceCode::create(vm, WTFMove(source));
         scope.release();
@@ -538,35 +590,43 @@ JSInternalPromise* JSAPIGlobalObject::moduleLoaderFetch(JSGlobalObject* globalOb
     return promise;
 }
 
-JSObject* JSAPIGlobalObject::moduleLoaderCreateImportMetaProperties(JSGlobalObject* globalObject, JSModuleLoader*, JSValue key, JSModuleRecord*, JSValue)
+JSObject* JSAPIGlobalObject::moduleLoaderCreateImportMetaProperties(JSGlobalObject* globalObject, JSModuleLoader*, JSValue key, JSModuleRecord*, JSValue scriptFetcher)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
+    JSAPIGlobalObject* thisObject = jsCast<JSAPIGlobalObject*>(globalObject);
+    if (thisObject->isApiModuleLoaderValid()) {
+        JSContextRef contextRef = toRef(globalObject);
+        JSObjectRef object = thisObject->api_moduleLoader.moduleLoaderCreateImportMetaProperties(contextRef, toRef(globalObject, key), toRef(globalObject, scriptFetcher));
+        JSObject* importMeta = toJS(object);
+        return importMeta;
+    }
+
     JSObject* metaProperties = constructEmptyObject(vm, globalObject->nullPrototypeObjectStructure());
     RETURN_IF_EXCEPTION(scope, nullptr);
 
-    metaProperties->putDirect(vm, Identifier::fromString(vm, "filename"_s), key);
+    String modulePath = key.toWTFString(globalObject);
+    URL moduleURL({}, modulePath);
+    ASSERT(moduleURL.protocolIsFile());
+
+    modulePath = moduleURL.fileSystemPath();
+    String dirname = modulePath.substring(0, modulePath.reverseFind(pathSeparator()));
+    String filename = modulePath.substring(modulePath.reverseFind(pathSeparator()) + 1);
+
+    metaProperties->putDirect(vm, Identifier::fromString(vm, "url"_s), key);
+    metaProperties->putDirect(vm, Identifier::fromString(vm, "dir"_s), jsString(vm, dirname));
+    metaProperties->putDirect(vm, Identifier::fromString(vm, "filename"_s), jsString(vm, filename));
+
     RETURN_IF_EXCEPTION(scope, nullptr);
 
     return metaProperties;
 }
 
-#define UNUSED(x) (void)(x)
-JSValue JSAPIGlobalObject::loadAndEvaluateJSScriptModule(const JSLockHolder&, JSScript *script)
+JSValue JSAPIGlobalObject::loadAndEvaluateJSScriptModule(const JSLockHolder&, JSScript* script)
 {
-    UNUSED(script);
-//    ASSERT(script.type == kJSScriptTypeModule);
-//    VM& vm = this->vm();
-//    auto scope = DECLARE_THROW_SCOPE(vm);
-//
-//    Identifier key = Identifier::fromString(vm, String { [[script sourceURL] absoluteString] });
-//    JSInternalPromise* promise = importModule(this, key, jsUndefined(), jsUndefined(), jsUndefined());
-//    RETURN_IF_EXCEPTION(scope, { });
-//    auto* result = JSPromise::create(vm, this->promiseStructure());
-//    result->resolve(this, promise);
-//    RETURN_IF_EXCEPTION(scope, { });
-//    return result;
+    UNUSED_PARAM(script);
+    // FIXME: Implement this.
     return jsUndefined();
 }
 

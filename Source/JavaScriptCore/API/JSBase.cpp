@@ -95,6 +95,141 @@ JSValueRef JSEvaluateScript(JSContextRef ctx, JSStringRef script, JSObjectRef th
     return JSEvaluateScriptInternal(locker, ctx, thisObject, source, exception);
 }
 
+void JSSetAPIModuleLoader(JSContextRef ctx, JSAPIModuleLoader moduleLoader)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+
+    JSAPIGlobalObject* thisObject = jsCast<JSAPIGlobalObject*>(globalObject);
+    thisObject->api_moduleLoader = moduleLoader;
+}
+
+void JSLoadAndEvaluateModuleFromSource(JSContextRef ctx, JSStringRef module, JSStringRef sourceURLString, int startingLineNumber, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+
+    startingLineNumber = std::max(1, startingLineNumber);
+    auto sourceURL = sourceURLString ? URL({ }, sourceURLString->string()) : URL();
+    SourceCode source = makeSource(module->string(), SourceOrigin { sourceURL }, SourceTaintedOrigin::Untainted, sourceURL.string(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()));
+    JSInternalPromise* promise = loadAndEvaluateModule(globalObject, source, jsUndefined());
+    
+    JSFunction* fulfillHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [](JSGlobalObject*, CallFrame* callFrame) {
+        return JSValue::encode(callFrame->argument(0));
+    });
+
+    JSFunction* rejectHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [exception](JSGlobalObject* globalObject, CallFrame* callFrame) {
+        *exception = toRef(globalObject, callFrame->argument(0));
+        return JSValue::encode(callFrame->argument(0));
+    });
+    
+    vm.drainMicrotasks();
+    promise->then(globalObject, fulfillHandler, rejectHandler);
+    vm.drainMicrotasks();
+}
+
+void JSLoadModule(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+
+    JSInternalPromise* promise = loadModule(globalObject, Identifier::fromString(vm, moduleKey->string()), jsUndefined(), jsUndefined());
+    
+    JSFunction* fulfillHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [](JSGlobalObject*, CallFrame* callFrame) {
+        return JSValue::encode(callFrame->argument(0));
+    });
+
+    JSFunction* rejectHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [exception](JSGlobalObject* globalObject, CallFrame* callFrame) {
+        *exception = toRef(globalObject, callFrame->argument(0));
+        return JSValue::encode(callFrame->argument(0));
+    });
+    
+    vm.drainMicrotasks();
+    promise->then(globalObject, fulfillHandler, rejectHandler);
+    vm.drainMicrotasks();
+}
+
+void JSLoadModuleFromSource(JSContextRef ctx, JSStringRef module, JSStringRef sourceURLString, int startingLineNumber, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+
+    startingLineNumber = std::max(1, startingLineNumber);
+    auto sourceURL = sourceURLString ? URL({ }, sourceURLString->string()) : URL();
+    SourceCode source = makeSource(module->string(), SourceOrigin { sourceURL }, SourceTaintedOrigin::Untainted, sourceURL.string(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()));
+    JSInternalPromise* promise = loadModule(globalObject, source, jsUndefined());
+    
+    JSFunction* fulfillHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [](JSGlobalObject*, CallFrame* callFrame) {
+        return JSValue::encode(callFrame->argument(0));
+    });
+
+    JSFunction* rejectHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [exception](JSGlobalObject* globalObject, CallFrame* callFrame) {
+        *exception = toRef(globalObject, callFrame->argument(0));
+        return JSValue::encode(callFrame->argument(0));
+    });
+    
+    vm.drainMicrotasks();
+    promise->then(globalObject, fulfillHandler, rejectHandler);
+    vm.drainMicrotasks();
+}
+
+JSValueRef JSLinkAndEvaluateModule(JSContextRef ctx, JSStringRef moduleKey)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+
+    JSValue returnValue = linkAndEvaluateModule(globalObject, Identifier::fromString(vm, moduleKey->string()), jsUndefined());
+    
+    return toRef(globalObject, returnValue);
+}
+
+void JSSetSyntheticModuleKeys(JSContextRef ctx, size_t argumentCount, const JSStringRef arguments[])
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+
+    JSAPIGlobalObject* thisObject = jsCast<JSAPIGlobalObject*>(globalObject);
+    for (size_t i = 0; i < argumentCount; ++i) {
+        thisObject->registerSyntheticModuleKey(arguments[i]->string());
+        arguments[i]->deref();
+    }
+}
+
 void JSLoadAndEvaluateModule(JSContextRef ctx, JSStringRef filename, JSValueRef* exception)
 {
     if (!ctx) {
@@ -108,12 +243,10 @@ void JSLoadAndEvaluateModule(JSContextRef ctx, JSStringRef filename, JSValueRef*
     JSInternalPromise* promise = loadAndEvaluateModule(globalObject, filename->string(), jsUndefined(), jsUndefined());
     
     JSFunction* fulfillHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [](JSGlobalObject*, CallFrame* callFrame) {
-        // printf("End: %s\n", callFrame->argument(0).toWTFString(globalObject).utf8().data());
         return JSValue::encode(callFrame->argument(0));
     });
 
     JSFunction* rejectHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [exception](JSGlobalObject* globalObject, CallFrame* callFrame) {
-        // printf("End: %s\n", callFrame->argument(0).toWTFString(globalObject).utf8().data());
         *exception = toRef(globalObject, callFrame->argument(0));
         return JSValue::encode(callFrame->argument(0));
     });
