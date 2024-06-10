@@ -36,6 +36,7 @@
 #include "JSModuleNamespaceObject.h"
 #include "JSModuleRecord.h"
 #include "JSScriptFetchParameters.h"
+#include "PropertyNameArray.h"
 #include "JSSourceCode.h"
 #include "JSWebAssembly.h"
 #include "ModuleAnalyzer.h"
@@ -353,8 +354,32 @@ JSC_DEFINE_HOST_FUNCTION(moduleLoaderParseModule, (JSGlobalObject* globalObject,
         JSAPIGlobalObject* thisObject = jsCast<JSAPIGlobalObject*>(globalObject);
         JSContextRef contextRef = toRef(globalObject);
         JSValueRef resultRef = thisObject->api_moduleLoader.moduleLoaderEvaluate(contextRef, toRef(globalObject, callFrame->argument(0)));
-        JSValue defaultExport = toJS(globalObject, resultRef);
-        auto* moduleRecord = SyntheticModuleRecord::createDefaultExport(globalObject, moduleKey, defaultExport);
+        JSValue value = toJS(globalObject, resultRef);
+
+        if (!value.isObject()) {
+            RELEASE_AND_RETURN(scope, JSValue::encode(rejectWithError(createError(globalObject, "Invalid module"_s))));
+        }
+
+        Vector<Identifier, 4> exportNames;
+        MarkedArgumentBuffer exportValues;
+
+        JSObject* exportObject = jsCast<JSObject*>(value);
+        PropertyNameArray propertyNames(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude);
+        JSObject::getOwnPropertyNames(exportObject, globalObject, propertyNames, DontEnumPropertiesMode::Exclude);
+        for (const auto& propertyName : propertyNames) {
+            if (propertyName.string() == "default"_s) {
+                exportNames.append(vm.propertyNames->defaultKeyword);
+                exportValues.appendWithCrashOnOverflow(exportObject->get(globalObject, propertyName));
+                RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(globalObject, scope)));
+                continue;
+            }
+
+            exportNames.append(propertyName);
+            exportValues.appendWithCrashOnOverflow(exportObject->get(globalObject, propertyName));
+            RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(globalObject, scope)));
+        }
+
+        auto* moduleRecord = SyntheticModuleRecord::createWithExportNamesAndValues(globalObject, moduleKey, exportNames, exportValues);
         RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(globalObject, scope)));
         
         scope.release();
@@ -520,7 +545,11 @@ JSC_DEFINE_HOST_FUNCTION(isSyntheticModule, (JSGlobalObject* globalObject, CallF
     if (!thisObject)
         return JSValue::encode(jsBoolean(false));
 
-    String keyString = callFrame->argument(0).toWTFString(globalObject);
+    JSValue keyValue = callFrame->argument(0);
+    if (keyValue.isSymbol())
+        return JSValue::encode(jsBoolean(false));
+
+    String keyString = keyValue.toWTFString(globalObject);
     bool isSynthetic = thisObject->isSyntheticModuleKey(keyString);
     return JSValue::encode(jsBoolean(isSynthetic));
 }
