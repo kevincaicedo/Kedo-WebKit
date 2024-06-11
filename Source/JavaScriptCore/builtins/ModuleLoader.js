@@ -101,6 +101,7 @@ function newRegistryEntry(key)
         evaluated: false,
         then: @undefined,
         isAsync: false,
+        isSynthetic: false,
     };
 }
 
@@ -116,6 +117,7 @@ function ensureRegistered(key)
         return entry;
 
     entry = @newRegistryEntry(key);
+    entry.isSynthetic = this.isSyntheticModule(key);
     this.registry.@set(key, entry);
 
     return entry;
@@ -197,6 +199,18 @@ function requestInstantiate(entry, parameters, fetcher)
         return entry.instantiate;
 
     var instantiatePromise = (async () => {
+        if (entry.isSynthetic) {
+            if (entry.satisfy)
+                return entry;
+
+            entry.instantiate = instantiatePromise;
+            var moduleRecord = await this.parseModule(entry.key, @undefined);
+            entry.module = moduleRecord;
+            entry.dependencies = [];
+            @setStateToMax(entry, @ModuleSatisfy);
+            return entry;
+        }
+
         var source = await this.requestFetch(entry, parameters, fetcher);
         // https://html.spec.whatwg.org/#fetch-a-single-module-script
         // Now fetching request succeeds. Then even if instantiation fails, we should cache it.

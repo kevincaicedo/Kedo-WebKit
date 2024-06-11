@@ -124,6 +124,31 @@ JS_EXPORT JSObjectRef JSContextGetGlobalObject(JSContextRef ctx);
 
 /*!
 @function
+@abstract Gets the shared data pointer
+@param ctx The JSContext whose global object you want to get.
+@param data A void* to set as the context's shared data. Pass NULL to specify no shared data.
+*/
+JS_EXPORT void JSContextSetSharedData(JSContextRef ctx, void* data);
+
+/*!
+@function
+@abstract Gets the shared data pointer
+@param ctx The JSContext whose global object you want to get.
+@result A void* that is the context's shared data, if the context has shared data, otherwise NULL.
+*/
+JS_EXPORT void* JSContextGetSharedData(JSContextRef ctx);
+
+/*!
+@function
+@abstract Sets the callback function that will be called when an unhandled promise rejection occurs.
+@param ctx The JSGlobalContext whose unhandled promise rejection callback you want to set.
+@param function The JSObjectRef to call when an unhandled promise rejection occurs. Pass NULL to remove the callback.
+@param exception The exception to pass to the callback. Pass NULL to specify no exception.
+*/
+JS_EXPORT void JSGlobalContextSetUnhandledRejectionCallback(JSGlobalContextRef ctx, JSObjectRef function, JSValueRef* exception);
+
+/*!
+@function
 @abstract Gets the context group to which a JavaScript execution context belongs.
 @param ctx The JSContext whose group you want to get.
 @result ctx's group.

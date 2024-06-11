@@ -36,12 +36,15 @@
 #include "JSModuleNamespaceObject.h"
 #include "JSModuleRecord.h"
 #include "JSScriptFetchParameters.h"
+#include "PropertyNameArray.h"
 #include "JSSourceCode.h"
 #include "JSWebAssembly.h"
 #include "ModuleAnalyzer.h"
 #include "Nodes.h"
 #include "ObjectConstructor.h"
 #include "Parser.h"
+#include "APICast.h"
+#include "JSAPIGlobalObject.h"
 #include "ParserError.h"
 #include "SyntheticModuleRecord.h"
 #include "VMTrapsInlines.h"
@@ -52,6 +55,7 @@ static JSC_DECLARE_HOST_FUNCTION(moduleLoaderParseModule);
 static JSC_DECLARE_HOST_FUNCTION(moduleLoaderRequestedModules);
 static JSC_DECLARE_HOST_FUNCTION(moduleLoaderRequestedModuleParameters);
 static JSC_DECLARE_HOST_FUNCTION(moduleLoaderEvaluate);
+static JSC_DECLARE_HOST_FUNCTION(isSyntheticModule);
 static JSC_DECLARE_HOST_FUNCTION(moduleLoaderModuleDeclarationInstantiation);
 static JSC_DECLARE_HOST_FUNCTION(moduleLoaderResolve);
 static JSC_DECLARE_HOST_FUNCTION(moduleLoaderFetch);
@@ -85,6 +89,7 @@ void JSModuleLoader::finishCreation(JSGlobalObject* globalObject, VM& vm)
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("fetch"_s, moduleLoaderFetch, static_cast<unsigned>(PropertyAttribute::DontEnum), 3, ImplementationVisibility::Private);
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("moduleDeclarationInstantiation"_s, moduleLoaderModuleDeclarationInstantiation, static_cast<unsigned>(PropertyAttribute::DontEnum), 2, ImplementationVisibility::Private);
     JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("evaluate"_s, moduleLoaderEvaluate, static_cast<unsigned>(PropertyAttribute::DontEnum), 3, ImplementationVisibility::Private);
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("isSyntheticModule"_s, isSyntheticModule, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Private);
 
     JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().ensureRegisteredPublicName(), moduleLoaderEnsureRegisteredCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
     JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().requestFetchPublicName(), moduleLoaderRequestFetchCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
@@ -343,6 +348,45 @@ JSC_DEFINE_HOST_FUNCTION(moduleLoaderParseModule, (JSGlobalObject* globalObject,
     dataLogLnIf(Options::dumpModuleLoadingState(), "loader [parsing] ", moduleKey);
 
     JSValue source = callFrame->argument(1);
+
+    // If source is undefined, treat it as a synthetic module.
+    if (source.isUndefined()) {
+        JSAPIGlobalObject* thisObject = jsCast<JSAPIGlobalObject*>(globalObject);
+        JSContextRef contextRef = toRef(globalObject);
+        JSValueRef resultRef = thisObject->api_moduleLoader.moduleLoaderEvaluate(contextRef, toRef(globalObject, callFrame->argument(0)));
+        JSValue value = toJS(globalObject, resultRef);
+
+        if (!value.isObject()) {
+            RELEASE_AND_RETURN(scope, JSValue::encode(rejectWithError(createError(globalObject, "Invalid module"_s))));
+        }
+
+        Vector<Identifier, 4> exportNames;
+        MarkedArgumentBuffer exportValues;
+
+        JSObject* exportObject = jsCast<JSObject*>(value);
+        PropertyNameArray propertyNames(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude);
+        JSObject::getOwnPropertyNames(exportObject, globalObject, propertyNames, DontEnumPropertiesMode::Exclude);
+        for (const auto& propertyName : propertyNames) {
+            if (propertyName.string() == "default"_s) {
+                exportNames.append(vm.propertyNames->defaultKeyword);
+                exportValues.appendWithCrashOnOverflow(exportObject->get(globalObject, propertyName));
+                RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(globalObject, scope)));
+                continue;
+            }
+
+            exportNames.append(propertyName);
+            exportValues.appendWithCrashOnOverflow(exportObject->get(globalObject, propertyName));
+            RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(globalObject, scope)));
+        }
+
+        auto* moduleRecord = SyntheticModuleRecord::createWithExportNamesAndValues(globalObject, moduleKey, exportNames, exportValues);
+        RETURN_IF_EXCEPTION(scope, JSValue::encode(promise->rejectWithCaughtException(globalObject, scope)));
+        
+        scope.release();
+        promise->resolve(globalObject, moduleRecord);
+        return JSValue::encode(promise);
+    }
+
     auto* jsSourceCode = jsCast<JSSourceCode*>(source);
     SourceCode sourceCode = jsSourceCode->sourceCode();
 
@@ -489,6 +533,25 @@ JSC_DEFINE_HOST_FUNCTION(moduleLoaderEvaluate, (JSGlobalObject* globalObject, Ca
     if (!loader)
         return JSValue::encode(jsUndefined());
     return JSValue::encode(loader->evaluate(globalObject, callFrame->argument(0), callFrame->argument(1), callFrame->argument(2), callFrame->argument(3), callFrame->argument(4)));
+}
+
+JSC_DEFINE_HOST_FUNCTION(isSyntheticModule, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    JSModuleLoader* loader = jsDynamicCast<JSModuleLoader*>(callFrame->thisValue());
+    if (!loader)
+        return JSValue::encode(jsUndefined());
+
+    JSAPIGlobalObject* thisObject = jsDynamicCast<JSAPIGlobalObject*>(globalObject);
+    if (!thisObject)
+        return JSValue::encode(jsBoolean(false));
+
+    JSValue keyValue = callFrame->argument(0);
+    if (keyValue.isSymbol())
+        return JSValue::encode(jsBoolean(false));
+
+    String keyString = keyValue.toWTFString(globalObject);
+    bool isSynthetic = thisObject->isSyntheticModuleKey(keyString);
+    return JSValue::encode(jsBoolean(isSynthetic));
 }
 
 } // namespace JSC

@@ -37,6 +37,9 @@ public:
 
     DECLARE_EXPORT_INFO;
 
+    JSAPIModuleLoader api_moduleLoader;
+    HashSet<String> m_syntheticModuleKeys;
+
     static constexpr bool needsDestruction = true;
     template<typename CellType, SubspaceAccess mode>
     static GCClient::IsoSubspace* subspaceFor(VM& vm)
@@ -51,6 +54,22 @@ public:
 
     JSValue loadAndEvaluateJSScriptModule(const JSLockHolder&, JSScript *);
 
+    // Synthetic Module related functions.
+    void registerSyntheticModuleKey(String key)
+    {
+        m_syntheticModuleKeys.add(key);
+    }
+
+    void unregisterSyntheticModuleKey(String key)
+    {
+        m_syntheticModuleKeys.remove(key);
+    }
+
+    bool isSyntheticModuleKey(String key)
+    {
+        return m_syntheticModuleKeys.contains(key);
+    }
+
 private:
     static const GlobalObjectMethodTable* globalObjectMethodTable();
     JSAPIGlobalObject(VM&, Structure*);
@@ -60,6 +79,13 @@ private:
     static JSInternalPromise* moduleLoaderFetch(JSGlobalObject*, JSModuleLoader*, JSValue, JSValue, JSValue);
     static JSObject* moduleLoaderCreateImportMetaProperties(JSGlobalObject*, JSModuleLoader*, JSValue, JSModuleRecord*, JSValue);
     static JSValue moduleLoaderEvaluate(JSGlobalObject*, JSModuleLoader*, JSValue, JSValue, JSValue, JSValue, JSValue);
+
+    bool isApiModuleLoaderValid() const {
+        return api_moduleLoader.moduleLoaderResolve != nullptr &&
+               api_moduleLoader.moduleLoaderEvaluate != nullptr &&
+               api_moduleLoader.moduleLoaderFetch != nullptr &&
+               api_moduleLoader.moduleLoaderCreateImportMetaProperties != nullptr;
+    }
 };
 
 }

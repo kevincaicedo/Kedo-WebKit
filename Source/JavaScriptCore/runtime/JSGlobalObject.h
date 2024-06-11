@@ -197,6 +197,7 @@ public:
     template<typename T> using Initializer = typename LazyProperty<JSGlobalObject, T>::Initializer;
 
     WriteBarrier<JSObject> m_globalThis;
+    void* sharedData;
 
     WriteBarrier<JSGlobalLexicalEnvironment> m_globalLexicalEnvironment;
     WriteBarrier<JSScope> m_globalScopeExtension;
