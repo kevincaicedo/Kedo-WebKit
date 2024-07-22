@@ -43,6 +43,7 @@
 #include <wtf/GetPtr.h>
 #include <wtf/PointerPreparations.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 
 
 namespace WebCore {
@@ -202,7 +203,7 @@ void JSTestGenerateAddOpaqueRoot::analyzeHeap(JSCell* cell, HeapAnalyzer& analyz
     auto* thisObject = jsCast<JSTestGenerateAddOpaqueRoot*>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (thisObject->scriptExecutionContext())
-        analyzer.setLabelForCell(cell, "url "_s + thisObject->scriptExecutionContext()->url().string());
+        analyzer.setLabelForCell(cell, makeString("url "_s, thisObject->scriptExecutionContext()->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
 
@@ -228,14 +229,9 @@ extern "C" { extern void (*const __identifier("??_7TestGenerateAddOpaqueRoot@Web
 #else
 extern "C" { extern void* _ZTVN7WebCore25TestGenerateAddOpaqueRootE[]; }
 #endif
-#endif
-
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestGenerateAddOpaqueRoot>&& impl)
-{
-
-    if constexpr (std::is_polymorphic_v<TestGenerateAddOpaqueRoot>) {
-#if ENABLE(BINDING_INTEGRITY)
-        const void* actualVTablePointer = getVTablePointer(impl.ptr());
+template<typename T, typename = std::enable_if_t<std::is_same_v<T, TestGenerateAddOpaqueRoot>, void>> static inline void verifyVTable(TestGenerateAddOpaqueRoot* ptr) {
+    if constexpr (std::is_polymorphic_v<T>) {
+        const void* actualVTablePointer = getVTablePointer<T>(ptr);
 #if PLATFORM(WIN)
         void* expectedVTablePointer = __identifier("??_7TestGenerateAddOpaqueRoot@WebCore@@6B@");
 #else
@@ -247,8 +243,14 @@ JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObj
         // to toJS() we currently require TestGenerateAddOpaqueRoot you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
         RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
-#endif
     }
+}
+#endif
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestGenerateAddOpaqueRoot>&& impl)
+{
+#if ENABLE(BINDING_INTEGRITY)
+    verifyVTable<TestGenerateAddOpaqueRoot>(impl.ptr());
+#endif
     return createWrapper<TestGenerateAddOpaqueRoot>(globalObject, WTFMove(impl));
 }
 

@@ -44,6 +44,7 @@
 #import <WebCore/SecurityOrigin.h>
 #import <pal/SessionID.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
+#import <wtf/text/MakeString.h>
 
 namespace WebKit {
 
@@ -226,7 +227,7 @@ void WebExtensionContext::cookiesGetAllCookieStores(CompletionHandler<void(Expec
     stores.set(defaultSessionID, Vector<WebExtensionTabIdentifier> { });
 
     for (Ref tab : openTabs()) {
-        for (WKWebView *webView in tab->webViews()) {
+        if (WKWebView *webView = tab->mainWebView()) {
             auto sessionID = webView.configuration.websiteDataStore->_websiteDataStore.get()->sessionID();
 
             auto& tabsVector = stores.ensure(sessionID, [] {

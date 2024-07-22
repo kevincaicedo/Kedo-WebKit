@@ -32,6 +32,7 @@
 #include "PlatformCALayerClient.h"
 #include <wtf/HashMap.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringHash.h>
 
 // Enable this to add a light red wash over the visible portion of Tiled Layers, as computed
@@ -218,6 +219,7 @@ private:
     bool isGraphicsLayerCA() const override { return true; }
 
     // PlatformCALayerClient overrides
+    PlatformLayerIdentifier platformCALayerIdentifier() const override { return primaryLayerID(); }
     void platformCALayerLayoutSublayersOfLayer(PlatformCALayer*) override { }
     bool platformCALayerRespondsToLayoutChanges() const override { return false; }
     WEBCORE_EXPORT void platformCALayerCustomSublayersChanged(PlatformCALayer*) override;
@@ -233,6 +235,7 @@ private:
 
     bool platformCALayerContentsOpaque() const override { return contentsOpaque(); }
     bool platformCALayerDrawsContent() const override { return drawsContent(); }
+    bool platformCALayerRenderingIsSuppressedIncludingDescendants() const override { return renderingIsSuppressedIncludingDescendants(); }
     WEBCORE_EXPORT bool platformCALayerDelegatesDisplay(PlatformCALayer*) const override;
     WEBCORE_EXPORT void platformCALayerLayerDisplay(PlatformCALayer*) override;
     void platformCALayerLayerDidDisplay(PlatformCALayer* layer) override { return layerDidDisplay(layer); }
@@ -287,6 +290,8 @@ private:
     PlatformCALayer* layerForSuperlayer() const;
     PlatformCALayer* animatedLayer(AnimatedProperty) const;
 
+    WEBCORE_EXPORT void setTileCoverage(TileCoverage) override;
+
     typedef String CloneID; // Identifier for a given clone, based on original/replica branching down the tree.
     static bool isReplicatedRootClone(const CloneID& cloneID) { return cloneID[0U] & 1; }
 
@@ -324,6 +329,7 @@ private:
     bool hasAnimations() const { return !m_animations.isEmpty(); }
     bool animationIsRunning(const String& animationName) const;
 
+    void commitLayerTypeChangesBeforeSublayers(CommitState&, float pageScaleFactor, bool& layerTypeChanged);
     void commitLayerChangesBeforeSublayers(CommitState&, float pageScaleFactor, const FloatPoint& positionRelativeToBase, bool& layerTypeChanged);
     void commitLayerChangesAfterSublayers(CommitState&);
 
@@ -560,7 +566,7 @@ private:
     }
 
     bool appendToUncommittedAnimations(const KeyframeValueList&, const TransformOperation::Type, const Animation*, const String& animationName, const FloatSize& boxSize, unsigned animationIndex, Seconds timeOffset, bool isMatrixAnimation, bool keyframesShouldUseAnimationWideTimingFunction);
-    bool appendToUncommittedAnimations(const KeyframeValueList&, const FilterOperation*, const Animation*, const String& animationName, int animationIndex, Seconds timeOffset, bool keyframesShouldUseAnimationWideTimingFunction);
+    bool appendToUncommittedAnimations(const KeyframeValueList&, const FilterOperation&, const Animation*, const String& animationName, int animationIndex, Seconds timeOffset, bool keyframesShouldUseAnimationWideTimingFunction);
 
     enum LayerChange : uint64_t {
         NoChange                                = 0,
@@ -669,6 +675,8 @@ private:
     FloatSize m_pixelAlignmentOffset;
 
     Color m_contentsSolidColor;
+
+    TileCoverage m_tileCoverage;
 
     RefPtr<NativeImage> m_uncorrectedContentsImage;
     RefPtr<NativeImage> m_pendingContentsImage;

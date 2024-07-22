@@ -44,9 +44,9 @@
 #import "UIKitSPI.h"
 #import "WKBrowserEngineDefinitions.h"
 #import "WKMouseInteraction.h"
-#import "WKSTextStyleManager.h"
-#import "WKSTextStyleSourceDelegate.h"
-#import "WKTextIndicatorStyleType.h"
+#import "WKSTextAnimationManager.h"
+#import "WKSTextAnimationSourceDelegate.h"
+#import "WKTextAnimationType.h"
 #import <WebKit/WKActionSheetAssistant.h>
 #import <WebKit/WKAirPlayRoutePicker.h>
 #import <WebKit/WKContactPicker.h>
@@ -69,6 +69,7 @@
 #import <WebCore/FloatQuad.h>
 #import <WebCore/MediaControlsContextMenuItem.h>
 #import <WebCore/PointerID.h>
+#import <pal/spi/cocoa/WritingToolsSPI.h>
 #import <pal/spi/ios/BrowserEngineKitSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/CompletionHandler.h>
@@ -102,6 +103,7 @@ struct ShareDataWithParsedURL;
 struct TextRecognitionResult;
 enum class DOMPasteAccessCategory : uint8_t;
 enum class DOMPasteAccessResponse : uint8_t;
+enum class DOMPasteRequiresInteraction : bool;
 enum class MouseEventPolicy : uint8_t;
 enum class RouteSharingPolicy : uint8_t;
 enum class TextIndicatorDismissalAnimation : uint8_t;
@@ -116,6 +118,7 @@ class NativeWebTouchEvent;
 class SmartMagnificationController;
 class WebOpenPanelResultListenerProxy;
 class WebPageProxy;
+enum class PickerDismissalReason : uint8_t;
 }
 
 @class AVPlayerViewController;
@@ -138,7 +141,7 @@ class WebPageProxy;
 @class WKTextRange;
 @class _WKTextInputContext;
 
-@class WKSTextStyleManager;
+@class WKSTextAnimationManager;
 
 #if !PLATFORM(WATCHOS)
 @class WKDateTimeInputControl;
@@ -173,17 +176,6 @@ typedef std::pair<WebKit::InteractionInformationRequest, InteractionInformationC
     M(_findSelected)
 #else
 #define FOR_EACH_FIND_WKCONTENTVIEW_ACTION(M)
-#endif
-
-#if USE(APPLE_INTERNAL_SDK)
-#import <WebKitAdditions/UnifiedTextReplacementAdditions.h>
-#endif
-
-#if ENABLE(UNIFIED_TEXT_REPLACEMENT)
-#define FOR_EACH_UNIFIED_TEXT_REPLACEMENT_PRIVATE_WKCONTENTVIEW_ACTION(M) \
-    M(_swapCharacters)
-#else
-#define FOR_EACH_UNIFIED_TEXT_REPLACEMENT_PRIVATE_WKCONTENTVIEW_ACTION(M)
 #endif
 
 #define FOR_EACH_WKCONTENTVIEW_ACTION(M) \
@@ -222,7 +214,6 @@ typedef std::pair<WebKit::InteractionInformationRequest, InteractionInformationC
     M(makeTextWritingDirectionRightToLeft)
 
 #define FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(M) \
-    FOR_EACH_UNIFIED_TEXT_REPLACEMENT_PRIVATE_WKCONTENTVIEW_ACTION(M) \
     M(_alignCenter) \
     M(_alignJustified) \
     M(_alignLeft) \
@@ -266,7 +257,7 @@ struct WKSelectionDrawingInfo {
     enum class SelectionType { None, Plugin, Range };
     WKSelectionDrawingInfo();
     explicit WKSelectionDrawingInfo(const EditorState&);
-    SelectionType type;
+    SelectionType type { SelectionType::None };
     WebCore::IntRect caretRect;
     WebCore::Color caretColor;
     Vector<WebCore::SelectionGeometry> selectionGeometries;
@@ -420,7 +411,6 @@ struct ImageAnalysisContextMenuActionData {
     BOOL _contextMenuHasRequestedLegacyData;
     BOOL _contextMenuActionProviderDelegateNeedsOverride;
     BOOL _contextMenuIsUsingAlternateURLForImage;
-    BOOL _isDisplayingContextMenuWithAnimation;
     BOOL _useContextMenuInteractionDismissalPreview;
 #endif
     RetainPtr<UIPreviewItemController> _previewItemController;
@@ -433,11 +423,12 @@ struct ImageAnalysisContextMenuActionData {
     RetainPtr<WebTextIndicatorLayer> _textIndicatorLayer;
 
 #if USE(UICONTEXTMENU)
+    BOOL _isDisplayingContextMenuWithAnimation;
     RetainPtr<UITargetedPreview> _contextMenuInteractionTargetedPreview;
 #endif
 
-#if ENABLE(UNIFIED_TEXT_REPLACEMENT)
-    RetainPtr<WKSTextStyleManager> _textStyleManager;
+#if ENABLE(WRITING_TOOLS)
+    RetainPtr<WKSTextAnimationManager> _textAnimationManager;
 #endif
 
     std::unique_ptr<WebKit::SmartMagnificationController> _smartMagnificationController;
@@ -536,6 +527,7 @@ struct ImageAnalysisContextMenuActionData {
     BOOL _isHandlingActiveKeyEvent;
     BOOL _isHandlingActivePressesEvent;
     BOOL _isDeferringKeyEventsToInputMethod;
+    BOOL _isUpdatingAccessoryView;
 
     BOOL _focusRequiresStrongPasswordAssistance;
     BOOL _waitingForEditDragSnapshot;
@@ -602,6 +594,7 @@ struct ImageAnalysisContextMenuActionData {
     RetainPtr<NSURL> _visualSearchPreviewImageURL;
     RetainPtr<NSString> _visualSearchPreviewTitle;
     CGRect _visualSearchPreviewImageBounds;
+    std::optional<CGRect> _cachedVisualSearchPreviewImageBoundsInWindowCoordinates;
 #endif // USE(QUICK_LOOK)
     WebKit::DynamicImageAnalysisContextMenuState _dynamicImageAnalysisContextMenuState;
     std::optional<WebKit::ImageAnalysisContextMenuActionData> _imageAnalysisContextMenuActionData;
@@ -643,8 +636,11 @@ struct ImageAnalysisContextMenuActionData {
 #elif ENABLE(DRAG_SUPPORT)
     , UIDragInteractionDelegate
 #endif
-#if ENABLE(UNIFIED_TEXT_REPLACEMENT)
-    , WKSTextStyleSourceDelegate
+#if ENABLE(WRITING_TOOLS)
+    , WTWritingToolsDelegate
+#endif
+#if ENABLE(WRITING_TOOLS_UI)
+    , WKSTextAnimationSourceDelegate
 #endif
 >
 
@@ -680,6 +676,8 @@ struct ImageAnalysisContextMenuActionData {
 - (void)setUpInteraction;
 - (void)cleanUpInteraction;
 - (void)cleanUpInteractionPreviewContainers;
+
+- (void)dismissPickersIfNeededWithReason:(WebKit::PickerDismissalReason)reason;
 
 - (void)scrollViewWillStartPanOrPinchGesture;
 
@@ -797,7 +795,7 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)updateFocusedElementSelectedIndex:(uint32_t)index allowsMultipleSelection:(bool)allowsMultipleSelection;
 - (void)updateFocusedElementFocusedWithDataListDropdown:(BOOL)value;
 
-- (void)_requestDOMPasteAccessForCategory:(WebCore::DOMPasteAccessCategory)pasteAccessCategory elementRect:(const WebCore::IntRect&)elementRect originIdentifier:(const String&)originIdentifier completionHandler:(CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&)completionHandler;
+- (void)_requestDOMPasteAccessForCategory:(WebCore::DOMPasteAccessCategory)pasteAccessCategory requiresInteraction:(WebCore::DOMPasteRequiresInteraction)requiresInteraction elementRect:(const WebCore::IntRect&)elementRect originIdentifier:(const String&)originIdentifier completionHandler:(CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&)completionHandler;
 
 - (void)doAfterPositionInformationUpdate:(void (^)(WebKit::InteractionInformationAtPosition))action forRequest:(WebKit::InteractionInformationRequest)request;
 - (BOOL)ensurePositionInformationIsUpToDate:(WebKit::InteractionInformationRequest)request;
@@ -840,9 +838,9 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)setTextIndicatorAnimationProgress:(float)NSAnimationProgress;
 - (void)clearTextIndicator:(WebCore::TextIndicatorDismissalAnimation)animation;
 
-#if ENABLE(UNIFIED_TEXT_REPLACEMENT)
-- (void)addTextIndicatorStyleForID:(NSUUID *)uuid withStyleType:(WKTextIndicatorStyleType)styleType;
-- (void)removeTextIndicatorStyleForID:(NSUUID *)uuid;
+#if ENABLE(WRITING_TOOLS_UI)
+- (void)addTextAnimationForAnimationID:(NSUUID *)uuid withStyleType:(WKTextAnimationType)styleType;
+- (void)removeTextAnimationForAnimationID:(NSUUID *)uuid;
 #endif
 
 @property (nonatomic, readonly) BOOL _shouldUseContextMenus;
@@ -904,6 +902,7 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)cancelTextRecognitionForVideoInElementFullscreen;
 
 - (BOOL)_tryToHandlePressesEvent:(UIPressesEvent *)event;
+- (void)_closeCurrentTypingCommand;
 
 @property (nonatomic, readonly) BOOL shouldUseAsyncInteractions;
 

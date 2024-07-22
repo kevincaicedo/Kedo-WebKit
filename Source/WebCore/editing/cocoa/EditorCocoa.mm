@@ -72,10 +72,7 @@
 #import <pal/spi/cocoa/NSAttributedStringSPI.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/cocoa/NSURLExtras.h>
-
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/MultiRepresentationHEICAdditions.h>
-#endif
+#import <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -96,19 +93,17 @@ String Editor::selectionInHTMLFormat()
 
 #if ENABLE(ATTACHMENT_ELEMENT)
 
-void Editor::getPasteboardTypesAndDataForAttachment(Element& element, Vector<String>& outTypes, Vector<RefPtr<SharedBuffer>>& outData)
+void Editor::getPasteboardTypesAndDataForAttachment(Element& element, Vector<std::pair<String, RefPtr<SharedBuffer>>>& outTypesAndData)
 {
     auto elementRange = makeRangeSelectingNode(element);
-    client()->getClientPasteboardData(elementRange, outTypes, outData);
+    client()->getClientPasteboardData(elementRange, outTypesAndData);
 
-    outTypes.append(PasteboardCustomData::cocoaType());
-    outData.append(PasteboardCustomData { element.document().originIdentifierForPasteboard(), { } }.createSharedBuffer());
+    outTypesAndData.append(std::make_pair(PasteboardCustomData::cocoaType(), PasteboardCustomData { element.document().originIdentifierForPasteboard(), { } }.createSharedBuffer()));
 
     if (elementRange) {
         if (auto archive = LegacyWebArchive::create(*elementRange)) {
             if (auto data = archive->rawDataRepresentation()) {
-                outTypes.append(WebArchivePboardType);
-                outData.append(SharedBuffer::create(data.get()));
+                outTypesAndData.append(std::make_pair(WebArchivePboardType, SharedBuffer::create(data.get())));
             }
         }
     }
@@ -186,7 +181,7 @@ void Editor::writeSelectionToPasteboard(Pasteboard& pasteboard)
     if (!pasteboard.isStatic()) {
         content.dataInWebArchiveFormat = selectionInWebArchiveFormat();
         populateRichTextDataIfNeeded(content, document);
-        client()->getClientPasteboardData(selectedRange(), content.clientTypes, content.clientData);
+        client()->getClientPasteboardData(selectedRange(), content.clientTypesAndData);
     }
     content.dataInHTMLFormat = selectionInHTMLFormat();
     content.dataInStringFormat = stringSelectionForPasteboardWithImageAltText();
@@ -205,7 +200,7 @@ void Editor::writeSelection(PasteboardWriterData& pasteboardWriterData)
     populateRichTextDataIfNeeded(webContent, document);
     webContent.dataInHTMLFormat = selectionInHTMLFormat();
     webContent.dataInStringFormat = stringSelectionForPasteboardWithImageAltText();
-    client()->getClientPasteboardData(selectedRange(), webContent.clientTypes, webContent.clientData);
+    client()->getClientPasteboardData(selectedRange(), webContent.clientTypesAndData);
 
     pasteboardWriterData.setWebContent(WTFMove(webContent));
 }
@@ -403,7 +398,7 @@ void Editor::insertMultiRepresentationHEIC(const std::span<const uint8_t>& data,
 {
     auto document = protectedDocument();
 
-    String primaryType = MULTI_REPRESENTATION_HEIC_MIME_TYPE_STRING;
+    String primaryType = "image/x-apple-adaptive-glyph"_s;
     auto primaryBuffer = FragmentedSharedBuffer::create(data);
 
     String fallbackType = "image/png"_s;
@@ -426,7 +421,7 @@ void Editor::insertMultiRepresentationHEIC(const std::span<const uint8_t>& data,
     auto fragment = document->createDocumentFragment();
     fragment->appendChild(WTFMove(picture));
 
-    ReplaceSelectionCommand::create(document.get(), WTFMove(fragment), ReplaceSelectionCommand::PreventNesting, EditAction::Insert)->apply();
+    ReplaceSelectionCommand::create(document.get(), WTFMove(fragment), { ReplaceSelectionCommand::MatchStyle, ReplaceSelectionCommand::PreventNesting }, EditAction::Insert)->apply();
 
 #if ENABLE(ATTACHMENT_ELEMENT)
     if (DeprecatedGlobalSettings::attachmentElementEnabled()) {

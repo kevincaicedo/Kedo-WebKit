@@ -38,6 +38,7 @@
 #include <WebCore/SimpleRange.h>
 #include <WebCore/TextControlInnerElements.h>
 #include <WebCore/WebKitFontFamilyNames.h>
+#include <wtf/text/MakeString.h>
 
 // FIXME(https://webkit.org/b/228175): Expose the functions tested here in WebKit internals object, then replace this test with one written in JavaScript.
 // FIXME: When doing the above, don't forget to remove the many WEBCORE_EXPORT that were added so we could compile and link this test.
@@ -64,15 +65,15 @@ static Ref<Document> createDocument()
     return document;
 }
 
-static constexpr const char* string(std::partial_ordering ordering)
+static constexpr ASCIILiteral string(std::partial_ordering ordering)
 {
     if (is_lt(ordering))
-        return "less";
+        return "less"_s;
     if (is_gt(ordering))
-        return "greater";
+        return "greater"_s;
     if (WebCore::is_eq(ordering))
-        return "equivalent";
-    return "unordered";
+        return "equivalent"_s;
+    return "unordered"_s;
 }
 
 static std::partial_ordering operator-(std::partial_ordering ordering)
@@ -110,21 +111,21 @@ static Vector<Position> allPositionTypes(Node* node, unsigned offset)
     return positions;
 }
 
-static constexpr const char* typeStringSuffix(const Position& position)
+static constexpr ASCIILiteral typeStringSuffix(const Position& position)
 {
     switch (position.anchorType()) {
     case Position::PositionIsOffsetInAnchor:
-        return "";
+        return ""_s;
     case Position::PositionIsBeforeChildren:
-        return "[before-children]";
+        return "[before-children]"_s;
     case Position::PositionIsAfterChildren:
-        return "[after-children]";
+        return "[after-children]"_s;
     case Position::PositionIsBeforeAnchor:
-        return "[before]";
+        return "[before]"_s;
     case Position::PositionIsAfterAnchor:
-        return "[after]";
+        return "[after]"_s;
     }
-    return "[invalid]";
+    return "[invalid]"_s;
 }
 
 static String join(const Vector<String>& vector, ASCIILiteral separator)
@@ -146,10 +147,10 @@ static CString allPositionTypeFailures(const Position& a, Node* nodeB, unsigned 
     for (auto& b : allPositionTypes(nodeB, offsetB)) {
         auto result = string(documentOrder(a, b));
         if (strcmp(result, string(expectedResult)))
-            failures.append(makeString("order(b", typeStringSuffix(b), ")=", result, "<expected:", string(expectedResult), '>'));
+            failures.append(makeString("order(b"_s, typeStringSuffix(b), ")="_s, result, "<expected:"_s, string(expectedResult), '>'));
         result = string(documentOrder(b, a));
         if (strcmp(result, string(-expectedResult)))
-            failures.append(makeString("order(b", typeStringSuffix(b), ")=", result, "<expected:", string(-expectedResult), '>'));
+            failures.append(makeString("order(b"_s, typeStringSuffix(b), ")="_s, result, "<expected:"_s, string(-expectedResult), '>'));
     }
     return join(failures, ", "_s).utf8();
 }
@@ -161,10 +162,10 @@ static CString allPositionTypeFailures(Node* nodeA, unsigned offsetA, Node* node
         for (auto& b : allPositionTypes(nodeB, offsetB)) {
             auto result = string(documentOrder(a, b));
             if (strcmp(result, string(expectedResult)))
-                failures.append(makeString("order(a", typeStringSuffix(a), ",b", typeStringSuffix(b), ")=", result, "<expected:", string(expectedResult), '>'));
+                failures.append(makeString("order(a"_s, typeStringSuffix(a), ",b"_s, typeStringSuffix(b), ")="_s, result, "<expected:"_s, string(expectedResult), '>'));
             result = string(documentOrder(b, a));
             if (strcmp(result, string(-expectedResult)))
-                failures.append(makeString("order(b", typeStringSuffix(b), ",a", typeStringSuffix(a), ")=", result, "<expected:", string(-expectedResult), '>'));
+                failures.append(makeString("order(b"_s, typeStringSuffix(b), ",a"_s, typeStringSuffix(a), ")="_s, result, "<expected:"_s, string(-expectedResult), '>'));
         }
     }
     return join(failures, " | "_s).utf8();

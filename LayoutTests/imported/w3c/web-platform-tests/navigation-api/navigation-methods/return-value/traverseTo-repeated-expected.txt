@@ -1,5 +1,3 @@
 
-Harness Error (TIMEOUT), message = null
-
-TIMEOUT Repeated navigation.traverseTo() with the same key Test timed out
+FAIL Repeated navigation.traverseTo() with the same key assert_equals: committed promises must be equal expected object "[object Promise]" but got object "[object Promise]"
 

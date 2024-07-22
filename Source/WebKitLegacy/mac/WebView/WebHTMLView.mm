@@ -405,6 +405,8 @@ static std::optional<WebCore::ContextMenuAction> toAction(NSInteger tag)
         return ContextMenuItemTagEnterVideoFullscreen;
     case WebMenuItemTagToggleVideoEnhancedFullscreen:
         return ContextMenuItemTagToggleVideoEnhancedFullscreen;
+    case WebMenuItemTagToggleVideoViewer:
+        return ContextMenuItemTagToggleVideoViewer;
     case WebMenuItemTagMediaPlayPause:
         return ContextMenuItemTagMediaPlayPause;
     case WebMenuItemTagMediaMute:
@@ -413,8 +415,8 @@ static std::optional<WebCore::ContextMenuAction> toAction(NSInteger tag)
         return ContextMenuItemTagDictationAlternative;
     case WebMenuItemTagTranslate:
         return ContextMenuItemTagTranslate;
-    case WebMenuItemTagSwapCharacters:
-        return ContextMenuItemTagSwapCharacters;
+    case WebMenuItemTagWritingTools:
+        return ContextMenuItemTagWritingTools;
     }
     return std::nullopt;
 }
@@ -593,10 +595,12 @@ static std::optional<NSInteger> toTag(WebCore::ContextMenuAction action)
         return WebMenuItemTagShareMenu;
     case ContextMenuItemTagToggleVideoEnhancedFullscreen:
         return WebMenuItemTagToggleVideoEnhancedFullscreen;
+    case ContextMenuItemTagToggleVideoViewer:
+        return WebMenuItemTagToggleVideoViewer;
     case ContextMenuItemTagTranslate:
         return WebMenuItemTagTranslate;
-    case ContextMenuItemTagSwapCharacters:
-        return WebMenuItemTagSwapCharacters;
+    case ContextMenuItemTagWritingTools:
+        return WebMenuItemTagWritingTools;
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
     case ContextMenuItemTagPlayAllAnimations:
         return WebMenuItemTagPlayAllAnimations;
@@ -3612,6 +3616,11 @@ static RetainPtr<NSMenuItem> createMenuItem(const WebCore::HitTestResult& hitTes
 {
 #if HAVE(TRANSLATION_UI_SERVICES)
     if (item.action() == WebCore::ContextMenuItemTagTranslate && !WebView._canHandleContextMenuTranslation)
+        return nil;
+#endif
+
+#if ENABLE(WRITING_TOOLS)
+    if (item.action() == WebCore::ContextMenuItemTagWritingTools)
         return nil;
 #endif
 
@@ -7136,6 +7145,22 @@ static CGImageRef selectionImage(WebCore::LocalFrame* frame, bool forceBlackText
     auto* coreFrame = core([self _frame]);
     return coreFrame && coreFrame->editor().findString(string, coreOptions(options));
 }
+
+#if ENABLE(WRITING_TOOLS)
+
+// Disable Writing Tools in WebKitLegacy.
+
+- (NSInteger /* PlatformWritingToolsBehavior */)writingToolsBehavior
+{
+    return -1; // PlatformWritingToolsBehaviorNone
+}
+
+- (BOOL)providesWritingToolsContextMenu
+{
+    return YES;
+}
+
+#endif
 
 @end
 

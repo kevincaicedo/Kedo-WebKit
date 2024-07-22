@@ -47,6 +47,7 @@
 #import <wtf/Lock.h>
 #import <wtf/MainThread.h>
 #import <wtf/NeverDestroyed.h>
+#include <wtf/text/MakeString.h>
 
 #import "CoreVideoSoftLink.h"
 #import <pal/cf/CoreMediaSoftLink.h>
@@ -351,6 +352,14 @@ void MediaPlayerPrivateMediaStreamAVFObjC::sampleBufferDisplayLayerStatusDidFail
     updateLayersAsNeeded();
 }
 
+#if PLATFORM(IOS_FAMILY)
+bool MediaPlayerPrivateMediaStreamAVFObjC::canShowWhileLocked() const
+{
+    auto player = m_player.get();
+    return player && player->canShowWhileLocked();
+}
+#endif
+
 void MediaPlayerPrivateMediaStreamAVFObjC::applicationDidBecomeActive()
 {
     if (m_sampleBufferDisplayLayer && m_sampleBufferDisplayLayer->didFail()) {
@@ -644,7 +653,7 @@ bool MediaPlayerPrivateMediaStreamAVFObjC::hasAudio() const
     return !m_audioTrackMap.isEmpty();
 }
 
-void MediaPlayerPrivateMediaStreamAVFObjC::setPageIsVisible(bool isVisible, String&&)
+void MediaPlayerPrivateMediaStreamAVFObjC::setPageIsVisible(bool isVisible)
 {
     if (m_isPageVisible == isVisible)
         return;

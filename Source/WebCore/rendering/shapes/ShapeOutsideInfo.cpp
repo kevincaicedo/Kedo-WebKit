@@ -39,6 +39,7 @@
 #include "RenderFragmentContainer.h"
 #include "RenderImage.h"
 #include "RenderView.h"
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -179,7 +180,7 @@ static inline bool checkShapeImageOrigin(Document& document, const StyleImage& s
 
     const URL& url = cachedImage.url();
     String urlString = url.isNull() ? "''"_s : url.stringCenterEllipsizedToLength();
-    document.addConsoleMessage(MessageSource::Security, MessageLevel::Error, "Unsafe attempt to load URL " + urlString + ".");
+    document.addConsoleMessage(MessageSource::Security, MessageLevel::Error, makeString("Unsafe attempt to load URL "_s, urlString, '.'));
 
     return false;
 }

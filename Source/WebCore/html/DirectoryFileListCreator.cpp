@@ -31,6 +31,7 @@
 #include "FileList.h"
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/FileSystem.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -60,7 +61,7 @@ static void appendDirectoryFiles(const String& directory, const String& relative
         if (!fileType)
             continue;
 
-        String childRelativePath = relativePath + "/" + childName;
+        auto childRelativePath = makeString(relativePath, '/', childName);
         if (*fileType == FileSystem::FileType::Directory)
             appendDirectoryFiles(childPath, childRelativePath, files);
         else if (*fileType == FileSystem::FileType::Regular)

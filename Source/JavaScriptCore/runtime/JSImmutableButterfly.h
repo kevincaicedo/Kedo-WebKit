@@ -44,7 +44,7 @@ class JSImmutableButterfly : public JSCell {
 public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
 
-    DECLARE_INFO;
+    DECLARE_EXPORT_INFO;
 
     inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue, IndexingType);
 
@@ -178,12 +178,12 @@ public:
         return WTF::roundUpToMultipleOf<sizeof(WriteBarrier<Unknown>)>(sizeof(JSImmutableButterfly));
     }
 
-    static ptrdiff_t offsetOfPublicLength()
+    static constexpr ptrdiff_t offsetOfPublicLength()
     {
         return OBJECT_OFFSETOF(JSImmutableButterfly, m_header) + IndexingHeader::offsetOfPublicLength();
     }
 
-    static ptrdiff_t offsetOfVectorLength()
+    static constexpr ptrdiff_t offsetOfVectorLength()
     {
         return OBJECT_OFFSETOF(JSImmutableButterfly, m_header) + IndexingHeader::offsetOfVectorLength();
     }

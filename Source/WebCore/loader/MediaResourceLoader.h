@@ -67,6 +67,7 @@ public:
 private:
     void contextDestroyed() override;
 
+    bool m_wasMainResourceLoaded { false };
     WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document WTF_GUARDED_BY_CAPABILITY(mainThread);
     WeakPtr<Element, WeakPtrImplWithEventTargetData> m_element WTF_GUARDED_BY_CAPABILITY(mainThread);
     String m_crossOriginMode WTF_GUARDED_BY_CAPABILITY(mainThread);
@@ -90,7 +91,7 @@ public:
     bool shouldCacheResponse(CachedResource&, const ResourceResponse&) override;
     void dataSent(CachedResource&, unsigned long long, unsigned long long) override;
     void dataReceived(CachedResource&, const SharedBuffer&) override;
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) override;
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) override;
 
 private:
     Ref<MediaResourceLoader> protectedLoader() const;

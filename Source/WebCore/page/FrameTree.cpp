@@ -32,7 +32,6 @@
 #include <wtf/Vector.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/StringBuilder.h>
-#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
 
@@ -214,10 +213,10 @@ Frame* FrameTree::child(unsigned index) const
     return result;
 }
 
-Frame* FrameTree::childByUniqueName(const AtomString& name) const
+Frame* FrameTree::childByFrameID(FrameIdentifier frameID) const
 {
     for (auto* child = firstChild(); child; child = child->tree().nextSibling()) {
-        if (child->tree().uniqueName() == name)
+        if (child->frameID() == frameID)
             return child;
     }
     return nullptr;

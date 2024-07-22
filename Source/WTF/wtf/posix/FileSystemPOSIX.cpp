@@ -43,6 +43,7 @@
 #include <wtf/EnumTraits.h>
 #include <wtf/SafeStrerror.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
 
@@ -134,20 +135,20 @@ bool flushFile(PlatformFileHandle handle)
     return !fsync(handle);
 }
 
-int64_t writeToFile(PlatformFileHandle handle, const void* data, size_t length)
+int64_t writeToFile(PlatformFileHandle handle, std::span<const uint8_t> data)
 {
     do {
-        auto bytesWritten = write(handle, data, length);
+        auto bytesWritten = write(handle, data.data(), data.size());
         if (bytesWritten >= 0)
             return bytesWritten;
     } while (errno == EINTR);
     return -1;
 }
 
-int64_t readFromFile(PlatformFileHandle handle, void* data, size_t length)
+int64_t readFromFile(PlatformFileHandle handle, std::span<uint8_t> data)
 {
     do {
-        auto bytesRead = read(handle, data, length);
+        auto bytesRead = read(handle, data.data(), data.size());
         if (bytesRead >= 0)
             return bytesRead;
     } while (errno == EINTR);

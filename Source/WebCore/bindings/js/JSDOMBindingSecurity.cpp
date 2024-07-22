@@ -22,7 +22,7 @@
 #include "config.h"
 #include "JSDOMBindingSecurity.h"
 
-#include "Document.h"
+#include "DocumentInlines.h"
 #include "FrameDestructionObserverInlines.h"
 #include "HTTPParsers.h"
 #include "JSDOMExceptionHandling.h"
@@ -30,8 +30,8 @@
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
 #include "SecurityOrigin.h"
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
-
 
 namespace WebCore {
 using namespace JSC;
@@ -48,7 +48,7 @@ static String remoteFrameAccessError(JSC::JSGlobalObject* lexicalGlobalObject)
 {
     auto& active = activeDOMWindow(*lexicalGlobalObject);
     Ref activeOrigin = active.document()->securityOrigin();
-    return makeString("Blocked a frame with origin \"", activeOrigin->toString(), "\" from accessing a cross-origin frame. Protocols, domains, and ports must match.");
+    return makeString("Blocked a frame with origin \""_s, activeOrigin->toString(), "\" from accessing a cross-origin frame. Protocols, domains, and ports must match."_s);
 }
 
 // FIXME: Refactor to share more code with canAccessDocument.
@@ -79,7 +79,7 @@ static inline bool canAccessDocument(JSC::JSGlobalObject* lexicalGlobalObject, D
 
     auto& active = activeDOMWindow(*lexicalGlobalObject);
 
-    if (active.document()->securityOrigin().isSameOriginDomain(targetDocument->securityOrigin()))
+    if (active.document()->protectedSecurityOrigin()->isSameOriginDomain(targetDocument->securityOrigin()))
         return true;
 
     switch (reportingOption) {

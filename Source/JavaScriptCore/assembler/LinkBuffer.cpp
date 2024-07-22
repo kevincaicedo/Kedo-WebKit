@@ -34,7 +34,9 @@
 #include "Options.h"
 #include "PerfLog.h"
 #include "WasmCallee.h"
+#include "YarrJIT.h"
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
@@ -94,6 +96,15 @@ void LinkBuffer::logJITCodeForPerf(CodeRef<LinkBufferPtrTag>& codeRef, ASCIILite
     case Profile::WasmBBQ: {
         if (m_ownerUID)
             out.print(makeString(static_cast<Wasm::Callee*>(m_ownerUID)->indexOrName()));
+        else
+            dumpSimpleName(out, simpleName);
+        break;
+    }
+#endif
+#if ENABLE(YARR_JIT)
+    case Profile::YarrJIT: {
+        if (m_ownerUID)
+            static_cast<Yarr::YarrCodeBlock*>(m_ownerUID)->dumpSimpleName(out);
         else
             dumpSimpleName(out, simpleName);
         break;
@@ -286,7 +297,7 @@ void LinkBuffer::copyCompactAndLinkCode(MacroAssembler& macroAssembler, JITCompi
     auto& jumpsToLink = macroAssembler.jumpsToLink();
     m_assemblerStorage = macroAssembler.m_assembler.buffer().releaseAssemblerData();
     uint8_t* inData = bitwise_cast<uint8_t*>(m_assemblerStorage.buffer());
-#if CPU(ARM64E)
+#if ENABLE(JIT_SIGN_ASSEMBLER_BUFFER)
     ARM64EHash<ShouldSign::No> verifyUncompactedHash;
     m_assemblerHashesStorage = macroAssembler.m_assembler.buffer().releaseAssemblerHashes();
     uint32_t* inHashes = bitwise_cast<uint32_t*>(m_assemblerHashesStorage.buffer());
@@ -308,7 +319,7 @@ void LinkBuffer::copyCompactAndLinkCode(MacroAssembler& macroAssembler, JITCompi
 
     auto read = [&](const InstructionType* ptr) -> InstructionType {
         InstructionType value = *ptr;
-#if CPU(ARM64E)
+#if ENABLE(JIT_SIGN_ASSEMBLER_BUFFER)
         unsigned index = (bitwise_cast<uint8_t*>(ptr) - inData) / 4;
         uint32_t hash = verifyUncompactedHash.update(value, index);
         RELEASE_ASSERT(inHashes[index] == hash);
@@ -317,7 +328,10 @@ void LinkBuffer::copyCompactAndLinkCode(MacroAssembler& macroAssembler, JITCompi
     };
 
     if (g_jscConfig.useFastJITPermissions)
-        threadSelfRestrictRWXToRW();
+        threadSelfRestrict<MemoryRestriction::kRwxToRw>();
+#if ENABLE(MPROTECT_RX_TO_RWX)
+    ExecutableAllocator::singleton().startWriting(outData, initialSize);
+#endif
 
     if (m_shouldPerformBranchCompaction) {
         for (unsigned i = 0; i < jumpCount; ++i) {
@@ -414,9 +428,8 @@ void LinkBuffer::copyCompactAndLinkCode(MacroAssembler& macroAssembler, JITCompi
         else
             Assembler::fillNops<MachineCodeCopyMode::JITMemcpy>(outData + compactSize, nopSizeInBytes);
     }
-
     if (g_jscConfig.useFastJITPermissions)
-        threadSelfRestrictRWXToRX();
+        threadSelfRestrict<MemoryRestriction::kRwxToRx>();
 
     if (m_executableMemory) {
         m_size = compactSize;
@@ -435,6 +448,10 @@ void LinkBuffer::copyCompactAndLinkCode(MacroAssembler& macroAssembler, JITCompi
 #else
     ASSERT(codeOutData != outData);
     performJITMemcpy(codeOutData, outData, m_size);
+#endif
+
+#if ENABLE(MPROTECT_RX_TO_RWX)
+    ExecutableAllocator::singleton().finishWriting(outData, initialSize);
 #endif
 
     jumpsToLink.clear();
@@ -502,7 +519,7 @@ void LinkBuffer::allocate(MacroAssembler& macroAssembler, JITCompilationEffort e
         initialSize = macroAssembler.m_assembler.codeSize();
     }
 
-#if CPU(ARM64E)
+#if ENABLE(JIT_SIGN_ASSEMBLER_BUFFER)
     macroAssembler.m_assembler.buffer().arm64eHash().deallocatePinForCurrentThread();
 #endif
 
@@ -528,7 +545,7 @@ void LinkBuffer::linkComments(MacroAssembler& assembler)
             return string.isolatedCopy();
         });
         if (!addResult.isNewEntry)
-            addResult.iterator->value = addResult.iterator->value + "\n; "_s + string;
+            addResult.iterator->value = makeString(addResult.iterator->value, "\n; "_s, string);
     }
 
     AssemblyCommentRegistry::singleton().registerCodeRange(m_executableMemory->start().untaggedPtr(), m_executableMemory->end().untaggedPtr(), WTFMove(map));
@@ -536,10 +553,16 @@ void LinkBuffer::linkComments(MacroAssembler& assembler)
 
 void LinkBuffer::performFinalization()
 {
+#if ENABLE(MPROTECT_RX_TO_RWX)
+    ExecutableAllocator::singleton().startWriting(code(), m_size);
+#endif
     for (auto& task : m_linkTasks)
         task->run(*this);
     for (auto& task : m_lateLinkTasks)
         task->run(*this);
+#if ENABLE(MPROTECT_RX_TO_RWX)
+    ExecutableAllocator::singleton().finishWriting(code(), m_size);
+#endif
 
 #ifndef NDEBUG
     ASSERT(!m_completed);

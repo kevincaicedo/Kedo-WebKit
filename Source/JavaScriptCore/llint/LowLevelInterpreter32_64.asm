@@ -148,12 +148,6 @@ macro cCall2(function)
         cloopCallSlowPath function, a0, a1
     elsif ARMv7
         call function
-    elsif X86 or X86_WIN
-        subp 8, sp
-        push a1
-        push a0
-        call function
-        addp 16, sp
     else
         error
     end
@@ -172,13 +166,6 @@ macro cCall3(function)
         cloopCallSlowPath3 function, a0, a1, a2
     elsif ARMv7
         call function
-    elsif X86 or X86_WIN
-        subp 4, sp
-        push a2
-        push a1
-        push a0
-        call function
-        addp 16, sp
     else
         error
     end
@@ -189,15 +176,6 @@ macro cCall4(function)
         cloopCallSlowPath4 function, a0, a1, a2, a3
     elsif ARMv7
         call function
-    elsif X86 or X86_WIN
-        push a3
-        push a2
-        push a1
-        push a0
-        call function
-        addp 16, sp
-    elsif C_LOOP or C_LOOP_WIN
-        error
     else
         error
     end
@@ -227,13 +205,6 @@ macro doVMEntry(makeCall)
     functionPrologue()
     pushCalleeSaves()
 
-    # x86 needs to load arguments from the stack
-    if X86 or X86_WIN
-        loadp 16[cfr], a2
-        loadp 12[cfr], a1
-        loadp 8[cfr], a0
-    end
-
     const entry = a0
     const vm = a1
     const protoCallFrame = a2
@@ -256,11 +227,7 @@ macro doVMEntry(makeCall)
     storep t4, VMEntryRecord::m_prevTopEntryFrame[sp]
 
     # Align stack pointer
-    if X86_WIN 
-        addp CallFrameAlignSlots * SlotSize, sp, t3
-        andp ~StackAlignmentMask, t3
-        subp t3, CallFrameAlignSlots * SlotSize, sp
-    elsif ARMv7
+    if ARMv7
         addp CallFrameAlignSlots * SlotSize, sp, t3
         clrbp t3, StackAlignmentMask, t3
         subp t3, CallFrameAlignSlots * SlotSize, t3
@@ -421,16 +388,6 @@ macro makeHostFunctionCall(entry, protoCallFrame, temp1, temp2)
         move sp, a1
         storep lr, PtrSize[sp]
         cloopCallNative temp1
-    elsif X86 or X86_WIN
-        # Put callee frame pointer on stack as arg1, also put it in ecx for "fastcall" targets
-        move 0, temp2
-        move temp2, 4[sp] # put 0 in ReturnPC
-        move sp, a1 # a1 is edx
-        loadp ProtoCallFrame::globalObject[protoCallFrame], a0
-        push a1
-        push a0
-        call temp1
-        addp 8, sp
     else
         loadp ProtoCallFrame::globalObject[protoCallFrame], a0
         move sp, a1
@@ -1566,6 +1523,11 @@ llintOpWithMetadata(op_get_by_id_direct, OpGetByIdDirect, macro (size, get, disp
 .opGetByIdDirectSlow:
     callSlowPath(_llint_slow_path_get_by_id_direct)
     dispatch()
+
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_get_by_id_direct, size)
+    valueProfile(size, OpGetByIdDirect, m_valueProfile, r1, r0, t2)
+    return(r1, r0)
 end)
 
 # Assumption: The base object is in t3
@@ -1786,7 +1748,6 @@ llintOpWithMetadata(op_put_by_id, OpPutById, macro (size, get, dispatch, metadat
 .osrReturnPoint:
     getterSetterOSRExitReturnPoint(op_put_by_id, size)
     dispatch()
-
 end)
 
 
@@ -1868,7 +1829,6 @@ llintOpWithMetadata(op_get_by_val, OpGetByVal, macro (size, get, dispatch, metad
     getterSetterOSRExitReturnPoint(op_get_by_val, size)
     valueProfile(size, OpGetByVal, m_valueProfile, r1, r0, t2)
     return(r1, r0)
-
 end)
 
 llintOpWithMetadata(op_get_private_name, OpGetPrivateName, macro (size, get, dispatch, metadata, return)
@@ -2056,7 +2016,11 @@ putByValOp(put_by_val, OpPutByVal, macro (size, dispatch)
     dispatch()
 end)
 
-putByValOp(put_by_val_direct, OpPutByValDirect, macro (a, b) end)
+putByValOp(put_by_val_direct, OpPutByValDirect, macro (size, dispatch)
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_put_by_val_direct, size)
+    dispatch()
+end)
 
 
 macro llintJumpTrueOrFalseOp(opcodeName, opcodeStruct, conditionOp, notUsed)
@@ -2380,7 +2344,7 @@ macro callHelper(opcodeName, opcodeStruct, dispatchAfterCall, valueProfileName, 
     loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_callee[t5], t3
     btpz t3, (constexpr CallLinkInfo::polymorphicCalleeMask), .notPolymorphic
     prepareCall(t2, t3, t4, t6, macro(address)
-        loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_codeBlock[t5], t2
+        loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_codeBlock[t5], t2
         storep t2, address
     end)
     addp %opcodeStruct%::Metadata::m_callLinkInfo, t5, t2 # CallLinkInfo* in t2
@@ -2389,12 +2353,12 @@ macro callHelper(opcodeName, opcodeStruct, dispatchAfterCall, valueProfileName, 
 .notPolymorphic:
     bpneq t0, t3, .opCallSlow
     prepareCall(t2, t3, t4, t6, macro(address)
-        loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_codeBlock[t5], t2
+        loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_codeBlock[t5], t2
         storep t2, address
     end)
 
 .goPolymorphic:
-    loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_monomorphicCallDestination[t5], t5
+    loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_monomorphicCallDestination[t5], t5
 .dispatch:
     invokeCall(opcodeName, size, opcodeStruct, valueProfileName, dstVirtualRegister, dispatch, t5, t1, JSEntryPtrTag)
 
@@ -2470,7 +2434,7 @@ macro doCallVarargs(opcodeName, size, get, opcodeStruct, valueProfileName, dstVi
             loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_callee[t5], t3
             btpz t3, (constexpr CallLinkInfo::polymorphicCalleeMask), .notPolymorphic
             prepareCall(t2, t3, t4, t6, macro(address)
-                loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_codeBlock[t5], t2
+                loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_codeBlock[t5], t2
                 storep t2, address
             end)
             addp %opcodeStruct%::Metadata::m_callLinkInfo, t5, t2 # CallLinkInfo* in t2
@@ -2479,12 +2443,12 @@ macro doCallVarargs(opcodeName, size, get, opcodeStruct, valueProfileName, dstVi
         .notPolymorphic:
             bpneq t0, t3, .opCallSlow
             prepareCall(t2, t3, t4, t6, macro(address)
-                loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_codeBlock[t5], t2
+                loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_codeBlock[t5], t2
                 storep t2, address
             end)
 
         .goPolymorphic:
-            loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_monomorphicCallDestination[t5], t5
+            loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_monomorphicCallDestination[t5], t5
         .dispatch:
             invokeCall(opcodeName, size, opcodeStruct, valueProfileName, dstVirtualRegister, dispatch, t5, t1, JSEntryPtrTag)
 
@@ -2640,12 +2604,7 @@ macro nativeCallTrampoline(executableOffsetToFunction)
     functionPrologue()
     storep 0, CodeBlock[cfr]
 
-    if X86 or X86_WIN
-        subp 8, sp # align stack pointer
-        storep cfr, [sp]
-    else
-        subp 8, sp # align stack pointer
-    end
+    subp 8, sp # align stack pointer
 
     loadp Callee + PayloadOffset[cfr], a0
     loadp JSFunction::m_executableOrRareData[a0], a2
@@ -2676,9 +2635,6 @@ macro nativeCallTrampoline(executableOffsetToFunction)
     ret
 
 .handleException:
-    if X86 or X86_WIN
-        subp 8, sp # align stack pointer
-    end
     storep cfr, VM::topCallFrame[t3]
     jmp _llint_throw_from_slow_path_trampoline
 end
@@ -2689,12 +2645,7 @@ macro internalFunctionCallTrampoline(offsetOfFunction)
     storep 0, CodeBlock[cfr]
 
     // Callee is still in t1 for code below
-    if X86 or X86_WIN
-        subp 8, sp # align stack pointer
-        storep cfr, [sp]
-    else
-        subp 8, sp # align stack pointer
-    end
+    subp 8, sp # align stack pointer
 
     loadp Callee + PayloadOffset[cfr], a2
     loadp InternalFunction::m_globalObject[a2], a0
@@ -2721,9 +2672,6 @@ macro internalFunctionCallTrampoline(offsetOfFunction)
     ret
 
 .handleException:
-    if X86 or X86_WIN
-        subp 8, sp # align stack pointer
-    end
     storep cfr, VM::topCallFrame[t3]
     jmp _llint_throw_from_slow_path_trampoline
 end
@@ -3444,11 +3392,49 @@ llintOpWithMetadata(op_set_private_brand, OpSetPrivateBrand, macro (size, get, d
     dispatch()
 end)
 
+llintOpWithReturn(op_in_by_id, OpInById, macro (size, get, dispatch, return)
+    callSlowPath(_llint_slow_path_in_by_id)
+    dispatch()
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_in_by_id, size)
+    return(r1, r0)
+end)
+
+llintOpWithReturn(op_in_by_val, OpInByVal, macro (size, get, dispatch, return)
+    callSlowPath(_llint_slow_path_in_by_val)
+    dispatch()
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_in_by_val, size)
+    return(r1, r0)
+end)
+
+llintOpWithReturn(op_enumerator_in_by_val, OpEnumeratorInByVal, macro (size, get, dispatch, return)
+    callSlowPath(_slow_path_enumerator_in_by_val)
+    dispatch()
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_enumerator_in_by_val, size)
+    return(r1, r0)
+end)
+
+llintOpWithReturn(op_enumerator_get_by_val, OpEnumeratorGetByVal, macro (size, get, dispatch, return)
+    callSlowPath(_slow_path_enumerator_get_by_val)
+    dispatch()
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_enumerator_get_by_val, size)
+    valueProfile(size, OpEnumeratorGetByVal, m_valueProfile, r1, r0, t2)
+    return(r1, r0)
+end)
+
+llintOpWithReturn(op_enumerator_put_by_val, OpEnumeratorPutByVal, macro (size, get, dispatch, return)
+    callSlowPath(_slow_path_enumerator_put_by_val)
+    dispatch()
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_enumerator_put_by_val, size)
+    dispatch()
+end)
+
 slowPathOp(get_property_enumerator)
 slowPathOp(enumerator_next)
-slowPathOp(enumerator_get_by_val)
-slowPathOp(enumerator_in_by_val)
-slowPathOp(enumerator_put_by_val)
 slowPathOp(enumerator_has_own_property)
 slowPathOp(mod)
 

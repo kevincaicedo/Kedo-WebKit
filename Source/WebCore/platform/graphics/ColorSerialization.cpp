@@ -31,8 +31,8 @@
 #include <wtf/Assertions.h>
 #include <wtf/HexNumber.h>
 #include <wtf/MathExtras.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
-#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
 
@@ -154,7 +154,7 @@ String serializationForRenderTreeAsText(const Color& color)
     });
 }
 
-static ASCIILiteral serialization(ColorSpace colorSpace)
+ASCIILiteral serialization(ColorSpace colorSpace)
 {
     switch (colorSpace) {
     case ColorSpace::A98RGB:
@@ -203,8 +203,8 @@ template<typename ColorType> static String serializationUsingColorFunction(const
 
     auto [c1, c2, c3, alpha] = color.unresolved();
     if (WTF::areEssentiallyEqual(alpha, 1.0f))
-        return makeString("color(", serialization(ColorSpaceFor<ColorType>), ' ', numericComponent(c1), ' ', numericComponent(c2), ' ', numericComponent(c3), ')');
-    return makeString("color(", serialization(ColorSpaceFor<ColorType>), ' ', numericComponent(c1), ' ', numericComponent(c2), ' ', numericComponent(c3), " / ", numericComponent(alpha), ')');
+        return makeString("color("_s, serialization(ColorSpaceFor<ColorType>), ' ', numericComponent(c1), ' ', numericComponent(c2), ' ', numericComponent(c3), ')');
+    return makeString("color("_s, serialization(ColorSpaceFor<ColorType>), ' ', numericComponent(c1), ' ', numericComponent(c2), ' ', numericComponent(c3), " / "_s, numericComponent(alpha), ')');
 }
 
 static String serializationUsingColorFunction(const SRGBA<uint8_t>& color)
@@ -220,7 +220,7 @@ template<typename ColorType> static String serializationOfLabLikeColorsForCSS(co
     auto [c1, c2, c3, alpha] = color.unresolved();
     if (WTF::areEssentiallyEqual(alpha, 1.0f))
         return makeString(serialization(ColorSpaceFor<ColorType>), '(', numericComponent(c1), ' ', numericComponent(c2), ' ', numericComponent(c3), ')');
-    return makeString(serialization(ColorSpaceFor<ColorType>), '(', numericComponent(c1), ' ', numericComponent(c2), ' ', numericComponent(c3), " / ", numericComponent(alpha), ')');
+    return makeString(serialization(ColorSpaceFor<ColorType>), '(', numericComponent(c1), ' ', numericComponent(c2), ' ', numericComponent(c3), " / "_s, numericComponent(alpha), ')');
 }
 
 template<typename ColorType> static String serializationOfLCHLikeColorsForCSS(const ColorType& color)
@@ -235,7 +235,7 @@ template<typename ColorType> static String serializationOfLCHLikeColorsForCSS(co
     auto [c1, c2, c3, alpha] = color.unresolved();
     if (WTF::areEssentiallyEqual(alpha, 1.0f))
         return makeString(serialization(ColorSpaceFor<ColorType>), '(', numericComponent(c1), ' ', numericComponent(c2), ' ', numericComponent(normalizeHue(c3)), ')');
-    return makeString(serialization(ColorSpaceFor<ColorType>), '(', numericComponent(c1), ' ', numericComponent(c2), ' ', numericComponent(normalizeHue(c3)), " / ", numericComponent(alpha), ')');
+    return makeString(serialization(ColorSpaceFor<ColorType>), '(', numericComponent(c1), ' ', numericComponent(c2), ' ', numericComponent(normalizeHue(c3)), " / "_s, numericComponent(alpha), ')');
 }
 
 // MARK: A98RGB<float> overloads

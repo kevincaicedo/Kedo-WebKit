@@ -38,7 +38,7 @@
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/SoftLinking.h>
-#import <wtf/text/StringConcatenateNumbers.h>
+#import <wtf/text/MakeString.h>
 
 @interface ProxyDelegate : NSObject <WKNavigationDelegate, WKUIDelegate>
 - (NSString *)waitForAlert;
@@ -404,7 +404,7 @@ TEST(WebKit, RelaxThirdPartyCookieBlocking)
             ++connectionCount;
             connection.receiveHTTPRequest([connection, connectionCount, shouldRelaxThirdPartyCookieBlocking] (Vector<char>&& request) {
                 String reply;
-                const char* body =
+                constexpr auto body =
                 "<script>"
                     "fetch("
                         "'http://www.webkit.org/path3',"
@@ -414,16 +414,16 @@ TEST(WebKit, RelaxThirdPartyCookieBlocking)
                     "}).catch((e)=>{"
                         "alert(e)"
                     "})"
-                "</script>";
+                "</script>"_s;
                 switch (connectionCount) {
                 case 1: {
                     EXPECT_TRUE(strnstr(request.data(), "GET http://www.webkit.org/path1 HTTP/1.1\r\n", request.size()));
                     reply = makeString(
                         "HTTP/1.1 200 OK\r\n"
-                        "Content-Length: ", strlen(body), "\r\n"
+                        "Content-Length: "_s, strlen(body), "\r\n"
                         "Set-Cookie: a=b\r\n"
                         "Connection: close\r\n"
-                        "\r\n", body
+                        "\r\n"_s, body
                     );
                     break;
                 }
@@ -432,9 +432,9 @@ TEST(WebKit, RelaxThirdPartyCookieBlocking)
                     reply = makeString(
                         "HTTP/1.1 200 OK\r\n"
                         "Content-Type: text/html\r\n"
-                        "Content-Length: ", strlen(body), "\r\n"
+                        "Content-Length: "_s, strlen(body), "\r\n"
                         "Connection: close\r\n"
-                        "\r\n", body
+                        "\r\n"_s, body
                     );
                     break;
                 }

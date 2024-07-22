@@ -86,55 +86,56 @@ void PresentationContextIOSurface::onSubmittedWorkScheduled(Function<void()>&& c
         completionHandler();
 }
 
-RetainPtr<CGImageRef> PresentationContextIOSurface::getTextureAsNativeImage(uint32_t bufferIndex)
+void PresentationContextIOSurface::getTextureAsNativeImage(uint32_t bufferIndex, Function<void(RetainPtr<CGImageRef>&&)>&& completion)
 {
     auto* device = m_device.get();
     if (!device || bufferIndex >= m_renderBuffers.size())
-        return nullptr;
+        return completion(nullptr);
 
     auto& renderBuffer = m_renderBuffers[bufferIndex];
     auto* texture = renderBuffer.luminanceClampTexture.get() ? renderBuffer.luminanceClampTexture.get() : renderBuffer.texture.ptr();
     if (!texture)
-        return nullptr;
+        return completion(nullptr);
 
-    texture->waitForCommandBufferCompletion();
-    id<MTLTexture> mtlTexture = texture->texture();
-    if (!mtlTexture || mtlTexture.pixelFormat == MTLPixelFormatBGRA8Unorm)
-        return nullptr;
+    texture->onCommandBufferCompletion(Function<void()>([texture, alphaMode = m_alphaMode, colorSpaceType = m_colorSpace, completion = WTFMove(completion)]() {
+        id<MTLTexture> mtlTexture = texture->texture();
+        if (!mtlTexture || mtlTexture.pixelFormat == MTLPixelFormatBGRA8Unorm)
+            return completion(nullptr);
 
-    bool fp16 = mtlTexture.pixelFormat == MTLPixelFormatRGBA16Float;
-    CFStringRef colorSpaceName = kCGColorSpaceSRGB;
-    switch (m_colorSpace) {
-    case WGPUColorSpace::SRGB:
-        colorSpaceName = kCGColorSpaceSRGB;
-        break;
-    case WGPUColorSpace::DisplayP3:
-        colorSpaceName = kCGColorSpaceDisplayP3;
-        break;
-    }
+        bool fp16 = mtlTexture.pixelFormat == MTLPixelFormatRGBA16Float;
+        CFStringRef colorSpaceName = kCGColorSpaceSRGB;
+        switch (colorSpaceType) {
+        case WGPUColorSpace::SRGB:
+            colorSpaceName = kCGColorSpaceSRGB;
+            break;
+        case WGPUColorSpace::DisplayP3:
+            colorSpaceName = kCGColorSpaceDisplayP3;
+            break;
+        }
 
-    auto colorSpace = adoptCF(CGColorSpaceCreateWithName(colorSpaceName));
-    auto bytesPerPixel = fp16 ? 8 : 4;
-    auto width = mtlTexture.width;
-    auto height = mtlTexture.height;
-    auto bytesPerRow = bytesPerPixel * width;
-    auto bitsPerComponent = bytesPerPixel * 2;
-    auto bitsPerPixel = bitsPerComponent * 4;
-    bool isOpaque = m_alphaMode == WGPUCompositeAlphaMode_Opaque;
-    CGBitmapInfo bitmapInfo = static_cast<CGBitmapInfo>(isOpaque ? kCGImageAlphaNoneSkipLast : kCGImageAlphaPremultipliedLast) | static_cast<CGBitmapInfo>(kCGImageByteOrder32Big);
-    if (fp16)
-        bitmapInfo = static_cast<CGBitmapInfo>(isOpaque ? kCGImageAlphaNoneSkipLast : kCGImageAlphaPremultipliedLast) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder16Host) | static_cast<CGBitmapInfo>(kCGBitmapFloatComponents);
+        auto colorSpace = adoptCF(CGColorSpaceCreateWithName(colorSpaceName));
+        auto bytesPerPixel = fp16 ? 8 : 4;
+        auto width = mtlTexture.width;
+        auto height = mtlTexture.height;
+        auto bytesPerRow = bytesPerPixel * width;
+        auto bitsPerComponent = bytesPerPixel * 2;
+        auto bitsPerPixel = bitsPerComponent * 4;
+        bool isOpaque = alphaMode == WGPUCompositeAlphaMode_Opaque;
+        CGBitmapInfo bitmapInfo = static_cast<CGBitmapInfo>(isOpaque ? kCGImageAlphaNoneSkipLast : kCGImageAlphaPremultipliedLast) | static_cast<CGBitmapInfo>(kCGImageByteOrder32Big);
+        if (fp16)
+            bitmapInfo = static_cast<CGBitmapInfo>(isOpaque ? kCGImageAlphaNoneSkipLast : kCGImageAlphaPremultipliedLast) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder16Host) | static_cast<CGBitmapInfo>(kCGBitmapFloatComponents);
 
-    size_t imageBytesSize = bytesPerRow * height;
-    void* imageBytes = FastMalloc::tryMalloc(imageBytesSize);
-    if (!imageBytes)
-        return nullptr;
-    [mtlTexture getBytes:imageBytes bytesPerRow:bytesPerRow fromRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0];
-    auto freeImageBytes = [](void* imageBytes, const void*, size_t) {
-        FastMalloc::free(imageBytes);
-    };
-    auto dataProvider = adoptCF(CGDataProviderCreateWithData(imageBytes, imageBytes, imageBytesSize, freeImageBytes));
-    return adoptCF(CGImageCreate(width, height, bitsPerComponent, bitsPerPixel, bytesPerRow, colorSpace.get(), bitmapInfo, dataProvider.get(), 0, false, kCGRenderingIntentDefault));
+        size_t imageBytesSize = bytesPerRow * height;
+        void* imageBytes = FastMalloc::tryMalloc(imageBytesSize);
+        if (!imageBytes)
+            return completion(nullptr);
+        [mtlTexture getBytes:imageBytes bytesPerRow:bytesPerRow fromRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0];
+        auto freeImageBytes = [](void* imageBytes, const void*, size_t) {
+            FastMalloc::free(imageBytes);
+        };
+        auto dataProvider = adoptCF(CGDataProviderCreateWithData(imageBytes, imageBytes, imageBytesSize, freeImageBytes));
+        return completion(adoptCF(CGImageCreate(width, height, bitsPerComponent, bitsPerPixel, bytesPerRow, colorSpace.get(), bitmapInfo, dataProvider.get(), 0, false, kCGRenderingIntentDefault)));
+    }));
 }
 
 static void generateAValidationError(Device& device, NSString* message, bool generateValidationError)
@@ -190,7 +191,6 @@ void PresentationContextIOSurface::configure(Device& device, const WGPUSwapChain
 #else
     textureDescriptor.storageMode = MTLStorageModeShared;
 #endif
-    bool needsLuminanceClampFunction = false;
     for (IOSurface *iosurface in m_ioSurfaces) {
         if (iosurface.height != static_cast<NSInteger>(height) || iosurface.width != static_cast<NSInteger>(width))
             return generateAValidationError(device, [NSString stringWithFormat:@"Invalid surface size. Backing surface has size (%d, %d) but attempting to configure a size of (%u, %u)", static_cast<int>(iosurface.width), static_cast<int>(iosurface.height), width, height], reportValidationErrors);
@@ -230,10 +230,14 @@ void PresentationContextIOSurface::configure(Device& device, const WGPUSwapChain
     }
 
     textureDescriptor.usage |= MTLTextureUsageRenderTarget;
+    bool needsLuminanceClampFunction = textureDescriptor.pixelFormat == MTLPixelFormatRGBA16Float;
+    auto existingUsage = textureDescriptor.usage;
     for (IOSurface *iosurface in m_ioSurfaces) {
         RefPtr<Texture> parentLuminanceClampTexture;
-        if (textureDescriptor.pixelFormat == MTLPixelFormatRGBA16Float) {
-            auto existingUsage = textureDescriptor.usage;
+        if (needsLuminanceClampFunction) {
+            textureDescriptor.pixelFormat = MTLPixelFormatRGBA16Float;
+            wgpuTextureDescriptor.format = WGPUTextureFormat_RGBA16Float;
+            textureDescriptor.usage = existingUsage;
             textureDescriptor.usage |= MTLTextureUsageShaderRead;
             id<MTLTexture> luminanceClampTexture = device.newTextureWithDescriptor(textureDescriptor);
             luminanceClampTexture.label = fromAPI(descriptor.label);
@@ -243,7 +247,6 @@ void PresentationContextIOSurface::configure(Device& device, const WGPUSwapChain
             textureDescriptor.pixelFormat = MTLPixelFormatBGRA8Unorm;
             wgpuTextureDescriptor.format = WGPUTextureFormat_BGRA8Unorm;
             textureDescriptor.usage = existingUsage | MTLTextureUsageShaderWrite;
-            needsLuminanceClampFunction = true;
         }
 
         id<MTLTexture> texture = device.newTextureWithDescriptor(textureDescriptor, bridge_cast(iosurface));
@@ -316,6 +319,7 @@ void PresentationContextIOSurface::present()
         computeDescriptor.dispatchType = MTLDispatchTypeSerial;
 
         id<MTLComputeCommandEncoder> computeEncoder = [commandBuffer computeCommandEncoderWithDescriptor:computeDescriptor];
+        m_device->getQueue().setEncoderForBuffer(commandBuffer, computeEncoder);
         [computeEncoder setComputePipelineState:m_computePipelineState];
         id<MTLTexture> inputTexture = texturePtr->texture();
         [computeEncoder setTexture:inputTexture atIndex:0];
@@ -327,7 +331,7 @@ void PresentationContextIOSurface::present()
         threadgroupCount.height = (inputTexture.height + threadgroupSize.height - 1) / threadgroupSize.height;
         threadgroupCount.depth = 1;
         [computeEncoder dispatchThreadgroups:threadgroupCount threadsPerThreadgroup:threadgroupSize];
-        [computeEncoder endEncoding];
+        m_device->getQueue().endEncoding(computeEncoder, commandBuffer);
         m_device->getQueue().commitMTLCommandBuffer(commandBuffer);
     }
 

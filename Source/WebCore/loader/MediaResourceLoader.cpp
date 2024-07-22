@@ -123,6 +123,10 @@ RefPtr<PlatformMediaResource> MediaResourceLoader::requestResource(ResourceReque
         cachingPolicy };
     loaderOptions.sameOriginDataURLFlag = SameOriginDataURLFlag::Set;
     loaderOptions.destination = m_destination;
+    if (!m_document->securityOrigin().isSameOriginAs(SecurityOrigin::create(request.url())) && m_crossOriginMode.isNull() && m_wasMainResourceLoaded)
+        loaderOptions.loadedFromOpaqueSource = LoadedFromOpaqueSource::Yes;
+    else if (!m_wasMainResourceLoaded)
+        m_wasMainResourceLoaded = true;
     auto cachedRequest = createPotentialAccessControlRequest(WTFMove(request), WTFMove(loaderOptions), *m_document, m_crossOriginMode);
     if (RefPtr element = m_element.get())
         cachedRequest.setInitiator(*element);
@@ -304,7 +308,7 @@ void MediaResource::dataReceived(CachedResource& resource, const SharedBuffer& b
         client->dataReceived(*this, buffer);
 }
 
-void MediaResource::notifyFinished(CachedResource& resource, const NetworkLoadMetrics& metrics)
+void MediaResource::notifyFinished(CachedResource& resource, const NetworkLoadMetrics& metrics, LoadWillContinueInAnotherProcess)
 {
     assertIsMainThread();
 

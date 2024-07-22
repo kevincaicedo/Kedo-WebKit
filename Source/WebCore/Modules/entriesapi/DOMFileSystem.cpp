@@ -34,6 +34,7 @@
 #include <wtf/FileSystem.h>
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/UUID.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -77,7 +78,7 @@ static ExceptionOr<Vector<Ref<FileSystemEntry>>> toFileSystemEntries(ScriptExecu
         return listedChildren.releaseException();
 
     return WTF::compactMap(listedChildren.returnValue(), [&](auto& child) -> RefPtr<FileSystemEntry> {
-        String virtualPath = parentVirtualPath + "/" + child.filename;
+        auto virtualPath = makeString(parentVirtualPath, '/', child.filename);
         switch (child.type) {
         case FileSystem::FileType::Regular:
             return FileSystemFileEntry::create(context, fileSystem, virtualPath);
@@ -162,8 +163,8 @@ Ref<FileSystemDirectoryEntry> DOMFileSystem::root(ScriptExecutionContext& contex
 Ref<FileSystemEntry> DOMFileSystem::fileAsEntry(ScriptExecutionContext& context)
 {
     if (m_file->isDirectory())
-        return FileSystemDirectoryEntry::create(context, *this, "/" + m_file->name());
-    return FileSystemFileEntry::create(context, *this, "/" + m_file->name());
+        return FileSystemDirectoryEntry::create(context, *this, makeString('/', m_file->name()));
+    return FileSystemFileEntry::create(context, *this, makeString('/', m_file->name()));
 }
 
 static ExceptionOr<String> validatePathIsExpectedType(const String& fullPath, String&& virtualPath, FileSystem::FileType expectedType)

@@ -43,6 +43,7 @@
 #include <wtf/GetPtr.h>
 #include <wtf/PointerPreparations.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 
 
 namespace WebCore {
@@ -211,7 +212,7 @@ void JSTestStringifierReadOnlyAttribute::analyzeHeap(JSCell* cell, HeapAnalyzer&
     auto* thisObject = jsCast<JSTestStringifierReadOnlyAttribute*>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (thisObject->scriptExecutionContext())
-        analyzer.setLabelForCell(cell, "url "_s + thisObject->scriptExecutionContext()->url().string());
+        analyzer.setLabelForCell(cell, makeString("url "_s, thisObject->scriptExecutionContext()->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
 
@@ -237,14 +238,9 @@ extern "C" { extern void (*const __identifier("??_7TestStringifierReadOnlyAttrib
 #else
 extern "C" { extern void* _ZTVN7WebCore32TestStringifierReadOnlyAttributeE[]; }
 #endif
-#endif
-
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestStringifierReadOnlyAttribute>&& impl)
-{
-
-    if constexpr (std::is_polymorphic_v<TestStringifierReadOnlyAttribute>) {
-#if ENABLE(BINDING_INTEGRITY)
-        const void* actualVTablePointer = getVTablePointer(impl.ptr());
+template<typename T, typename = std::enable_if_t<std::is_same_v<T, TestStringifierReadOnlyAttribute>, void>> static inline void verifyVTable(TestStringifierReadOnlyAttribute* ptr) {
+    if constexpr (std::is_polymorphic_v<T>) {
+        const void* actualVTablePointer = getVTablePointer<T>(ptr);
 #if PLATFORM(WIN)
         void* expectedVTablePointer = __identifier("??_7TestStringifierReadOnlyAttribute@WebCore@@6B@");
 #else
@@ -256,8 +252,14 @@ JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObj
         // to toJS() we currently require TestStringifierReadOnlyAttribute you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
         RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
-#endif
     }
+}
+#endif
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestStringifierReadOnlyAttribute>&& impl)
+{
+#if ENABLE(BINDING_INTEGRITY)
+    verifyVTable<TestStringifierReadOnlyAttribute>(impl.ptr());
+#endif
     return createWrapper<TestStringifierReadOnlyAttribute>(globalObject, WTFMove(impl));
 }
 

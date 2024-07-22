@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2004 Allan Sandfeld Jensen (kde@carewolf.com)
- * Copyright (C) 2006-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -466,27 +466,24 @@ String RenderCounter::originalText() const
     RefPtr child = m_counterNode.get();
     int value = child->actsAsReset() ? child->value() : child->countInParent();
 
-    auto counterText = [](const ListStyleType& styleType, int value, CSSCounterStyle* counterStyle) {
-        if (styleType.type == ListStyleType::Type::None)
+    auto counterText = [&](int value) {
+        if (m_counter.listStyleType().type == ListStyleType::Type::None)
             return emptyString();
 
-        if (styleType.type == ListStyleType::Type::CounterStyle) {
-            ASSERT(counterStyle);
-            return counterStyle->text(value);
+        if (m_counter.listStyleType().type == ListStyleType::Type::CounterStyle) {
+            ASSERT(counterStyle());
+            return counterStyle()->text(value, makeTextFlow(style().writingMode(), style().direction()));
         }
 
         ASSERT_NOT_REACHED();
         return emptyString();
     };
-    auto counterStyle = this->counterStyle();
-    String text = counterText(m_counter.listStyleType(), value, counterStyle.get());
-
+    auto text = counterText(value);
     if (!m_counter.separator().isNull()) {
         if (!child->actsAsReset())
             child = child->parent();
         while (CounterNode* parent = child->parent()) {
-            text = counterText(m_counter.listStyleType(), child->countInParent(), counterStyle.get())
-                + m_counter.separator() + text;
+            text = makeString(counterText(child->countInParent()), m_counter.separator(), text);
             child = parent;
         }
     }

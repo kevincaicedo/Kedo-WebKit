@@ -39,6 +39,7 @@
 #include "ScriptableDocumentParser.h"
 #include "ShadowRoot.h"
 #include <wtf/text/AtomString.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -125,12 +126,12 @@ static void reportMessage(Document& document, MessageLevel level, const String& 
 
 void SVGDocumentExtensions::reportWarning(const String& message)
 {
-    reportMessage(protectedDocument(), MessageLevel::Warning, "Warning: " + message);
+    reportMessage(protectedDocument(), MessageLevel::Warning, makeString("Warning: "_s, message));
 }
 
 void SVGDocumentExtensions::reportError(const String& message)
 {
-    reportMessage(protectedDocument(), MessageLevel::Error, "Error: " + message);
+    reportMessage(protectedDocument(), MessageLevel::Error, makeString("Error: "_s, message));
 }
 
 void SVGDocumentExtensions::addElementToRebuild(SVGElement& element)

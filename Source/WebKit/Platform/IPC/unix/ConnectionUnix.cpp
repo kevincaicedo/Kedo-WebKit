@@ -205,7 +205,7 @@ bool Connection::processMessage()
 
     uint8_t* messageBody = messageData;
     if (messageInfo.isBodyOutOfLine())
-        messageBody = reinterpret_cast<uint8_t*>(oolMessageBody->data());
+        messageBody = oolMessageBody->mutableSpan().data();
 
     auto decoder = Decoder::create({ messageBody, messageInfo.bodySize() }, WTFMove(attachments));
     ASSERT(decoder);
@@ -407,7 +407,7 @@ bool Connection::sendOutgoingMessage(UniqueRef<Encoder>&& encoder)
 
     size_t messageSizeWithBodyInline = sizeof(MessageInfo) + (outputMessage.attachments().size() * sizeof(AttachmentInfo)) + outputMessage.bodySize();
     if (messageSizeWithBodyInline > messageMaxSize && outputMessage.bodySize()) {
-        RefPtr<WebCore::SharedMemory> oolMessageBody = WebCore::SharedMemory::allocate(outputMessage.bodySize());
+        RefPtr oolMessageBody = WebCore::SharedMemory::allocate(outputMessage.bodySize());
         if (!oolMessageBody)
             return false;
 
@@ -417,7 +417,7 @@ bool Connection::sendOutgoingMessage(UniqueRef<Encoder>&& encoder)
 
         outputMessage.messageInfo().setBodyOutOfLine();
 
-        memcpy(oolMessageBody->data(), outputMessage.body(), outputMessage.bodySize());
+        memcpySpan(oolMessageBody->mutableSpan(), outputMessage.body());
 
         outputMessage.appendAttachment(handle->releaseHandle());
     }
@@ -485,7 +485,7 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
     }
 
     if (!messageInfo.isBodyOutOfLine() && outputMessage.bodySize()) {
-        iov[iovLength].iov_base = reinterpret_cast<void*>(outputMessage.body());
+        iov[iovLength].iov_base = reinterpret_cast<void*>(outputMessage.body().data());
         iov[iovLength].iov_len = outputMessage.bodySize();
         ++iovLength;
     }
@@ -547,19 +547,29 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
 SocketPair createPlatformConnection(unsigned options)
 {
     int sockets[2];
+
+#if OS(LINUX)
+    if ((options & SetCloexecOnServer) || (options & SetCloexecOnClient)) {
+        RELEASE_ASSERT(socketpair(AF_UNIX, SOCKET_TYPE | SOCK_CLOEXEC, 0, sockets) != -1);
+
+        if (!(options & SetCloexecOnServer))
+            RELEASE_ASSERT(unsetCloseOnExec(sockets[1]));
+
+        if (!(options & SetCloexecOnClient))
+            RELEASE_ASSERT(unsetCloseOnExec(sockets[0]));
+
+        SocketPair socketPair = { sockets[0], sockets[1] };
+        return socketPair;
+    }
+#endif
+
     RELEASE_ASSERT(socketpair(AF_UNIX, SOCKET_TYPE, 0, sockets) != -1);
 
-    if (options & SetCloexecOnServer) {
-        // Don't expose the child socket to the parent process.
-        if (!setCloseOnExec(sockets[1]))
-            RELEASE_ASSERT_NOT_REACHED();
-    }
+    if (options & SetCloexecOnServer)
+        RELEASE_ASSERT(setCloseOnExec(sockets[1]));
 
-    if (options & SetCloexecOnClient) {
-        // Don't expose the parent socket to potential future children.
-        if (!setCloseOnExec(sockets[0]))
-            RELEASE_ASSERT_NOT_REACHED();
-    }
+    if (options & SetCloexecOnClient)
+        RELEASE_ASSERT(setCloseOnExec(sockets[0]));
 
     SocketPair socketPair = { sockets[0], sockets[1] };
     return socketPair;

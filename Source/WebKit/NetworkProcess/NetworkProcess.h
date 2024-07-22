@@ -405,7 +405,7 @@ public:
     void clickBackgroundFetch(PAL::SessionID, const String&, CompletionHandler<void()>&&);
 
     void setPushAndNotificationsEnabledForOrigin(PAL::SessionID, const WebCore::SecurityOriginData&, bool, CompletionHandler<void()>&&);
-    void deletePushAndNotificationRegistration(PAL::SessionID, const WebCore::SecurityOriginData&, CompletionHandler<void(const String&)>&&);
+    void removePushSubscriptionsForOrigin(PAL::SessionID, const WebCore::SecurityOriginData&, CompletionHandler<void(unsigned)>&&);
     void hasPushSubscriptionForTesting(PAL::SessionID, URL&&, CompletionHandler<void(bool)>&&);
 
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)
@@ -474,7 +474,11 @@ private:
     void resumeDownload(PAL::SessionID, DownloadID, std::span<const uint8_t> resumeData, const String& path, SandboxExtensionHandle&&, CallDownloadDidStart);
     void cancelDownload(DownloadID, CompletionHandler<void(std::span<const uint8_t>)>&&);
 #if PLATFORM(COCOA)
+#if HAVE(MODERN_DOWNLOADPROGRESS)
+    void publishDownloadProgress(DownloadID, const URL&, std::span<const uint8_t> bookmarkData);
+#else
     void publishDownloadProgress(DownloadID, const URL&, SandboxExtensionHandle&&);
+#endif
 #endif
     void dataTaskWithRequest(WebPageProxyIdentifier, PAL::SessionID, WebCore::ResourceRequest&&, const std::optional<WebCore::SecurityOriginData>& topOrigin, IPC::FormDataReference&&, CompletionHandler<void(DataTaskIdentifier)>&&);
     void cancelDataTask(DataTaskIdentifier, PAL::SessionID, CompletionHandler<void()>&&);

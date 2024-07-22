@@ -44,7 +44,6 @@
 #import <wtf/HashMap.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
-#import <wtf/text/StringConcatenateNumbers.h>
 #import <wtf/text/StringHash.h>
 #import <wtf/text/WTFString.h>
 
@@ -521,7 +520,7 @@ TEST(WebKit, DefaultQuota)
 
     // Storing 10 entries of 10 MB should not hit the default quota which is 1GB
     for (int i = 0; i < 10; ++i) {
-        [webView stringByEvaluatingJavaScript:makeString("doTest(10)")];
+        [webView stringByEvaluatingJavaScript:"doTest(10)"_str];
         [messageHandler setExpectedMessage: @"pass"];
         receivedMessage = false;
         Util::run(&receivedMessage);

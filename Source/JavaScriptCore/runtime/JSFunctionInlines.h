@@ -31,6 +31,7 @@
 #include "JSFunction.h"
 #include "JSRemoteFunction.h"
 #include "NativeExecutable.h"
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
@@ -58,11 +59,15 @@ inline Structure* JSArrowFunction::createStructure(VM& vm, JSGlobalObject* globa
     return Structure::create(vm, globalObject, prototype, TypeInfo(JSFunctionType, StructureFlags), info());
 }
 
-inline JSFunction* JSFunction::createWithInvalidatedReallocationWatchpoint(
-    VM& vm, FunctionExecutable* executable, JSScope* scope)
+inline JSFunction* JSFunction::createWithInvalidatedReallocationWatchpoint(VM& vm, JSGlobalObject* globalObject, FunctionExecutable* executable, JSScope* scope)
+{
+    return createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, scope, selectStructureForNewFuncExp(globalObject, executable));
+}
+
+inline JSFunction* JSFunction::createWithInvalidatedReallocationWatchpoint(VM& vm, JSGlobalObject*, FunctionExecutable* executable, JSScope* scope, Structure* structure)
 {
     ASSERT(executable->singleton().hasBeenInvalidated());
-    return createImpl(vm, executable, scope, selectStructureForNewFuncExp(scope->globalObject(), executable));
+    return createImpl(vm, executable, scope, structure);
 }
 
 inline JSFunction::JSFunction(VM& vm, FunctionExecutable* executable, JSScope* scope, Structure* structure)
@@ -227,7 +232,7 @@ inline bool JSFunction::mayHaveNonReifiedPrototype()
     return !isHostOrBuiltinFunction() && jsExecutable()->hasPrototypeProperty();
 }
 
-inline bool JSFunction::canUseAllocationProfile()
+inline bool JSFunction::canUseAllocationProfiles()
 {
     if (isHostOrBuiltinFunction()) {
         if (isHostFunction())
@@ -247,9 +252,9 @@ inline bool JSFunction::canUseAllocationProfile()
     return jsExecutable()->hasPrototypeProperty();
 }
 
-inline FunctionRareData* JSFunction::ensureRareDataAndAllocationProfile(JSGlobalObject* globalObject, unsigned inlineCapacity)
+inline FunctionRareData* JSFunction::ensureRareDataAndObjectAllocationProfile(JSGlobalObject* globalObject, unsigned inlineCapacity)
 {
-    ASSERT(canUseAllocationProfile());
+    ASSERT(canUseAllocationProfiles());
     FunctionRareData* rareData = this->rareData();
     if (!rareData)
         return allocateAndInitializeRareData(globalObject, inlineCapacity);

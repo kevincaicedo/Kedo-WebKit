@@ -28,7 +28,7 @@
 #include "Test.h"
 #include <wtf/StackTrace.h>
 #include <wtf/StringPrintStream.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/unicode/CharacterNames.h>
 
 #if PLATFORM(WIN) && defined(NDEBUG)
@@ -119,7 +119,7 @@ TEST(StackTraceTest, MAYBE(CaptureStackTraceLimitAndSkip))
     size_t testedMaxFrames = static_cast<size_t>(frames + 7);
     for (size_t maxFrames = 1; maxFrames < testedMaxFrames; ++maxFrames) {
         for (size_t skipFrames = 0; skipFrames < testedMaxFrames; ++skipFrames) {
-            SCOPED_TRACE(makeString("maxFrames: ", maxFrames, " skipFrames: ", skipFrames));
+            SCOPED_TRACE(makeString("maxFrames: "_s, maxFrames, " skipFrames: "_s, skipFrames));
             size_t expectedFrameCount = std::min(maxFrames + skipFrames, static_cast<size_t>(frames));
             size_t expectedSkipFrames = std::min(skipFrames, expectedFrameCount);
             std::span<void* const> expected { expectedStack + expectedSkipFrames, expectedFrameCount - expectedSkipFrames };

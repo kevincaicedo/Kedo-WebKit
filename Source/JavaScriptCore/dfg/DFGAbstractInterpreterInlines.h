@@ -39,7 +39,7 @@
 #include "FunctionPrototype.h"
 #include "GetByStatus.h"
 #include "GetterSetter.h"
-#include "HashMapImplInlines.h"
+#include "HashMapHelper.h"
 #include "JITOperations.h"
 #include "JSAsyncGenerator.h"
 #include "JSGenerator.h"
@@ -1100,6 +1100,14 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
             break;
         }
 
+        bool isBigIntBinaryUsedKind = node->isBinaryUseKind(HeapBigIntUse) || node->isBinaryUseKind(AnyBigIntUse) || node->isBinaryUseKind(BigInt32Use);
+        if (node->mustGenerate() && isBigIntBinaryUsedKind) {
+            if (childY && childY.isBigInt() && !childY.isNegativeBigInt()) {
+                node->clearFlags(NodeMustGenerate);
+                m_state.setShouldTryConstantFolding(true);
+            }
+        }
+
         if (node->isBinaryUseKind(HeapBigIntUse)) {
             // FIXME: We will want an arithmetic mode here that allows us to speculate or dictate
             // the format of our result:
@@ -1186,6 +1194,15 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
     case ValueDiv: {
         if (handleConstantDivOp(node))
             break;
+
+        bool isBigIntBinaryUsedKind = node->isBinaryUseKind(HeapBigIntUse) || node->isBinaryUseKind(AnyBigIntUse) || node->isBinaryUseKind(BigInt32Use);
+        if (node->mustGenerate() && isBigIntBinaryUsedKind) {
+            JSValue left = forNode(node->child2()).value();
+            if (left && left.isBigInt() && !left.isZeroBigInt()) {
+                node->clearFlags(NodeMustGenerate);
+                m_state.setShouldTryConstantFolding(true);
+            }
+        }
 
         if (node->isBinaryUseKind(HeapBigIntUse)) {
             // FIXME: We will want an arithmetic mode here that allows us to speculate or dictate
@@ -1545,37 +1562,35 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
         break;
     }
 
-    case LoadKeyFromMapBucket:
-    case LoadValueFromMapBucket:
+    case MapIterationEntryKey:
+    case MapIterationEntryValue:
+    case MapIteratorKey:
+    case MapIteratorValue:
+    case LoadMapValue:
     case ExtractValueFromWeakMapGet:
         makeHeapTopForNode(node);
         break;
 
-    case GetMapBucket:
-    case GetMapBucketHead:
-        if (node->child1().useKind() == MapObjectUse)
-            setForNode(node, m_vm.hashMapBucketMapStructure.get());
-        else {
-            ASSERT(node->child1().useKind() == SetObjectUse);
-            setForNode(node, m_vm.hashMapBucketSetStructure.get());
-        }
-        break;
-
-    case GetMapBucketNext:
-        if (node->bucketOwnerType() == BucketOwnerType::Map)
-            setForNode(node, m_vm.hashMapBucketMapStructure.get());
-        else {
-            ASSERT(node->bucketOwnerType() == BucketOwnerType::Set);
-            setForNode(node, m_vm.hashMapBucketSetStructure.get());
-        }
-        break;
-
     case SetAdd:
-        setForNode(node, m_vm.hashMapBucketSetStructure.get());
+    case MapSet:
         break;
 
-    case MapSet:
-        setForNode(node, m_vm.hashMapBucketMapStructure.get());
+    case MapGet:
+        clearForNode(node);
+        break;
+
+    case MapIterationEntry:
+        setTypeForNode(node, SpecInt32Only);
+        break;
+
+    case MapStorage:
+    case MapIterationNext:
+        setTypeForNode(node, SpecCellOther);
+        break;
+
+    case MapIteratorNext:
+    case IsEmptyStorage:
+        setTypeForNode(node, SpecBoolean);
         break;
 
     case MapOrSetDelete:
@@ -3680,7 +3695,20 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
                 break;
             }
         }
-        setTypeForNode(node, SpecObjectOther);
+
+        switch (node->child1()->op()) {
+        case NewFunction:
+        case NewGeneratorFunction:
+        case NewAsyncGeneratorFunction:
+        case NewAsyncFunction: {
+            m_state.setShouldTryConstantFolding(true);
+            forNode(node) = forNode(node->child1()->child1());
+            break;
+        }
+        default:
+            setTypeForNode(node, SpecObjectOther);
+            break;
+        }
         break;
 
     case SkipScope: {
@@ -4950,8 +4978,7 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
         clobberWorld();
 
         WebAssemblyFunction* wasmFunction = node->castOperand<WebAssemblyFunction*>();
-        const auto& typeDefinition = Wasm::TypeInformation::get(wasmFunction->typeIndex()).expand();
-        const auto& signature = *typeDefinition.as<Wasm::FunctionSignature>();
+        const auto& signature = Wasm::TypeInformation::getFunctionSignature(wasmFunction->typeIndex());
         if (signature.returnsVoid()) {
             setConstant(node, jsUndefined());
             break;

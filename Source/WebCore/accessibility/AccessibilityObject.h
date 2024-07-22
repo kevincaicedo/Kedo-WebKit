@@ -231,7 +231,7 @@ public:
 
     bool hasBoldFont() const override { return false; }
     bool hasItalicFont() const override { return false; }
-    bool hasMisspelling() const override;
+    Vector<CharacterRange> spellCheckerResultRanges() const final;
     std::optional<SimpleRange> misspellingRange(const SimpleRange& start, AccessibilitySearchDirection) const override;
     bool hasPlainText() const override { return false; }
     bool hasSameFont(const AXCoreObject&) const override { return false; }
@@ -341,7 +341,7 @@ public:
     AccessibilityObject* parentObjectUnignored() const override;
     virtual AccessibilityObject* parentObjectIfExists() const { return nullptr; }
     static AccessibilityObject* firstAccessibleObjectFromNode(const Node*);
-    void findMatchingObjects(AccessibilitySearchCriteria*, AccessibilityChildrenVector&) override;
+    AccessibilityChildrenVector findMatchingObjects(AccessibilitySearchCriteria&&) final;
     virtual bool isDescendantOfBarrenParent() const { return false; }
 
     bool isDescendantOfRole(AccessibilityRole) const override;
@@ -385,7 +385,7 @@ public:
     bool isARIAStaticText() const { return ariaRoleAttribute() == AccessibilityRole::StaticText; }
     String stringValue() const override { return { }; }
     bool dependsOnTextUnderElement() const;
-    String textUnderElement(TextUnderElementMode = TextUnderElementMode()) const override { return { }; }
+    String textUnderElement(TextUnderElementMode = { }) const override { return { }; }
     String text() const override { return { }; }
     unsigned textLength() const final;
 #if ENABLE(AX_THREAD_TEXT_APIS)

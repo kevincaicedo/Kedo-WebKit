@@ -447,6 +447,9 @@ MediaPlayerPrivateAVFoundationObjC::MediaPlayerPrivateAVFoundationObjC(MediaPlay
     m_defaultSpatialTrackingLabel = player->defaultSpatialTrackingLabel();
     m_spatialTrackingLabel = player->spatialTrackingLabel();
 #endif
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    setVideoTarget(player->videoTarget());
+#endif
 }
 
 MediaPlayerPrivateAVFoundationObjC::~MediaPlayerPrivateAVFoundationObjC()
@@ -454,7 +457,7 @@ MediaPlayerPrivateAVFoundationObjC::~MediaPlayerPrivateAVFoundationObjC()
     [[m_avAsset resourceLoader] setDelegate:nil queue:0];
 
     for (auto& pair : m_resourceLoaderMap) {
-        m_targetQueue->dispatch([loader = pair.value] () mutable {
+        m_targetDispatcher->dispatch([loader = pair.value] () mutable {
             loader->stopLoading();
         });
     }
@@ -533,6 +536,11 @@ void MediaPlayerPrivateAVFoundationObjC::cancelLoad()
             [m_avPlayer removeTimeObserver:m_videoFrameMetadataGatheringObserver.get()];
             m_videoFrameMetadataGatheringObserver = nil;
         }
+
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    if (m_videoTarget)
+        [m_avPlayer removeVideoTarget:m_videoTarget.get()];
+#endif
 
         m_avPlayer = nil;
     }
@@ -657,10 +665,12 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
     m_videoLayerManager->setVideoLayer(m_videoLayer.get(), player->presentationSize());
 
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
-    if ([m_videoLayer respondsToSelector:@selector(setPIPModeEnabled:)])
-        [m_videoLayer setPIPModeEnabled:(player->fullscreenMode() & MediaPlayer::VideoFullscreenModePictureInPicture)];
+    [m_videoLayer setPIPModeEnabled:(player->fullscreenMode() & MediaPlayer::VideoFullscreenModePictureInPicture)];
 #endif
 
+#if HAVE(SPATIAL_TRACKING_LABEL)
+    updateSpatialTrackingLabel();
+#endif
     setNeedsRenderingModeChanged();
 }
 
@@ -680,6 +690,9 @@ void MediaPlayerPrivateAVFoundationObjC::destroyVideoLayer()
     m_videoLayer = nil;
     m_haveBeenAskedToCreateLayer = false;
 
+#if HAVE(SPATIAL_TRACKING_LABEL)
+    updateSpatialTrackingLabel();
+#endif
     setNeedsRenderingModeChanged();
 }
 
@@ -1039,7 +1052,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
     [resourceLoader setDelegate:m_loaderDelegate.get() queue:globalLoaderDelegateQueue()];
 
     if (auto mediaResourceLoader = player->createResourceLoader()) {
-        m_targetQueue = mediaResourceLoader->targetQueue();
+        m_targetDispatcher = mediaResourceLoader->targetDispatcher();
         resourceLoader.URLSession = (NSURLSession *)adoptNS([[WebCoreNSURLSession alloc] initWithResourceLoader:*mediaResourceLoader delegate:resourceLoader.URLSessionDataDelegate delegateQueue:resourceLoader.URLSessionDataDelegateQueue]).get();
     }
 
@@ -1110,8 +1123,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
 
     m_avPlayer.get().appliesMediaSelectionCriteriaAutomatically = NO;
 #if HAVE(AVPLAYER_VIDEORANGEOVERRIDE)
-    if ([m_avPlayer respondsToSelector:@selector(setVideoRangeOverride:)])
-        m_avPlayer.get().videoRangeOverride = convertDynamicRangeModeEnumToAVVideoRange(player->preferredDynamicRangeMode());
+    m_avPlayer.get().videoRangeOverride = convertDynamicRangeModeEnumToAVVideoRange(player->preferredDynamicRangeMode());
 #endif
 
     if ([m_videoLayer respondsToSelector:@selector(setToneMapToStandardDynamicRange:)])
@@ -1140,7 +1152,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
     if (m_muted) {
         [m_avPlayer setMuted:m_muted];
 
-#if HAVE(AVPLAYER_SUPRESSES_AUDIO_RENDERING)
+#if HAVE(AVPLAYER_SUPPRESSES_AUDIO_RENDERING)
         if (player->isVideoPlayer())
             m_avPlayer.get().suppressesAudioRendering = YES;
 #endif
@@ -1188,6 +1200,13 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
             currentTimeDidChange(WTFMove(time));
         });
     }];
+
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    if (m_videoTarget) {
+        INFO_LOG(LOGIDENTIFIER, "Setting videoTarget");
+        [m_avPlayer addVideoTarget:m_videoTarget.get()];
+    }
+#endif
 
     if (m_isGatheringVideoFrameMetadata)
         startVideoFrameMetadataGathering();
@@ -1373,8 +1392,7 @@ void MediaPlayerPrivateAVFoundationObjC::setVideoFullscreenMode(MediaPlayer::Vid
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(WATCHOS)
     assertIsMainThread();
 
-    if ([m_videoLayer respondsToSelector:@selector(setPIPModeEnabled:)])
-        [m_videoLayer setPIPModeEnabled:(mode & MediaPlayer::VideoFullscreenModePictureInPicture)];
+    [m_videoLayer setPIPModeEnabled:(mode & MediaPlayer::VideoFullscreenModePictureInPicture)];
     updateDisableExternalPlayback();
 #else
     UNUSED_PARAM(mode);
@@ -1664,7 +1682,7 @@ void MediaPlayerPrivateAVFoundationObjC::setMuted(bool muted)
         return;
 
     [m_avPlayer setMuted:m_muted];
-#if HAVE(AVPLAYER_SUPRESSES_AUDIO_RENDERING)
+#if HAVE(AVPLAYER_SUPPRESSES_AUDIO_RENDERING)
     if (!m_muted)
         m_avPlayer.get().suppressesAudioRendering = NO;
 #endif
@@ -2130,7 +2148,7 @@ static void fulfillRequestWithKeyData(AVAssetResourceLoadingRequest *request, Ar
         ASSERT(start <= std::numeric_limits<int>::max());
         ASSERT(end <= std::numeric_limits<int>::max());
         auto requestedKeyData = keyData->slice(static_cast<int>(start), static_cast<int>(end));
-        RetainPtr<NSData> nsData = adoptNS([[NSData alloc] initWithBytes:requestedKeyData->data() length:requestedKeyData->byteLength()]);
+        RetainPtr nsData = toNSData(requestedKeyData->span());
         [dataRequest respondWithData:nsData.get()];
     }
 
@@ -2211,7 +2229,7 @@ bool MediaPlayerPrivateAVFoundationObjC::shouldWaitForLoadingOfResource(AVAssetR
 #endif
 #endif
 
-    auto resourceLoader = WebCoreAVFResourceLoader::create(this, avRequest, m_targetQueue);
+    auto resourceLoader = WebCoreAVFResourceLoader::create(this, avRequest, m_targetDispatcher);
     m_resourceLoaderMap.add((__bridge CFTypeRef)avRequest, resourceLoader.copyRef());
     resourceLoader->startLoading();
 
@@ -2224,7 +2242,7 @@ void MediaPlayerPrivateAVFoundationObjC::didCancelLoadingRequest(AVAssetResource
 
     ALWAYS_LOG(LOGIDENTIFIER);
     if (RefPtr resourceLoader = m_resourceLoaderMap.get((__bridge CFTypeRef)avRequest)) {
-        m_targetQueue->dispatch([resourceLoader = WTFMove(resourceLoader)] { resourceLoader->stopLoading();
+        m_targetDispatcher->dispatch([resourceLoader = WTFMove(resourceLoader)] { resourceLoader->stopLoading();
         });
     }
 }
@@ -2235,7 +2253,7 @@ void MediaPlayerPrivateAVFoundationObjC::didStopLoadingRequest(AVAssetResourceLo
 
     ALWAYS_LOG(LOGIDENTIFIER);
     if (RefPtr resourceLoader = m_resourceLoaderMap.take((__bridge CFTypeRef)avRequest))
-        m_targetQueue->dispatch([resourceLoader = WTFMove(resourceLoader)] { });
+        m_targetDispatcher->dispatch([resourceLoader = WTFMove(resourceLoader)] { });
 }
 
 bool MediaPlayerPrivateAVFoundationObjC::isAvailable()
@@ -2602,11 +2620,6 @@ void MediaPlayerPrivateAVFoundationObjC::updateVideoTracks()
         m_waitForVideoOutputMediaDataWillChangeTimedOut = false;
 
     ALWAYS_LOG(LOGIDENTIFIER, "track count was ", count, ", is ", m_videoTracks.size());
-}
-
-bool MediaPlayerPrivateAVFoundationObjC::requiresTextTrackRepresentation() const
-{
-    return m_videoLayerManager->requiresTextTrackRepresentation();
 }
 
 void MediaPlayerPrivateAVFoundationObjC::syncTextTrackBounds()
@@ -3129,9 +3142,11 @@ void MediaPlayerPrivateAVFoundationObjC::processMediaSelectionOptions()
     // We enabled automatic media selection because we want alternate audio tracks to be enabled/disabled automatically,
     // but set the selected legible track to nil so text tracks will not be automatically configured.
     if (!m_textTracks.size()) {
-BEGIN_BLOCK_OBJC_EXCEPTIONS
-        [m_avPlayerItem selectMediaOption:nil inMediaSelectionGroup:safeMediaSelectionGroupForLegibleMedia()];
-END_BLOCK_OBJC_EXCEPTIONS
+        @try {
+            [m_avPlayerItem selectMediaOption:nil inMediaSelectionGroup:safeMediaSelectionGroupForLegibleMedia()];
+        } @catch(NSException *exception) {
+            ERROR_LOG(LOGIDENTIFIER, "exception thrown from -selectMediaOption:inMediaSelectionGroup: ", exception.name, ", reason : ", exception.reason);
+        }
     }
 
     Vector<RefPtr<InbandTextTrackPrivateAVF>> removedTextTracks = m_textTracks;
@@ -3220,21 +3235,27 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
             [m_avPlayer setClosedCaptionDisplayEnabled:YES];
 ALLOW_DEPRECATED_DECLARATIONS_END
         else if (track->textTrackCategory() == InbandTextTrackPrivateAVF::OutOfBand) {
-BEGIN_BLOCK_OBJC_EXCEPTIONS
-            [m_avPlayerItem selectMediaOption:static_cast<OutOfBandTextTrackPrivateAVF*>(track)->mediaSelectionOption() inMediaSelectionGroup:safeMediaSelectionGroupForLegibleMedia()];
-END_BLOCK_OBJC_EXCEPTIONS
+            @try {
+                [m_avPlayerItem selectMediaOption:static_cast<OutOfBandTextTrackPrivateAVF*>(track)->mediaSelectionOption() inMediaSelectionGroup:safeMediaSelectionGroupForLegibleMedia()];
+            } @catch(NSException *exception) {
+                ERROR_LOG(LOGIDENTIFIER, "exception thrown from -selectMediaOption:inMediaSelectionGroup: ", exception.name, ", reason : ", exception.reason);
+            }
         } else {
-BEGIN_BLOCK_OBJC_EXCEPTIONS
-            [m_avPlayerItem selectMediaOption:static_cast<InbandTextTrackPrivateAVFObjC*>(track)->mediaSelectionOption() inMediaSelectionGroup:safeMediaSelectionGroupForLegibleMedia()];
-END_BLOCK_OBJC_EXCEPTIONS
+            @try {
+                [m_avPlayerItem selectMediaOption:static_cast<InbandTextTrackPrivateAVFObjC*>(track)->mediaSelectionOption() inMediaSelectionGroup:safeMediaSelectionGroupForLegibleMedia()];
+            } @catch(NSException *exception) {
+                ERROR_LOG(LOGIDENTIFIER, "exception thrown from -selectMediaOption:inMediaSelectionGroup: ", exception.name, ", reason : ", exception.reason);
+            }
         }
 
         return;
     }
 
-BEGIN_BLOCK_OBJC_EXCEPTIONS
-    [m_avPlayerItem selectMediaOption:0 inMediaSelectionGroup:safeMediaSelectionGroupForLegibleMedia()];
-END_BLOCK_OBJC_EXCEPTIONS
+    @try {
+        [m_avPlayerItem selectMediaOption:0 inMediaSelectionGroup:safeMediaSelectionGroupForLegibleMedia()];
+    } @catch(NSException *exception) {
+        ERROR_LOG(LOGIDENTIFIER, "exception thrown from -selectMediaOption:inMediaSelectionGroup: ", exception.name, ", reason : ", exception.reason);
+    }
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [m_avPlayer setClosedCaptionDisplayEnabled:NO];
@@ -3505,7 +3526,7 @@ void MediaPlayerPrivateAVFoundationObjC::updateDisableExternalPlayback()
     if (!m_avPlayer)
         return;
 
-    if (RefPtr player = this->player(); player && [m_avPlayer respondsToSelector:@selector(setUsesExternalPlaybackWhileExternalScreenIsActive:)])
+    if (RefPtr player = this->player())
         [m_avPlayer setUsesExternalPlaybackWhileExternalScreenIsActive:(player->fullscreenMode() == MediaPlayer::VideoFullscreenModeStandard) || player->isVideoFullscreenStandby()];
 #endif
 }
@@ -3609,6 +3630,10 @@ void MediaPlayerPrivateAVFoundationObjC::setBufferingPolicy(MediaPlayer::Bufferi
     if (m_bufferingPolicy == policy)
         return;
 
+#if HAVE(AVPLAYER_RESOURCE_CONSERVATION_LEVEL)
+    bool isMovingFromResourcesPurgeableBufferPolicy = m_bufferingPolicy == MediaPlayer::BufferingPolicy::MakeResourcesPurgeable;
+#endif
+
     m_bufferingPolicy = policy;
 
     if (!m_avPlayer)
@@ -3620,13 +3645,13 @@ void MediaPlayerPrivateAVFoundationObjC::setBufferingPolicy(MediaPlayer::Bufferi
     static_assert(static_cast<size_t>(MediaPlayer::BufferingPolicy::MakeResourcesPurgeable) == AVPlayerResourceConservationLevelReuseActivePlayerResources, "MediaPlayer::BufferingPolicy::MakeResourcesPurgeable is not AVPlayerResourceConservationLevelReuseActivePlayerResources as expected");
     static_assert(static_cast<size_t>(MediaPlayer::BufferingPolicy::PurgeResources) == AVPlayerResourceConservationLevelRecycleBuffer, "MediaPlayer::BufferingPolicy::PurgeResources is not AVPlayerResourceConservationLevelRecycleBuffer as expected");
 
-    if ([m_avPlayer respondsToSelector:@selector(setResourceConservationLevelWhilePaused:)]) {
-        m_avPlayer.get().resourceConservationLevelWhilePaused = static_cast<AVPlayerResourceConservationLevel>(policy);
-        updateStates();
-        return;
-    }
-#endif
+    m_avPlayer.get().resourceConservationLevelWhilePaused = static_cast<AVPlayerResourceConservationLevel>(policy);
 
+    // FIXME: Remove this workaround once rdar://123901202 is fixed.
+    if (isMovingFromResourcesPurgeableBufferPolicy && m_provider)
+        m_provider->recreateAudioMixIfNeeded();
+
+#else
     switch (policy) {
     case MediaPlayer::BufferingPolicy::Default:
         setAVPlayerItem(m_avPlayerItem.get());
@@ -3640,6 +3665,7 @@ void MediaPlayerPrivateAVFoundationObjC::setBufferingPolicy(MediaPlayer::Bufferi
         setAVPlayerItem(m_avPlayerItem.get());
         break;
     }
+#endif
 
     updateStates();
 }
@@ -3904,7 +3930,7 @@ std::optional<VideoPlaybackQualityMetrics> MediaPlayerPrivateAVFoundationObjC::v
 
 std::optional<VideoPlaybackQualityMetrics> MediaPlayerPrivateAVFoundationObjC::videoPlaybackQualityMetrics(AVPlayerLayer* videoLayer) const
 {
-    if (!videoLayer || ![videoLayer respondsToSelector:@selector(videoPerformanceMetrics)])
+    if (!videoLayer)
         return std::nullopt;
 
 #if PLATFORM(WATCHOS)
@@ -3916,16 +3942,12 @@ ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
     if (!metrics)
         return std::nullopt;
 
-    uint32_t displayCompositedFrames = 0;
-    if ([metrics respondsToSelector:@selector(numberOfDisplayCompositedVideoFrames)])
-        displayCompositedFrames = [metrics numberOfDisplayCompositedVideoFrames];
-
     return VideoPlaybackQualityMetrics {
         static_cast<uint32_t>([metrics totalNumberOfVideoFrames]),
         static_cast<uint32_t>([metrics numberOfDroppedVideoFrames]),
         static_cast<uint32_t>([metrics numberOfCorruptedVideoFrames]),
         [metrics totalFrameDelay],
-        displayCompositedFrames,
+        static_cast<uint32_t>([metrics numberOfDisplayCompositedVideoFrames]),
     };
 
 ALLOW_NEW_API_WITHOUT_GUARDS_END
@@ -3986,7 +4008,7 @@ END_BLOCK_OBJC_EXCEPTIONS
 void MediaPlayerPrivateAVFoundationObjC::setPreferredDynamicRangeMode(DynamicRangeMode mode)
 {
 #if HAVE(AVPLAYER_VIDEORANGEOVERRIDE)
-    if (m_avPlayer && [m_avPlayer respondsToSelector:@selector(setVideoRangeOverride:)])
+    if (m_avPlayer)
         m_avPlayer.get().videoRangeOverride = convertDynamicRangeModeEnumToAVVideoRange(mode);
 #else
     UNUSED_PARAM(mode);
@@ -4053,47 +4075,53 @@ void MediaPlayerPrivateAVFoundationObjC::updateSpatialTrackingLabel()
         return;
 
     if (!m_spatialTrackingLabel.isNull()) {
+        INFO_LOG(LOGIDENTIFIER, "Explicitly set STSLabel: ", m_spatialTrackingLabel);
         [m_avPlayer _setSTSLabel:m_spatialTrackingLabel];
         return;
     }
 
-    if (m_videoLayer) {
-        // Let AVPlayer manage setting the spatial tracking label in its AVPlayerLayer itself;
+    if (m_videoLayer && isVisible()) {
+        // If the media player has a renderer, and that renderer belongs to a page that is visible,
+        // then let AVPlayer manage setting the spatial tracking label in its AVPlayerLayer itself;
+        INFO_LOG(LOGIDENTIFIER, "No videoLayer, set STSLabel: nil");
         [m_avPlayer _setSTSLabel:nil];
         return;
     }
 
     if (!m_defaultSpatialTrackingLabel.isNull()) {
         // If a default spatial tracking label was explicitly set, use it.
+        INFO_LOG(LOGIDENTIFIER, "Default STSLabel: ", m_defaultSpatialTrackingLabel);
         [m_avPlayer _setSTSLabel:m_defaultSpatialTrackingLabel];
         return;
     }
 
     // If there is no AVPlayerLayer, and no default spatial tracking label is available, use the session's spatial tracking label.
     AVAudioSession *session = [PAL::getAVAudioSessionClass() sharedInstance];
+    INFO_LOG(LOGIDENTIFIER, "AVAudioSession label: ", session.spatialTrackingLabel);
     [m_avPlayer _setSTSLabel:session.spatialTrackingLabel];
 }
 #endif
 
-void MediaPlayerPrivateAVFoundationObjC::setVideoReceiverEndpoint(const VideoReceiverEndpoint& endpoint)
+void MediaPlayerPrivateAVFoundationObjC::setVideoTarget(const PlatformVideoTarget& videoTarget)
 {
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     assertIsMainThread();
 
-    if (!endpoint) {
+    if (m_videoTarget.get() == videoTarget.get())
+        return;
+
+    ALWAYS_LOG(LOGIDENTIFIER, !!videoTarget);
+    if (m_videoTarget)
+        [m_avPlayer removeVideoTarget:m_videoTarget.get()];
+
+    m_videoTarget = videoTarget;
+
+    if (m_videoTarget)
+        [m_avPlayer addVideoTarget:m_videoTarget.get()];
+    else
         [m_videoLayer setPlayer:m_avPlayer.get()];
-        return;
-    }
-
-    FigVideoTargetRef videoTarget;
-    OSStatus status = FigVideoTargetCreateWithVideoReceiverEndpointID(kCFAllocatorDefault, endpoint.get(), nullptr, &videoTarget);
-    if (status != noErr)
-        return;
-
-    m_videoTarget = adoptCF(videoTarget);
-    [m_avPlayer addVideoTarget:m_videoTarget.get()];
 #else
-    UNUSED_PARAM(endpoint);
+    UNUSED_PARAM(videoTarget);
 #endif
 }
 
@@ -4102,10 +4130,14 @@ void MediaPlayerPrivateAVFoundationObjC::isInFullscreenOrPictureInPictureChanged
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     assertIsMainThread();
 
+    if (!m_videoTarget)
+        return;
     if (isInFullscreenOrPictureInPicture)
         [m_videoLayer setPlayer:nil];
-    else if (RetainPtr videoTarget = std::exchange(m_videoTarget, nullptr))
+    else if (RetainPtr videoTarget = std::exchange(m_videoTarget, nullptr)) {
+        INFO_LOG(LOGIDENTIFIER, "Clearing videoTarget");
         [m_avPlayer removeVideoTarget:videoTarget.get()];
+    }
 #else
     UNUSED_PARAM(isInFullscreenOrPictureInPicture);
 #endif

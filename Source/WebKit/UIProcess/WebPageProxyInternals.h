@@ -47,6 +47,7 @@
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceRequest.h>
 #include <pal/HysteresisActivity.h>
+#include <wtf/UUID.h>
 
 #if ENABLE(APPLE_PAY)
 #include "WebPaymentCoordinatorProxy.h"
@@ -292,6 +293,11 @@ struct WebPageProxy::Internals final : WebPopupMenuProxy::Client
     Deque<QueuedTouchEvents> touchEventQueue;
 #endif
 
+#if ENABLE(WRITING_TOOLS)
+    HashMap<WTF::UUID, WebCore::TextIndicatorData> textIndicatorDataForAnimationID;
+    HashMap<WTF::UUID, CompletionHandler<void()>> completionHandlerForAnimationID;
+#endif
+
     MonotonicTime didFinishDocumentLoadForMainFrameTimestamp;
     MonotonicTime lastActivationTimestamp;
     MonotonicTime didCommitLoadForMainFrameTimestamp;
@@ -321,6 +327,12 @@ struct WebPageProxy::Internals final : WebPopupMenuProxy::Client
     std::unique_ptr<WebPageProxyFrameLoadStateObserver> frameLoadStateObserver;
     HashMap<WebCore::RegistrableDomain, OptionSet<WebCore::WindowProxyProperty>> windowOpenerAccessedProperties;
 #endif
+
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    RunLoop::Timer activityStateChangeTimer;
+#endif
+
+    bool allowsLayoutViewportHeightExpansion { true };
 
     explicit Internals(WebPageProxy&);
 

@@ -58,10 +58,11 @@
 #endif
 
 #if USE(EXTENSIONKIT)
+#import "AssertionCapability.h"
+#import "ExtensionKitSPI.h"
 #import <BrowserEngineKit/BENetworkingProcess.h>
 #import <BrowserEngineKit/BERenderingProcess.h>
 #import <BrowserEngineKit/BEWebContentProcess.h>
-#import "ExtensionKitSPI.h"
 
 #if USE(LEGACY_EXTENSIONKIT_SPI)
 SOFT_LINK_FRAMEWORK_OPTIONAL(ServiceExtensions);
@@ -125,11 +126,30 @@ static void launchWithExtensionKitFallback(ProcessLauncher& processLauncher, Pro
 }
 #endif // USE(LEGACY_EXTENSIONKIT_SPI)
 
+bool ProcessLauncher::hasExtensionsInAppBundle()
+{
+#if PLATFORM(IOS_SIMULATOR)
+    static bool hasExtensions = false;
+    static dispatch_once_t flag;
+    dispatch_once(&flag, ^{
+        hasExtensions = [[NSBundle mainBundle] pathForResource:@"WebContentExtension" ofType:@"appex" inDirectory:@"Extensions"]
+            && [[NSBundle mainBundle] pathForResource:@"NetworkingExtension" ofType:@"appex" inDirectory:@"Extensions"]
+            && [[NSBundle mainBundle] pathForResource:@"GPUExtension" ofType:@"appex" inDirectory:@"Extensions"];
+    });
+    return hasExtensions;
+#else
+    return false;
+#endif
+}
+
 static void launchWithExtensionKit(ProcessLauncher& processLauncher, ProcessLauncher::ProcessType processType, ProcessLauncher::Client* client, WTF::Function<void(ThreadSafeWeakPtr<ProcessLauncher> weakProcessLauncher, ExtensionProcess&& process, ASCIILiteral name, NSError *error)>&& handler)
 {
 #if USE(LEGACY_EXTENSIONKIT_SPI)
-    launchWithExtensionKitFallback(processLauncher, processType, client, WTFMove(handler));
-#else
+    if (!ProcessLauncher::hasExtensionsInAppBundle()) {
+        launchWithExtensionKitFallback(processLauncher, processType, client, WTFMove(handler));
+        return;
+    }
+#endif
     auto [name, identifier] = serviceNameAndIdentifier(processType, client, processLauncher.isRetryingLaunch());
 
     switch (processType) {
@@ -137,25 +157,33 @@ static void launchWithExtensionKit(ProcessLauncher& processLauncher, ProcessLaun
         auto block = makeBlockPtr([handler = WTFMove(handler), weakProcessLauncher = ThreadSafeWeakPtr { processLauncher }, name = name](BEWebContentProcess *_Nullable process, NSError *_Nullable error) {
             handler(WTFMove(weakProcessLauncher), process, name, error);
         });
-        [BEWebContentProcess webContentProcessWithBundleID:identifier.get() interruptionHandler: ^{ } completion:block.get()];
+        if (ProcessLauncher::hasExtensionsInAppBundle())
+            [BEWebContentProcess webContentProcessWithInterruptionHandler:^{ } completion:block.get()];
+        else
+            [BEWebContentProcess webContentProcessWithBundleID:identifier.get() interruptionHandler:^{ } completion:block.get()];
         break;
     }
     case ProcessLauncher::ProcessType::Network: {
         auto block = makeBlockPtr([handler = WTFMove(handler), weakProcessLauncher = ThreadSafeWeakPtr { processLauncher }, name = name](BENetworkingProcess *_Nullable process, NSError *_Nullable error) {
             handler(WTFMove(weakProcessLauncher), process, name, error);
         });
-        [BENetworkingProcess networkProcessWithBundleID:identifier.get() interruptionHandler: ^{ } completion:block.get()];
+        if (ProcessLauncher::hasExtensionsInAppBundle())
+            [BENetworkingProcess networkProcessWithInterruptionHandler:^{ } completion:block.get()];
+        else
+            [BENetworkingProcess networkProcessWithBundleID:identifier.get() interruptionHandler:^{ } completion:block.get()];
         break;
     }
     case ProcessLauncher::ProcessType::GPU: {
         auto block = makeBlockPtr([handler = WTFMove(handler), weakProcessLauncher = ThreadSafeWeakPtr { processLauncher }, name = name](BERenderingProcess *_Nullable process, NSError *_Nullable error) {
             handler(WTFMove(weakProcessLauncher), process, name, error);
         });
-        [BERenderingProcess renderingProcessWithBundleID:identifier.get() interruptionHandler: ^{ } completion:block.get()];
+        if (ProcessLauncher::hasExtensionsInAppBundle())
+            [BERenderingProcess renderingProcessWithInterruptionHandler:^{ } completion:block.get()];
+        else
+            [BERenderingProcess renderingProcessWithBundleID:identifier.get() interruptionHandler:^{ } completion:block.get()];
         break;
     }
     }
-#endif
 }
 #endif // USE(EXTENSIONKIT)
 
@@ -195,13 +223,14 @@ Ref<LaunchGrant> LaunchGrant::create(ExtensionProcess& process)
 
 LaunchGrant::LaunchGrant(ExtensionProcess& process)
 {
-    BEProcessCapability* capability = [BEProcessCapability foreground];
-    m_grant = process.grantCapability(capability);
+    AssertionCapability capability(emptyString(), "com.apple.webkit"_s, "Foreground"_s);
+    auto grant = process.grantCapability(capability.platformCapability());
+    m_grant.setPlatformGrant(WTFMove(grant));
 }
 
 LaunchGrant::~LaunchGrant()
 {
-    [m_grant invalidate];
+    m_grant.invalidate();
 }
 #endif
 
@@ -359,6 +388,8 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
             xpc_dictionary_set_bool(bootstrapMessage.get(), "enable-shared-array-buffer", true);
         if (m_client->shouldEnableLockdownMode())
             xpc_dictionary_set_bool(bootstrapMessage.get(), "enable-captive-portal-mode", true);
+        if (m_client->shouldDisableJITCage())
+            xpc_dictionary_set_bool(bootstrapMessage.get(), "disable-jit-cage", true);
     }
 
     xpc_dictionary_set_string(bootstrapMessage.get(), "message-name", "bootstrap");
@@ -501,15 +532,13 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
 
 void ProcessLauncher::terminateProcess()
 {
-    if (m_isLaunching) {
-        terminateXPCConnection();
-        return;
-    }
+#if USE(EXTENSIONKIT)
+    if (m_process)
+        m_process->invalidate();
+#endif
 
-    if (!m_processID)
-        return;
+    terminateXPCConnection();
 
-    kill(m_processID, SIGKILL);
     m_processID = 0;
 }
 
@@ -530,7 +559,9 @@ void ProcessLauncher::terminateXPCConnection()
         return;
 
     xpc_connection_cancel(m_xpcConnection.get());
+#if !USE(EXTENSIONKIT)
     terminateWithReason(m_xpcConnection.get(), WebKit::ReasonCode::Invalidation, "ProcessLauncher::platformInvalidate");
+#endif
     m_xpcConnection = nullptr;
 }
 

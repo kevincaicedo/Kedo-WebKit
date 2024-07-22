@@ -6,61 +6,79 @@ button is a leaf node with sub-level elements presentational.
 heading is block level, and can contain sub-level interactives like links.
 link (a[href]) is an interactive inline element that can include non-presentational descendants.
 ARIA roles, inline
+
 label
 label
 label
 
 ARIA roles, block
+
 label
 label
 label
 
 simple
+
 label
 label
+
 label
 
 simple with ::before
+
 label
 label
+
 label
 
 simple with ::after
+
 label
 label
+
 label
 
 simple with ::before and ::after
+
 label
 label
+
 label
 
 no space joiners ::before and ::after
+
 label
 label
+
 label
 
 Arabic right-to-left (RTL) with ::before and ::after
-اسم
+
 اسم
 اسم
 
+اسم
+
 Alternative Text for CSS content (previously `alt:`) in pseudo-elements
+
 rendered text should be "before label after"
 
 accessibility label should be "alt-before label alt-after"
 
 label
 label
+
 label
 
 Mixed Alternative Text (attr() and strings) for CSS content (previously `alt:`) in pseudo-elements
+
 rendered text should be "before label after"
 
 accessibility label should be "start alt-before end label start alt-after end"
 
 label
 label
+
 label
 
 Empty alternative text for CSS content in pseudo-elements when applied to primitive appearance form controls
@@ -68,42 +86,58 @@ Empty alternative text for CSS content in pseudo-elements when applied to primit
 
 
 
+
 simple w/ for each child
+
 one two three
 one two three
+
 one two three
 
 simple for each child with image
+
 one  three
 one  three
+
 one  three
 
 simple for each child with extra nesting containing image
-one two  four
+
 one two  four
 one two  four
 
+one two  four
+
 heading with nested button with nested image
+
 heading  button   button  heading
+
 heading with nested link with nested image
+
 heading link   link heading
+
 heading with nested link with nested image using aria-label
+
 heading ignored link text   ignored link text heading
+
 heading with nested link with nested image using aria-labelledby
+
 heading ignored link text   ignored link text heading
+
 heading with two nested links referencing image using aria-labelledby
+
 link1 link2   link3
-heading with link referencing image using aria-labelledby, that in turn references text element via aria-labelledby
-link
-heading with link referencing image using aria-labelledby, that in turn references itself and another element via aria-labelledby
-link
+
 simple w/ for each child (w/o spaces and display:inline)
+
 onetwothree
 onetwothree
+
 onetwothree
 
 simple w/ for each child (w/o spaces and display:block)
 
+
 one
 two
 three
@@ -111,14 +145,17 @@ three
 one
 two
 three
+
 one
 two
 three
 
 
 simple w/ for each child (w/o spaces and display:inline block)
+
 onetwothree
 onetwothree
+
 onetwothree
 
 
@@ -180,14 +217,6 @@ FAIL heading name from content for each child including two nested links using a
   </a>
 </h3> expected "image link2 link3" but got "image link2 image link3"
 PASS link name from content for each child including nested image (referenced elsewhere via labelledby)
-PASS heading with link referencing image using aria-labelledby, that in turn references text element via aria-labelledby
-FAIL heading with link referencing image using aria-labelledby, that in turn references itself and another element via aria-labelledby assert_equals: <h3 data-expectedlabel="image link" data-testname="heading with link referencing image using aria-labelledby, that in turn references itself and another element via aria-labelledby" class="ex">
-  <a href="#" aria-labelledby="nested_image_label4">
-    <span class="note" id="crossref_link2">link</span><!-- this text is skipped the first time around because of aria-labelledby on parent element -->
-  </a>
-  <!-- but it's picked up again (after the self-referencial image alt) in inverse order b/c of cross-referencial aria-labelledby edge case -->
-  <img id="nested_image_label4" alt="image" aria-labelledby="nested_image_label4 crossref_link2" src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==">
-</h3> expected "image link" but got "image image link"
 PASS button name from content for each child (no space, inline)
 PASS heading name from content for each child (no space, inline)
 PASS link name from content for each child (no space, inline)

@@ -30,6 +30,7 @@
 #include "InspectorFrontendRouter.h"
 #include <wtf/JSONValues.h>
 #include <wtf/SetForScope.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
@@ -39,9 +40,7 @@ SupplementalBackendDispatcher::SupplementalBackendDispatcher(BackendDispatcher& 
 {
 }
 
-SupplementalBackendDispatcher::~SupplementalBackendDispatcher()
-{
-}
+SupplementalBackendDispatcher::~SupplementalBackendDispatcher() = default;
 
 BackendDispatcher::CallbackBase::CallbackBase(Ref<BackendDispatcher>&& backendDispatcher, long requestId)
     : m_backendDispatcher(WTFMove(backendDispatcher))

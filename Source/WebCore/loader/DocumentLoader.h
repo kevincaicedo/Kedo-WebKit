@@ -40,6 +40,7 @@
 #include "DocumentWriter.h"
 #include "ElementTargetingTypes.h"
 #include "FrameDestructionObserver.h"
+#include "FrameLoaderTypes.h"
 #include "LinkIcon.h"
 #include "NavigationAction.h"
 #include "ResourceError.h"
@@ -329,7 +330,7 @@ public:
     void setMainResourceDataBufferingPolicy(DataBufferingPolicy);
 
     void startLoadingMainResource();
-    WEBCORE_EXPORT void cancelMainResourceLoad(const ResourceError&);
+    WEBCORE_EXPORT void cancelMainResourceLoad(const ResourceError&, LoadWillContinueInAnotherProcess = LoadWillContinueInAnotherProcess::No);
     void willContinueMainResourceLoadAfterRedirect(const ResourceRequest&);
 
     bool isLoadingMainResource() const { return m_loadingMainResource; }
@@ -507,6 +508,8 @@ public:
     uint64_t navigationID() const { return m_navigationID; }
     WEBCORE_EXPORT void setNavigationID(uint64_t);
 
+    bool isInitialAboutBlank() const { return m_isInitialAboutBlank; }
+
 protected:
     WEBCORE_EXPORT DocumentLoader(const ResourceRequest&, const SubstituteData&);
 
@@ -539,11 +542,11 @@ private:
 
     void willSendRequest(ResourceRequest&&, const ResourceResponse&, CompletionHandler<void(ResourceRequest&&)>&&);
     void finishedLoading();
-    void mainReceivedError(const ResourceError&);
+    void mainReceivedError(const ResourceError&, LoadWillContinueInAnotherProcess = LoadWillContinueInAnotherProcess::No);
     WEBCORE_EXPORT void redirectReceived(CachedResource&, ResourceRequest&&, const ResourceResponse&, CompletionHandler<void(ResourceRequest&&)>&&) override;
     WEBCORE_EXPORT void responseReceived(CachedResource&, const ResourceResponse&, CompletionHandler<void()>&&) override;
     WEBCORE_EXPORT void dataReceived(CachedResource&, const SharedBuffer&) override;
-    WEBCORE_EXPORT void notifyFinished(CachedResource&, const NetworkLoadMetrics&) override;
+    WEBCORE_EXPORT void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) override;
 #if USE(QUICK_LOOK)
     WEBCORE_EXPORT void previewResponseReceived(CachedResource&, const ResourceResponse&) override;
 #endif
@@ -575,7 +578,7 @@ private:
     bool tryLoadingRedirectRequestFromApplicationCache(const ResourceRequest&);
     void continueAfterContentPolicy(PolicyAction);
 
-    void stopLoadingForPolicyChange();
+    void stopLoadingForPolicyChange(LoadWillContinueInAnotherProcess = LoadWillContinueInAnotherProcess::No);
     ResourceError interruptedForPolicyChangeError() const;
 
     void handleSubstituteDataLoadNow();
@@ -747,6 +750,7 @@ private:
     bool m_isLoadingMultipartContent { false };
     bool m_isContinuingLoadAfterProvisionalLoadStarted { false };
     bool m_isInFinishedLoadingOfEmptyDocument { false };
+    bool m_isInitialAboutBlank { false };
 
     // FIXME: Document::m_processingLoadEvent and DocumentLoader::m_wasOnloadDispatched are roughly the same
     // and should be merged.

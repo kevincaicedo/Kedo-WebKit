@@ -37,6 +37,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextStream.h>
 #include <wtf/text/WTFString.h>
 
@@ -706,7 +707,7 @@ FloatRect GraphicsLayer::adjustCoverageRectForMovement(const FloatRect& coverage
 String GraphicsLayer::animationNameForTransition(AnimatedProperty property)
 {
     // | is not a valid identifier character in CSS, so this can never conflict with a keyframe identifier.
-    return makeString("-|transition", static_cast<int>(property), '-');
+    return makeString("-|transition"_s, static_cast<int>(property), '-');
 }
 
 void GraphicsLayer::suspendAnimations(MonotonicTime)
@@ -792,7 +793,7 @@ int GraphicsLayer::validateFilterOperations(const KeyframeValueList& valueList)
     // Empty filters match anything, so find the first non-empty entry as the reference
     size_t firstIndex = 0;
     for ( ; firstIndex < valueList.size(); ++firstIndex) {
-        if (!filterOperationsAt(valueList, firstIndex).operations().isEmpty())
+        if (!filterOperationsAt(valueList, firstIndex).isEmpty())
             break;
     }
 
@@ -804,8 +805,8 @@ int GraphicsLayer::validateFilterOperations(const KeyframeValueList& valueList)
     for (size_t i = firstIndex + 1; i < valueList.size(); ++i) {
         const FilterOperations& val = filterOperationsAt(valueList, i);
         
-        // An emtpy filter list matches anything.
-        if (val.operations().isEmpty())
+        // An empty filter list matches anything.
+        if (val.isEmpty())
             continue;
         
         if (!firstVal.operationsMatch(val))
@@ -868,6 +869,12 @@ void GraphicsLayer::traverse(GraphicsLayer& layer, const Function<void(GraphicsL
 
     if (auto* maskLayer = layer.maskLayer())
         traverse(*maskLayer, traversalFunc);
+}
+
+void GraphicsLayer::setTileCoverage(TileCoverage coverage)
+{
+    if (auto* backing = tiledBacking())
+        backing->setTileCoverage(coverage);
 }
 
 void GraphicsLayer::dumpLayer(TextStream& ts, OptionSet<LayerTreeAsTextOptions> options) const

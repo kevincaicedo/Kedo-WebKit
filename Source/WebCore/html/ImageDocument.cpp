@@ -50,7 +50,7 @@
 #include "RenderElement.h"
 #include "Settings.h"
 #include <wtf/IsoMallocInlines.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -230,7 +230,6 @@ void ImageDocument::createDocumentStructure()
 {
     auto rootElement = HTMLHtmlElement::create(*this);
     appendChild(rootElement);
-    rootElement->insertedByParser();
     rootElement->setInlineStyleProperty(CSSPropertyHeight, 100, CSSUnitType::CSS_PERCENTAGE);
 
     if (RefPtr localFrame = frame())
@@ -289,7 +288,7 @@ void ImageDocument::imageUpdated()
 #if PLATFORM(IOS_FAMILY)
         FloatSize screenSize = page()->chrome().screenSize();
         if (imageSize.width() > screenSize.width())
-            processViewport(makeString("width=", imageSize.width().toInt(), ",viewport-fit=cover"), ViewportArguments::Type::ImageDocument);
+            processViewport(makeString("width="_s, imageSize.width().toInt(), ",viewport-fit=cover"_s), ViewportArguments::Type::ImageDocument);
 
         if (page())
             page()->chrome().client().imageOrMediaDocumentSizeChanged(IntSize(imageSize.width(), imageSize.height()));
@@ -428,7 +427,7 @@ void ImageDocument::imageClicked(int x, int y)
 void ImageEventListener::handleEvent(ScriptExecutionContext&, Event& event)
 {
     RefPtr document = m_document.get();
-    if (auto* mouseEvent = dynamicDowncast<MouseEvent>(event); mouseEvent && event.type() == eventNames().clickEvent && document)
+    if (auto* mouseEvent = dynamicDowncast<MouseEvent>(event); mouseEvent && isAnyClick(event) && document)
         document->imageClicked(mouseEvent->offsetX(), mouseEvent->offsetY());
 }
 

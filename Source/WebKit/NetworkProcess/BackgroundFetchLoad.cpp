@@ -35,6 +35,7 @@
 #include "WebErrors.h"
 #include <WebCore/BackgroundFetchRequest.h>
 #include <WebCore/ClientOrigin.h>
+#include <wtf/text/MakeString.h>
 
 #define BGLOAD_RELEASE_LOG(fmt, ...) RELEASE_LOG(Network, "%p - BackgroundFetchLoad::" fmt, this, ##__VA_ARGS__)
 
@@ -54,7 +55,7 @@ BackgroundFetchLoad::BackgroundFetchLoad(NetworkProcess& networkProcess, PAL::Se
     }
 
     if (responseDataSize)
-        m_request.setHTTPHeaderField(HTTPHeaderName::Range, makeString("bytes=", responseDataSize, '-'));
+        m_request.setHTTPHeaderField(HTTPHeaderName::Range, makeString("bytes="_s, responseDataSize, '-'));
 
     m_networkLoadChecker->enableContentExtensionsCheck();
     if (request.cspResponseHeaders)

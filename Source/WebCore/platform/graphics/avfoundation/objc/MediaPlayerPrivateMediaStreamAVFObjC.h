@@ -131,7 +131,7 @@ private:
     bool hasVideo() const override;
     bool hasAudio() const override;
 
-    void setPageIsVisible(bool, String&& sceneIdentifier) final;
+    void setPageIsVisible(bool) final;
     void setVisibleForCanvas(bool) final;
     void setVisibleInViewport(bool) final;
 
@@ -289,6 +289,9 @@ private:
 
     // SampleBufferDisplayLayerClient
     void sampleBufferDisplayLayerStatusDidFail() final;
+#if PLATFORM(IOS_FAMILY)
+    bool canShowWhileLocked() const final;
+#endif
 
     RetainPtr<WebRootSampleBufferBoundsChangeListener> m_boundsChangeListener;
 

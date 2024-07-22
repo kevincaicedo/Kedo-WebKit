@@ -29,6 +29,7 @@
 #include <Shlwapi.h>
 #include <wtf/FileSystem.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 
 namespace TestWebKitAPI {
 namespace Util {
@@ -50,7 +51,7 @@ WKStringRef createInjectedBundlePath()
 
 WKURLRef createURLForResource(const char* resource, const char* extension)
 {
-    String filename = makeString("..\\..\\..\\Tools\\TestWebKitAPI\\Tests\\WebKit\\", resource, '.', extension);
+    String filename = makeString("..\\..\\..\\Tools\\TestWebKitAPI\\Tests\\WebKit\\"_s, span(resource), '.', span(extension));
     auto url = URL::fileURLWithFileSystemPath(FileSystem::pathByAppendingComponent(moduleDirectory(), filename));
     return WKURLCreateWithUTF8CString(url.string().utf8().data());
 }

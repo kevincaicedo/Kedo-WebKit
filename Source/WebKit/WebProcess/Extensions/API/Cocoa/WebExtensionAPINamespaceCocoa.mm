@@ -38,7 +38,7 @@
 
 namespace WebKit {
 
-bool WebExtensionAPINamespace::isPropertyAllowed(const ASCIILiteral& name, WebPage& page)
+bool WebExtensionAPINamespace::isPropertyAllowed(const ASCIILiteral& name, WebPage* page)
 {
     if (UNLIKELY(extensionContext().isUnsupportedAPI(propertyPath(), name)))
         return false;
@@ -57,7 +57,7 @@ bool WebExtensionAPINamespace::isPropertyAllowed(const ASCIILiteral& name, WebPa
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
     if (name == "devtools"_s)
-        return objectForKey<NSString>(extensionContext().manifest(), @"devtools_page") && (page.isInspectorPage() || extensionContext().isInspectorBackgroundPage(page));
+        return objectForKey<NSString>(extensionContext().manifest(), @"devtools_page") && page && (page->isInspectorPage() || extensionContext().isInspectorBackgroundPage(*page));
 #else
     if (name == "devtools"_s)
         return false;
@@ -73,6 +73,16 @@ bool WebExtensionAPINamespace::isPropertyAllowed(const ASCIILiteral& name, WebPa
 
     if (name == "pageAction"_s)
         return !extensionContext().supportsManifestVersion(3) && objectForKey<NSDictionary>(extensionContext().manifest(), @"page_action", false);
+
+#if ENABLE(WK_WEB_EXTENSIONS_SIDEBAR)
+    // FIXME: <https://webkit.org/b/276833> Check if the sidebar feature flag is enabled and if we have the sidePanel permission to determine if this property should be visible
+    if (name == "sidePanel"_s)
+        return false;
+
+    // FIXME: <https://webkit.org/b/276833> Check if the sidebar feature flag is enabled and if we have a sidebarAction key in the manifest to determine if this property should be visible
+    if (name == "sidebarAction"_s)
+        return false;
+#endif
 
     if (name == "storage"_s)
         return extensionContext().hasPermission(name) || extensionContext().hasPermission("unlimitedStorage"_s);
@@ -219,6 +229,28 @@ WebExtensionAPIScripting& WebExtensionAPINamespace::scripting()
 
     return *m_scripting;
 }
+
+#if ENABLE(WK_WEB_EXTENSIONS_SIDEBAR)
+WebExtensionAPISidePanel& WebExtensionAPINamespace::sidePanel()
+{
+    // Documentation: https://developer.chrome.com/docs/extensions/reference/api/sidePanel
+
+    if (!m_sidePanel)
+        m_sidePanel = WebExtensionAPISidePanel::create(*this);
+
+    return *m_sidePanel;
+}
+
+WebExtensionAPISidebarAction& WebExtensionAPINamespace::sidebarAction()
+{
+    // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/sidebarAction
+
+    if (!m_sidebarAction)
+        m_sidebarAction = WebExtensionAPISidebarAction::create(*this);
+
+    return *m_sidebarAction;
+}
+#endif
 
 WebExtensionAPIStorage& WebExtensionAPINamespace::storage()
 {

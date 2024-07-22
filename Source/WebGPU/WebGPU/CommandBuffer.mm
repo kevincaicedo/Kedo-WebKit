@@ -51,6 +51,9 @@ void CommandBuffer::setLabel(String&& label)
 
 void CommandBuffer::makeInvalid(NSString* lastError)
 {
+    if (!m_commandBuffer || m_commandBuffer.status >= MTLCommandBufferStatusCommitted)
+        return;
+
     [m_abortEvent setSignaledValue:1];
     m_lastErrorString = lastError;
     m_device->getQueue().commitMTLCommandBuffer(m_commandBuffer);
@@ -59,11 +62,6 @@ void CommandBuffer::makeInvalid(NSString* lastError)
 
 void CommandBuffer::makeInvalidDueToCommit(NSString* lastError)
 {
-    m_cachedCommandBuffer = m_commandBuffer;
-    [m_commandBuffer addCompletedHandler:[protectedThis = Ref { *this }](id<MTLCommandBuffer>) {
-        protectedThis->m_commandBufferComplete.signal();
-        protectedThis->m_cachedCommandBuffer = nil;
-    }];
     m_lastErrorString = lastError;
     m_commandBuffer = nil;
 }
@@ -83,12 +81,14 @@ int CommandBuffer::bufferMapCount() const
     return m_bufferMapCount;
 }
 
-void CommandBuffer::waitForCompletion()
+void CommandBuffer::onCompletion(Function<void()>&& completion)
 {
-    auto status = [m_cachedCommandBuffer status];
-    constexpr auto commandBufferSubmissionTimeout = 5000_ms;
-    if (status == MTLCommandBufferStatusCommitted || status == MTLCommandBufferStatusScheduled)
-        m_commandBufferComplete.waitFor(commandBufferSubmissionTimeout);
+    if (!m_commandBuffer)
+        return completion();
+
+    [m_commandBuffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+        completion();
+    }];
 }
 
 } // namespace WebGPU

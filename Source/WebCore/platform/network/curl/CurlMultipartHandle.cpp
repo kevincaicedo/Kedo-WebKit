@@ -36,6 +36,7 @@
 #include "ParsedContentType.h"
 #include "SharedBuffer.h"
 #include <wtf/StringExtras.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -58,7 +59,7 @@ static std::optional<CString> extractBoundary(const CurlResponse& response)
         if (boundary.isEmpty())
             return std::nullopt;
 
-        return makeString("--", boundary).latin1();
+        return makeString("--"_s, boundary).latin1();
     }
 
     return std::nullopt;
@@ -305,7 +306,7 @@ CurlMultipartHandle::ParseHeadersResult CurlMultipartHandle::parseHeadersIfPossi
         if (name.isEmpty())
             break;
 
-        m_headers.append(makeString(name, ": ", value, "\r\n"));
+        m_headers.append(makeString(name, ": "_s, value, "\r\n"_s));
     }
 
     m_buffer.remove(0, end - contentStartPtr);

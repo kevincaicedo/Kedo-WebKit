@@ -30,6 +30,7 @@
 #include "IntSize.h"
 #include "NotImplemented.h"
 #include <wtf/MathExtras.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextBreakIterator.h>
 #include <wtf/unicode/CharacterNames.h>
 
@@ -503,10 +504,10 @@ String contextMenuItemTagTranslate(const String& selectedString)
 }
 #endif
 
-#if ENABLE(UNIFIED_TEXT_REPLACEMENT)
-String contextMenuItemTagSwapCharacters()
+#if ENABLE(WRITING_TOOLS)
+String contextMenuItemTagWritingTools()
 {
-    return WEB_UI_STRING("Swap characters", "Swap characters context menu item");
+    return WEB_UI_STRING("Writing Tools", "Writing Tools context menu item");
 }
 #endif
 

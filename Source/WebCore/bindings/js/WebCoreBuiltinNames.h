@@ -205,6 +205,7 @@ namespace WebCore {
     macro(FileSystemFileHandle) \
     macro(FileSystemHandle) \
     macro(FileSystemSyncAccessHandle) \
+    macro(FragmentDirective) \
     macro(GainNode) \
     macro(GPU) \
     macro(GPUAdapter) \
@@ -324,6 +325,7 @@ namespace WebCore {
     macro(NavigatorUserMedia) \
     macro(Notification) \
     macro(NotificationEvent) \
+    macro(Observable) \
     macro(OfflineAudioCompletionEvent) \
     macro(OfflineAudioContext) \
     macro(OffscreenCanvas) \
@@ -433,6 +435,7 @@ namespace WebCore {
     macro(StylePropertyMap) \
     macro(StorageManager) \
     macro(StorageManagerFileSystemAccess) \
+    macro(Subscriber) \
     macro(SubtleCrypto) \
     macro(TestReportBody) \
     macro(TextDecoderStream) \
@@ -528,7 +531,6 @@ namespace WebCore {
     macro(abortSteps) \
     macro(addAbortAlgorithmToSignal) \
     macro(appendFromJS) \
-    macro(applicationCache) \
     macro(associatedReadableByteStreamController) \
     macro(autoAllocateChunkSize) \
     macro(backingMap) \

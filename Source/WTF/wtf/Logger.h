@@ -28,6 +28,7 @@
 #include <wtf/Assertions.h>
 #include <wtf/Lock.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 #if ENABLE(JOURNALD_LOG)
@@ -126,6 +127,7 @@ WTF_EXPORT_PRIVATE extern Lock loggerObserverLock;
 class Logger : public ThreadSafeRefCounted<Logger> {
     WTF_MAKE_NONCOPYABLE(Logger);
 public:
+    virtual ~Logger() { }
 
     class Observer {
     public:
@@ -353,7 +355,7 @@ private:
         UNUSED_PARAM(line);
         UNUSED_PARAM(function);
 #elif ENABLE(JOURNALD_LOG)
-        auto fileString = makeString("CODE_FILE="_s, file);
+        auto fileString = makeString("CODE_FILE="_s, span(file));
         auto lineString = makeString("CODE_LINE="_s, line);
         sd_journal_send_with_location(fileString.utf8().data(), lineString.utf8().data(), function, "WEBKIT_SUBSYSTEM=%s", channel.subsystem, "WEBKIT_CHANNEL=%s", channel.name, "MESSAGE=%s", logMessage.utf8().data(), nullptr);
 #else

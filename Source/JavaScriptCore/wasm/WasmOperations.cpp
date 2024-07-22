@@ -89,16 +89,17 @@ static void triggerOMGReplacementCompile(TierUpCount& tierUp, OMGCallee* replace
         return;
     }
 
+    MemoryMode memoryMode = instance->memory()->mode();
     bool compile = false;
     {
         Locker locker { tierUp.getLock() };
-        switch (tierUp.m_compilationStatusForOMG) {
+        switch (tierUp.compilationStatusForOMG(memoryMode)) {
         case TierUpCount::CompilationStatus::StartCompilation:
             tierUp.setOptimizationThresholdBasedOnCompilationResult(functionIndex, CompilationDeferred);
             return;
         case TierUpCount::CompilationStatus::NotCompiled:
             compile = true;
-            tierUp.m_compilationStatusForOMG = TierUpCount::CompilationStatus::StartCompilation;
+            tierUp.setCompilationStatusForOMG(memoryMode, TierUpCount::CompilationStatus::StartCompilation);
             break;
         default:
             break;
@@ -266,9 +267,7 @@ static void doOSREntry(Instance* instance, Probe::Context& context, BBQCallee& c
 
 inline bool shouldJIT(unsigned functionIndex)
 {
-    if (!Options::useOMGJIT() || !OMGPlan::ensureGlobalOMGAllowlist().containsWasmFunction(functionIndex))
-        return false;
-    if (!Options::wasmFunctionIndexRangeToCompile().isInRange(functionIndex))
+    if (!Options::webAssemblyFunctionIndexRangeToCompile().isInRange(functionIndex))
         return false;
     return true;
 }
@@ -340,7 +339,8 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmTriggerOSREntryNow, void, (Probe:
     };
 
     Wasm::CalleeGroup& calleeGroup = *instance->calleeGroup();
-    ASSERT(instance->memory()->mode() == calleeGroup.mode());
+    MemoryMode memoryMode = instance->memory()->mode();
+    ASSERT(memoryMode == calleeGroup.mode());
 
     uint32_t functionIndexInSpace = functionIndex + calleeGroup.functionImportCount();
     ASSERT(calleeGroup.wasmBBQCalleeFromFunctionIndexSpace(functionIndexInSpace).compilationMode() == Wasm::CompilationMode::BBQMode);
@@ -379,7 +379,7 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmTriggerOSREntryNow, void, (Probe:
     TierUpCount::CompilationStatus compilationStatus = TierUpCount::CompilationStatus::NotCompiled;
     {
         Locker locker { tierUp.getLock() };
-        compilationStatus = tierUp.m_compilationStatusForOMGForOSREntry;
+        compilationStatus = tierUp.compilationStatusForOMGForOSREntry(memoryMode);
     }
 
     bool triggeredSlowPathToStartCompilation = false;
@@ -489,8 +489,8 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmTriggerOSREntryNow, void, (Probe:
     bool startOSREntryCompilation = false;
     {
         Locker locker { tierUp.getLock() };
-        if (tierUp.m_compilationStatusForOMGForOSREntry == TierUpCount::CompilationStatus::NotCompiled) {
-            tierUp.m_compilationStatusForOMGForOSREntry = TierUpCount::CompilationStatus::StartCompilation;
+        if (tierUp.compilationStatusForOMGForOSREntry(memoryMode) == TierUpCount::CompilationStatus::NotCompiled) {
+            tierUp.setCompilationStatusForOMGForOSREntry(memoryMode, TierUpCount::CompilationStatus::StartCompilation);
             startOSREntryCompilation = true;
             // Currently, we do not have a way to jettison wasm code. This means that once we decide to compile OSR entry code for a particular loopIndex,
             // we cannot throw the compiled code so long as Wasm module is live. We immediately disable all the triggers.
@@ -979,18 +979,13 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationWasmThrow, void*, (Instance* instance
 
     const Wasm::Tag& tag = instance->tag(exceptionIndex);
 
-    FixedVector<uint64_t> values(tag.parameterCount());
-    for (unsigned i = 0; i < tag.parameterCount(); ++i)
+    FixedVector<uint64_t> values(tag.parameterBufferSize());
+    for (unsigned i = 0; i < tag.parameterBufferSize(); ++i)
         values[i] = arguments[i];
 
     ASSERT(tag.type().returnsVoid());
-    if (tag.type().numVectors()) {
-        // Note: the spec is still in flux on what to do here, so we conservatively just disallow throwing any vectors.
-        throwException(globalObject, throwScope, createTypeError(globalObject, errorMessageForExceptionType(Wasm::ExceptionType::TypeErrorInvalidV128Use)));
-    } else {
-        JSWebAssemblyException* exception = JSWebAssemblyException::create(vm, globalObject->webAssemblyExceptionStructure(), tag, WTFMove(values));
-        throwException(globalObject, throwScope, exception);
-    }
+    JSWebAssemblyException* exception = JSWebAssemblyException::create(vm, globalObject->webAssemblyExceptionStructure(), tag, WTFMove(values));
+    throwException(globalObject, throwScope, exception);
 
     genericUnwind(vm, callFrame);
     ASSERT(!!vm.callFrameForCatch);

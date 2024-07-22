@@ -58,6 +58,7 @@
 #import <wtf/MonotonicTime.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/WeakObjCPtr.h>
+#import <wtf/text/MakeString.h>
 #import <wtf/text/WTFString.h>
 
 #if PLATFORM(MAC)
@@ -938,7 +939,12 @@ TEST(_WKDownload, DISABLED_DownloadMonitorSurvive)
     EXPECT_TRUE(timeoutReached);
 }
 
+// FIXME when rdar://129011312 is resolved.
+#if PLATFORM(IOS)
+TEST(_WKDownload, DISABLED_DownloadMonitorReturnToForeground)
+#else
 TEST(_WKDownload, DownloadMonitorReturnToForeground)
+#endif
 {
     __block BOOL timeoutReached = NO;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2.5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
@@ -1185,11 +1191,11 @@ static TestWebKitAPI::HTTPServer downloadTestServer(IncludeETag includeETag = In
         case 1:
             connection.receiveHTTPRequest([includeETag, connection, terminator = WTFMove(terminator)] (Vector<char>&&) mutable {
                 auto response = makeString(
-                    "HTTP/1.1 200 OK\r\n",
-                    includeETag == IncludeETag::Yes ? "ETag: test\r\n" : "",
+                    "HTTP/1.1 200 OK\r\n"_s,
+                    includeETag == IncludeETag::Yes ? "ETag: test\r\n"_s : ""_s,
                     "Content-Length: 10000\r\n"
                     "Content-Disposition: attachment; filename=\"example.txt\"\r\n"
-                    "\r\n", longString<5000>('a')
+                    "\r\n"_s, longString<5000>('a')
                 );
                 connection.send(WTFMove(response), [connection, terminator = WTFMove(terminator)] () mutable {
                     if (terminator)
@@ -1205,7 +1211,7 @@ static TestWebKitAPI::HTTPServer downloadTestServer(IncludeETag includeETag = In
                     "ETag: test\r\n"
                     "Content-Length: 5000\r\n"
                     "Content-Range: bytes 5000-9999/10000\r\n"
-                    "\r\n", longString<5000>('b')
+                    "\r\n"_s, longString<5000>('b')
                 ));
             });
             break;
@@ -1237,7 +1243,7 @@ static TestWebKitAPI::HTTPServer simpleDownloadTestServer()
                 "ETag: test\r\n"
                 "Content-Length: 5000\r\n"
                 "Content-Disposition: attachment; filename=\"example.txt\"\r\n"
-                "\r\n", longString<5000>('a')
+                "\r\n"_s, longString<5000>('a')
             ));
         });
     }};
@@ -1754,7 +1760,7 @@ TEST(WKDownload, ResumeAfterZeroBytesReceived)
                     "HTTP/1.1 200 OK\r\n"
                     "ETag: test\r\n"
                     "Content-Length: 100\r\n"
-                    "\r\n", longString<100>('x')
+                    "\r\n"_s, longString<100>('x')
                 ));
             });
             break;
@@ -1868,7 +1874,7 @@ TEST(WKDownload, ResumeWithoutInitialDataOnDisk)
                     "ETag: test\r\n"
                     "Content-Length: 10000\r\n"
                     "Content-Disposition: attachment; filename=\"example.txt\"\r\n"
-                    "\r\n",
+                    "\r\n"_s,
                     longString<5000>('a')
                 ));
             });
@@ -1880,7 +1886,7 @@ TEST(WKDownload, ResumeWithoutInitialDataOnDisk)
                     "HTTP/1.1 200 OK\r\n"
                     "ETag: test\r\n"
                     "Content-Length: 10000\r\n"
-                    "\r\n",
+                    "\r\n"_s,
                     longString<10000>('x')
                 ));
             });
@@ -1911,7 +1917,7 @@ TEST(WKDownload, ResumeWithExtraInitialDataOnDisk)
                     "ETag: test\r\n"
                     "Content-Length: 10000\r\n"
                     "Content-Disposition: attachment; filename=\"example.txt\"\r\n"
-                    "\r\n",
+                    "\r\n"_s,
                     longString<5000>('a')
                 ));
             });
@@ -1924,7 +1930,7 @@ TEST(WKDownload, ResumeWithExtraInitialDataOnDisk)
                     "ETag: test\r\n"
                     "Content-Range: bytes 5000-9999/10000\r\n"
                     "Content-Length: 5000\r\n"
-                    "\r\n",
+                    "\r\n"_s,
                     longString<10000>('d')
                 ));
             });
@@ -1939,10 +1945,10 @@ TEST(WKDownload, ResumeWithExtraInitialDataOnDisk)
         NSError *error = nil;
         [[NSFileManager defaultManager] removeItemAtURL:expectedDownloadFile error:&error];
         EXPECT_NULL(error);
-        EXPECT_TRUE([[(NSString *)makeString(longString<3000>('b'), longString<3000>('c')) dataUsingEncoding:NSUTF8StringEncoding] writeToURL:expectedDownloadFile atomically:YES]);
+        EXPECT_TRUE([[(NSString *)makeString(longString<3000>('b'), longString<2000>('c')) dataUsingEncoding:NSUTF8StringEncoding] writeToURL:expectedDownloadFile atomically:YES]);
     });
 
-    checkFileContents(expectedDownloadFile, makeString(longString<3000>('b'), longString<3000>('c'), longString<5000>('d')));
+    checkFileContents(expectedDownloadFile, makeString(longString<3000>('b'), longString<2000>('c'), longString<5000>('d')));
 }
 
 TEST(WKDownload, ResumeWithInvalidResumeData)
@@ -2022,7 +2028,7 @@ TEST(WKDownload, UnknownContentLength)
 {
     HTTPServer server([](Connection connection) {
         connection.receiveHTTPRequest([=](Vector<char>&&) {
-            connection.send(makeString("HTTP/1.1 200 OK\r\n\r\n", longString<5000>('a')));
+            connection.send(makeString("HTTP/1.1 200 OK\r\n\r\n"_s, longString<5000>('a')));
         });
     });
     NSURL *expectedDownloadFile = tempFileThatDoesNotExist();
@@ -2719,7 +2725,7 @@ static TestWebKitAPI::HTTPServer simplePDFTestServer()
                 "HTTP/1.1 200 OK\r\n"
                 "content-type: application/pdf\r\n"
                 "Content-Length: 5000\r\n"
-                "\r\n", longString<5000>('a')
+                "\r\n"_s, longString<5000>('a')
             ));
         });
     } };
@@ -2734,6 +2740,10 @@ TEST(WKDownload, LockdownModePDF)
     [webView setNavigationDelegate:delegate.get()];
     auto server = simplePDFTestServer();
     NSURL *expectedDownloadFile = tempPDFThatDoesNotExist();
+
+    delegate.get().decidePolicyForNavigationResponse = ^(WKNavigationResponse *, void (^completionHandler)(WKNavigationResponsePolicy)) {
+        completionHandler(WKNavigationResponsePolicyAllow);
+    };
 
     delegate.get().navigationResponseDidBecomeDownload = ^(WKWebView *, WKNavigationResponse *, WKDownload *download) {
         download.delegate = delegate.get();
@@ -2767,7 +2777,7 @@ static TestWebKitAPI::HTTPServer simpleUSDZTestServer()
                 "HTTP/1.1 200 OK\r\n"
                 "content-type: model/vnd.usdz+zip\r\n"
                 "Content-Length: 5000\r\n"
-                "\r\n", longString<5000>('a')
+                "\r\n"_s, longString<5000>('a')
             ));
         });
     } };

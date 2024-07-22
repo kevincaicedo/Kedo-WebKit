@@ -32,7 +32,7 @@
 #include "BlendingKeyframes.h"
 #include "CSSPropertyNames.h"
 #include "CachedImage.h"
-#include "CanvasRenderingContext.h"
+#include "CanvasRenderingContext2DBase.h"
 #include "Chrome.h"
 #include "DebugOverlayRegions.h"
 #include "DebugPageOverlays.h"
@@ -83,6 +83,7 @@
 #include "TiledBacking.h"
 #include "ViewTransition.h"
 #include <wtf/SystemTracing.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextStream.h>
 
 #if ENABLE(FULLSCREEN_API)
@@ -113,16 +114,16 @@ using namespace HTMLNames;
 CanvasCompositingStrategy canvasCompositingStrategy(const RenderObject& renderer)
 {
     ASSERT(renderer.isRenderHTMLCanvas());
-    
-    const HTMLCanvasElement* canvas = downcast<HTMLCanvasElement>(renderer.node());
-    auto* context = canvas->renderingContext();
-    if (!context || !context->isAccelerated())
-        return UnacceleratedCanvas;
-    
-    if (context->isGPUBased())
+    RefPtr context = downcast<RenderHTMLCanvas>(renderer).canvasElement().renderingContext();
+    if (!context)
+        return CanvasPaintedToEnclosingLayer;
+    if (context->delegatesDisplay())
         return CanvasAsLayerContents;
-
-    return CanvasPaintedToLayer; // On Mac and iOS we paint accelerated canvases into their layers.
+    if (RefPtr context2D = dynamicDowncast<CanvasRenderingContext2DBase>(context)) {
+        if (context2D->isAccelerated())
+            return CanvasPaintedToLayer;
+    }
+    return CanvasPaintedToEnclosingLayer;
 }
 
 // This acts as a cache of what we know about what is painting into this RenderLayerBacking.
@@ -457,10 +458,8 @@ void RenderLayerBacking::adjustTiledBackingCoverage()
     }
 
     if (m_owningLayer.hasCompositedScrollableOverflow() && m_scrolledContentsLayer) {
-        if (auto* tiledBacking = m_scrolledContentsLayer->tiledBacking()) {
-            auto tileCoverage = computeOverflowTiledBackingCoverage(m_owningLayer);
-            tiledBacking->setTileCoverage(tileCoverage);
-        }
+        auto tileCoverage = computeOverflowTiledBackingCoverage(m_owningLayer);
+        m_scrolledContentsLayer->setTileCoverage(tileCoverage);
     }
 }
 
@@ -572,14 +571,7 @@ bool RenderLayerBacking::shouldSetContentsDisplayDelegate() const
     if (!renderer().isRenderHTMLCanvas())
         return false;
 
-    if (canvasCompositingStrategy(renderer()) != CanvasAsLayerContents)
-        return false;
-
-#if ENABLE(WEBGL) || ENABLE(OFFSCREEN_CANVAS)
-    return true;
-#else
-    return renderer().settings().webGPUEnabled();
-#endif
+    return canvasCompositingStrategy(renderer()) == CanvasAsLayerContents;
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -658,11 +650,15 @@ void RenderLayerBacking::updateOpacity(const RenderStyle& style)
 void RenderLayerBacking::updateTransform(const RenderStyle& style)
 {
     TransformationMatrix t;
-    if (renderer().capturedInViewTransition() && renderer().element()) {
+    if (renderer().effectiveCapturedInViewTransition()) {
         if (RefPtr activeViewTransition = renderer().document().activeViewTransition()) {
             if (CheckedPtr viewTransitionCapture = activeViewTransition->viewTransitionNewPseudoForCapturedElement(renderer())) {
                 t.scaleNonUniform(viewTransitionCapture->scale().width(), viewTransitionCapture->scale().height());
                 t.translate(viewTransitionCapture->captureContentInset().x(), viewTransitionCapture->captureContentInset().y());
+            }
+            if (m_owningLayer.isRenderViewLayer()) {
+                auto scrollPosition = renderer().view().frameView().scrollPosition();
+                t.translate(-scrollPosition.x(), -scrollPosition.y());
             }
         }
     } else if (m_owningLayer.isTransformed())
@@ -679,10 +675,10 @@ void RenderLayerBacking::updateChildrenTransformAndAnchorPoint(const LayoutRect&
 {
     auto defaultAnchorPoint = FloatPoint3D { 0.5, 0.5, 0 };
 
-    if (m_owningLayer.isRenderViewLayer() || renderer().capturedInViewTransition())
+    if (m_owningLayer.isRenderViewLayer() || renderer().effectiveCapturedInViewTransition())
         defaultAnchorPoint = { };
 
-    if (!renderer().hasTransformRelatedProperty() || renderer().capturedInViewTransition()) {
+    if (!renderer().hasTransformRelatedProperty() || renderer().effectiveCapturedInViewTransition()) {
         m_graphicsLayer->setAnchorPoint(defaultAnchorPoint);
         if (m_contentsContainmentLayer)
             m_contentsContainmentLayer->setAnchorPoint(defaultAnchorPoint);
@@ -892,7 +888,7 @@ bool RenderLayerBacking::shouldClipCompositedBounds() const
         return false;
 #endif
 
-    if (renderer().capturedInViewTransition())
+    if (renderer().effectiveCapturedInViewTransition())
         return false;
     if (renderer().style().pseudoElementType() == PseudoId::ViewTransitionNew)
         return false;
@@ -1151,7 +1147,7 @@ bool RenderLayerBacking::updateConfiguration(const RenderLayer* compositingAnces
         layerConfigChanged = true;
     }
 
-    bool shouldPaintUsingCompositeCopy = unscaledBitmap && is<RenderHTMLCanvas>(renderer());
+    bool shouldPaintUsingCompositeCopy = unscaledBitmap && is<RenderHTMLCanvas>(renderer()) && m_owningLayer.hasVisibleContent();
     if (shouldPaintUsingCompositeCopy != m_shouldPaintUsingCompositeCopy) {
         m_shouldPaintUsingCompositeCopy = shouldPaintUsingCompositeCopy;
         m_graphicsLayer->setShouldPaintUsingCompositeCopy(shouldPaintUsingCompositeCopy);
@@ -1431,7 +1427,7 @@ void RenderLayerBacking::updateGeometry(const RenderLayer* compositedAncestor)
 
     // If our content is being used in a view-transition, then all positioning is handled using a synthesized 'transform' property on the wrapping
     // ::view-transition-new element. Set the parent graphics layer rect to that of the pseudo, adjusted into coordinates of the parent layer.
-    if (renderer().capturedInViewTransition() && renderer().element()) {
+    if (renderer().effectiveCapturedInViewTransition() && renderer().element()) {
         if (RefPtr activeViewTransition = renderer().document().activeViewTransition()) {
             if (CheckedPtr viewTransitionCapture = activeViewTransition->viewTransitionNewPseudoForCapturedElement(renderer())) {
                 ComputedOffsets computedOffsets(m_owningLayer, compositedAncestor, viewTransitionCapture->captureOverflowRect(), { }, { });
@@ -1690,6 +1686,18 @@ void RenderLayerBacking::updateScrollOffset(ScrollOffset scrollOffset)
     ASSERT(m_scrolledContentsLayer->position().isZero());
 }
 
+static bool layerRendererStyleHas3DTransformOperation(RenderLayer& layer)
+{
+    auto* renderer = &layer.renderer();
+    if (layer.isReflection())
+        renderer = downcast<RenderLayerModelObject>(renderer->parent());
+    const RenderStyle& style = renderer->style();
+    return style.transform().has3DOperation()
+        || (style.translate() && style.translate()->is3DOperation())
+        || (style.scale() && style.scale()->is3DOperation())
+        || (style.rotate() && style.rotate()->is3DOperation());
+}
+
 void RenderLayerBacking::updateAfterDescendants()
 {
     // FIXME: this potentially duplicates work we did in updateConfiguration().
@@ -1709,6 +1717,10 @@ void RenderLayerBacking::updateAfterDescendants()
         ASSERT(!m_backgroundLayer);
         m_graphicsLayer->setContentsOpaque(!m_hasSubpixelRounding && m_owningLayer.backgroundIsKnownToBeOpaqueInRect(compositedBounds()));
     }
+
+    if (layerRendererStyleHas3DTransformOperation(m_owningLayer)
+        || m_owningLayer.hasCompositedScrollableOverflow())
+        m_graphicsLayer->markDamageRectsUnreliable();
 
     m_graphicsLayer->setContentsVisible(m_owningLayer.hasVisibleContent() || hasVisibleNonCompositedDescendants());
     if (m_scrollContainerLayer) {
@@ -1855,7 +1867,7 @@ void RenderLayerBacking::updateContentsRects()
     m_graphicsLayer->setContentsRect(snapRectToDevicePixelsIfNeeded(contentsBox(), renderer()));
     
     if (CheckedPtr renderReplaced = dynamicDowncast<RenderReplaced>(renderer())) {
-        FloatRoundedRect contentsClippingRect = renderReplaced->roundedContentBoxRect().pixelSnappedRoundedRectForPainting(deviceScaleFactor());
+        FloatRoundedRect contentsClippingRect = renderReplaced->roundedContentBoxRect(renderReplaced->borderBoxRect()).pixelSnappedRoundedRectForPainting(deviceScaleFactor());
         contentsClippingRect.move(contentOffsetInCompositingLayer());
         m_graphicsLayer->setContentsClippingRect(contentsClippingRect);
     }
@@ -1937,7 +1949,7 @@ bool RenderLayerBacking::maintainsEventRegion() const
     if (!settings.asyncFrameScrollingEnabled() && !settings.asyncOverflowScrollingEnabled())
         return false;
 
-    if (!m_owningLayer.page().scrollingCoordinator()->hasSubscrollers())
+    if (!m_owningLayer.page().scrollingCoordinator()->hasSubscrollers(renderer().view().frame().rootFrame().frameID()))
         return false;
 
     return true;
@@ -1967,7 +1979,7 @@ void RenderLayerBacking::updateEventRegion()
             eventRegionContext.unite(FloatRoundedRect(FloatRect({ }, graphicsLayer->size())), renderer(), renderer().style());
 
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
-        eventRegionContext.copyInteractionRegionsToEventRegion();
+        eventRegionContext.copyInteractionRegionsToEventRegion(renderer().document().settings().interactionRegionMinimumCornerRadius());
 #endif
         graphicsLayer->setEventRegion(WTFMove(eventRegion));
     };
@@ -2000,7 +2012,7 @@ void RenderLayerBacking::updateEventRegion()
         paintIntoLayer(&graphicsLayer, nullContext, dirtyRect, { }, &eventRegionContext);
 
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
-        eventRegionContext.copyInteractionRegionsToEventRegion();
+        eventRegionContext.copyInteractionRegionsToEventRegion(renderer().document().settings().interactionRegionMinimumCornerRadius());
 #endif
         eventRegion.translate(toIntSize(roundedIntPoint(layerOffset)));
         graphicsLayer.setEventRegion(WTFMove(eventRegion));
@@ -2416,7 +2428,7 @@ bool RenderLayerBacking::updateTransformFlatteningLayer(const RenderLayer* compo
     bool layerChanged = false;
     if (needsFlatteningLayer) {
         if (!m_transformFlatteningLayer) {
-            m_transformFlatteningLayer = createGraphicsLayer(makeString(m_owningLayer.name(), " (3d flattening)"));
+            m_transformFlatteningLayer = createGraphicsLayer(makeString(m_owningLayer.name(), " (3d flattening)"_s));
             layerChanged = true;
         }
     } else if (m_transformFlatteningLayer) {
@@ -2433,7 +2445,7 @@ bool RenderLayerBacking::updateViewportConstrainedAnchorLayer(bool needsAnchorLa
     bool layerChanged = false;
     if (needsAnchorLayer) {
         if (!m_viewportAnchorLayer) {
-            String layerName = m_owningLayer.name() + " (anchor)";
+            auto layerName = makeString(m_owningLayer.name(), " (anchor)"_s);
             m_viewportAnchorLayer = createGraphicsLayer(layerName, GraphicsLayer::Type::Structural);
             layerChanged = true;
         }
@@ -2451,7 +2463,7 @@ bool RenderLayerBacking::updateForegroundLayer(bool needsForegroundLayer)
     bool layerChanged = false;
     if (needsForegroundLayer) {
         if (!m_foregroundLayer) {
-            String layerName = m_owningLayer.name() + " (foreground)";
+            auto layerName = makeString(m_owningLayer.name(), " (foreground)"_s);
             m_foregroundLayer = createGraphicsLayer(layerName);
             m_foregroundLayer->setDrawsContent(true);
             layerChanged = true;
@@ -2470,7 +2482,7 @@ bool RenderLayerBacking::updateBackgroundLayer(bool needsBackgroundLayer)
     bool layerChanged = false;
     if (needsBackgroundLayer) {
         if (!m_backgroundLayer) {
-            String layerName = m_owningLayer.name() + " (background)";
+            auto layerName = makeString(m_owningLayer.name(), " (background)"_s);
             m_backgroundLayer = createGraphicsLayer(layerName);
             m_backgroundLayer->setDrawsContent(true);
             m_backgroundLayer->setAnchorPoint(FloatPoint3D());
@@ -2478,7 +2490,7 @@ bool RenderLayerBacking::updateBackgroundLayer(bool needsBackgroundLayer)
         }
         
         if (!m_contentsContainmentLayer) {
-            String layerName = m_owningLayer.name() + " (contents containment)";
+            auto layerName = makeString(m_owningLayer.name(), " (contents containment)"_s);
             m_contentsContainmentLayer = createGraphicsLayer(layerName);
             m_contentsContainmentLayer->setAppliesPageScale(true);
             m_graphicsLayer->setAppliesPageScale(false);
@@ -3997,6 +4009,9 @@ void RenderLayerBacking::verifyNotPainting()
 
 bool RenderLayerBacking::startAnimation(double timeOffset, const Animation& animation, const BlendingKeyframes& keyframes)
 {
+    if (renderer().capturedInViewTransition())
+        return false;
+
     bool shouldApplyAnimationsToTargetRenderer = renderer().isRenderBox() || renderer().isSVGLayerAwareRenderer();
 
     bool hasOpacity = keyframes.containsProperty(CSSPropertyOpacity);
@@ -4374,7 +4389,7 @@ TransformationMatrix RenderLayerBacking::transformMatrixForProperty(AnimatedProp
     else if (property == AnimatedProperty::Rotate)
         applyTransformOperation(renderer().style().rotate());
     else if (property == AnimatedProperty::Transform)
-        renderer().style().transform().apply(snappedIntRect(m_owningLayer.rendererBorderBoxRect()).size(), matrix);
+        renderer().style().transform().apply(matrix, snappedIntRect(m_owningLayer.rendererBorderBoxRect()).size());
     else
         ASSERT_NOT_REACHED();
 

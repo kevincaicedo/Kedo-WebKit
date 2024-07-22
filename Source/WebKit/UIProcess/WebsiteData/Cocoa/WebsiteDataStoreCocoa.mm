@@ -50,6 +50,7 @@
 #import <wtf/URL.h>
 #import <wtf/UUID.h>
 #import <wtf/cocoa/Entitlements.h>
+#import <wtf/text/MakeString.h>
 #import <wtf/text/cf/StringConcatenateCF.h>
 
 #if ENABLE(GPU_PROCESS)
@@ -153,7 +154,7 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
     if (auto manualPrevalentResource = [defaults stringForKey:@"ITPManualPrevalentResource"]) {
         URL url { { }, manualPrevalentResource };
         if (!url.isValid())
-            url = { { }, makeString("http://", manualPrevalentResource) };
+            url = { { }, makeString("http://"_s, manualPrevalentResource) };
         if (url.isValid())
             resourceLoadStatisticsManualPrevalentResource = WebCore::RegistrableDomain { url };
     }
@@ -310,14 +311,14 @@ void WebsiteDataStore::removeDataStoreWithIdentifier(const WTF::UUID& identifier
             return completionHandler("Data store is in use (by network process)"_s);
     }
 
-    auto nsCredentialStorage = adoptNS([[NSURLCredentialStorage alloc] _initWithIdentifier:identifier.toString() private:NO]);
-    auto* credentials = [nsCredentialStorage.get() allCredentials];
-    for (NSURLProtectionSpace *space in credentials) {
-        for (NSURLCredential *credential in [credentials[space] allValues])
-            [nsCredentialStorage.get() removeCredential:credential forProtectionSpace:space];
-    }
+    websiteDataStoreIOQueue().dispatch([completionHandler = WTFMove(completionHandler), identifier, directory = defaultWebsiteDataStoreDirectory(identifier).isolatedCopy()]() mutable {
+        RetainPtr nsCredentialStorage = adoptNS([[NSURLCredentialStorage alloc] _initWithIdentifier:identifier.toString() private:NO]);
+        auto* credentials = [nsCredentialStorage allCredentials];
+        for (NSURLProtectionSpace *space in credentials) {
+            for (NSURLCredential *credential in [credentials[space] allValues])
+                [nsCredentialStorage removeCredential:credential forProtectionSpace:space];
+        }
 
-    websiteDataStoreIOQueue().dispatch([completionHandler = WTFMove(completionHandler), directory = defaultWebsiteDataStoreDirectory(identifier).isolatedCopy()]() mutable {
         bool deleted = FileSystem::deleteNonEmptyDirectory(directory);
         RunLoop::main().dispatch([completionHandler = WTFMove(completionHandler), deleted]() mutable {
             if (!deleted)
@@ -907,7 +908,7 @@ String WebsiteDataStore::cacheDirectoryInContainerOrHomeDirectory(const String& 
     if (path.isEmpty())
         path = NSHomeDirectory();
 
-    return path + subpath;
+    return makeString(path, subpath);
 }
 
 String WebsiteDataStore::parentBundleDirectory() const

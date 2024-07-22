@@ -81,8 +81,7 @@ LibWebRTCMediaEndpoint::LibWebRTCMediaEndpoint(LibWebRTCPeerConnectionBackend& p
     ASSERT(isMainThread());
     ASSERT(client.factory());
 
-    if (DeprecatedGlobalSettings::webRTCH264SimulcastEnabled())
-        webrtc::field_trial::InitFieldTrialsFromString("WebRTC-H264Simulcast/Enabled/");
+    webrtc::field_trial::InitFieldTrialsFromString("WebRTC-Video-H26xPacketBuffer/Enabled/");
 }
 
 void LibWebRTCMediaEndpoint::restartIce()
@@ -284,7 +283,7 @@ void LibWebRTCMediaEndpoint::gatherDecoderImplementationName(Function<void(Strin
             for (const auto& rtcStats : *rtcReport) {
                 if (rtcStats.type() == webrtc::RTCInboundRtpStreamStats::kType) {
                     auto& inboundRTPStats = static_cast<const webrtc::RTCInboundRtpStreamStats&>(rtcStats);
-                    if (inboundRTPStats.decoder_implementation.is_defined()) {
+                    if (inboundRTPStats.decoder_implementation) {
                         callback(fromStdString(*inboundRTPStats.decoder_implementation));
                         return;
                     }
@@ -320,7 +319,7 @@ void LibWebRTCMediaEndpoint::OnSignalingChange(webrtc::PeerConnectionInterface::
 
 MediaStream& LibWebRTCMediaEndpoint::mediaStreamFromRTCStreamId(const String& id)
 {
-    auto mediaStream = m_remoteStreamsById.ensure(id, [id, this]() mutable {
+    auto mediaStream = m_remoteStreamsById.ensure(id, [id, this]() {
         auto& document = downcast<Document>(*m_peerConnectionBackend.connection().scriptExecutionContext());
         auto stream = MediaStream::create(document, MediaStreamPrivate::create(document.logger(), { }, String(id)));
         return stream;
@@ -450,6 +449,7 @@ void LibWebRTCMediaEndpoint::stop()
         return;
 
     stopLoggingStats();
+    stopEventLogs();
 
     m_backend->Close();
     m_backend = nullptr;
@@ -658,6 +658,7 @@ class SctpTransportState {
 public:
     explicit SctpTransportState(rtc::scoped_refptr<webrtc::SctpTransportInterface>&&);
     std::unique_ptr<LibWebRTCSctpTransportBackend> createBackend();
+    std::optional<double> maxMessageSize() const;
 
 private:
     rtc::scoped_refptr<webrtc::SctpTransportInterface> m_transport;
@@ -676,6 +677,11 @@ std::unique_ptr<LibWebRTCSctpTransportBackend> SctpTransportState::createBackend
     if (!m_transport)
         return nullptr;
     return makeUnique<LibWebRTCSctpTransportBackend>(WTFMove(m_transport), m_information.dtls_transport());
+}
+
+std::optional<double> SctpTransportState::maxMessageSize() const
+{
+    return m_information.MaxMessageSize() ? std::make_optional(*m_information.MaxMessageSize()) : std::nullopt;
 }
 
 struct LibWebRTCMediaEndpointTransceiverState {
@@ -735,7 +741,7 @@ void LibWebRTCMediaEndpoint::setLocalSessionDescriptionSucceeded()
             });
             return { WTFMove(state.mid), WTFMove(streams), state.firedDirection };
         });
-        protectedThis->m_peerConnectionBackend.setLocalDescriptionSucceeded(WTFMove(descriptions), WTFMove(transceiverStates), sctpState.createBackend());
+        protectedThis->m_peerConnectionBackend.setLocalDescriptionSucceeded(WTFMove(descriptions), WTFMove(transceiverStates), sctpState.createBackend(), sctpState.maxMessageSize());
     });
 }
 
@@ -762,7 +768,7 @@ void LibWebRTCMediaEndpoint::setRemoteSessionDescriptionSucceeded()
             });
             return { WTFMove(state.mid), WTFMove(streams), state.firedDirection };
         });
-        protectedThis->m_peerConnectionBackend.setRemoteDescriptionSucceeded(WTFMove(descriptions), WTFMove(transceiverStates), sctpState.createBackend());
+        protectedThis->m_peerConnectionBackend.setRemoteDescriptionSucceeded(WTFMove(descriptions), WTFMove(transceiverStates), sctpState.createBackend(), sctpState.maxMessageSize());
     });
 }
 
@@ -814,7 +820,7 @@ void LibWebRTCMediaEndpoint::OnStatsDelivered(const rtc::scoped_refptr<const web
 
         for (auto iterator = report->begin(); iterator != report->end(); ++iterator) {
             RTCStatsLogger statsLogger { *iterator };
-            if (m_isGatheringRTCLogs)
+            if (m_isGatheringStatLogs)
                 m_peerConnectionBackend.provideStatLogs(statsLogger.toJSONString());
 
             if (logger().willLog(logChannel(), WTFLogLevel::Debug)) {
@@ -851,7 +857,7 @@ WTFLogChannel& LibWebRTCMediaEndpoint::logChannel() const
 
 Seconds LibWebRTCMediaEndpoint::statsLogInterval(int64_t reportTimestamp) const
 {
-    if (m_isGatheringRTCLogs)
+    if (m_isGatheringStatLogs)
         return 1_s;
 
     if (logger().willLog(logChannel(), WTFLogLevel::Info))
@@ -864,15 +870,59 @@ Seconds LibWebRTCMediaEndpoint::statsLogInterval(int64_t reportTimestamp) const
 }
 #endif
 
-void LibWebRTCMediaEndpoint::startRTCLogs()
+void LibWebRTCMediaEndpoint::startStatLogs()
 {
-    m_isGatheringRTCLogs = true;
+    m_isGatheringStatLogs = true;
     startLoggingStats();
 }
 
-void LibWebRTCMediaEndpoint::stopRTCLogs()
+void LibWebRTCMediaEndpoint::stopStatLogs()
 {
-    m_isGatheringRTCLogs = false;
+    m_isGatheringStatLogs = false;
+}
+
+class RtcEventLogOutput final : public webrtc::RtcEventLogOutput {
+    WTF_MAKE_FAST_ALLOCATED;
+public:
+    explicit RtcEventLogOutput(Function<bool(absl::string_view)>&& callback)
+        : m_callback(WTFMove(callback))
+    {
+    }
+
+private:
+    bool IsActive() const final { return true; };
+    bool Write(absl::string_view output) final { return m_callback(output); }
+
+    Function<bool(absl::string_view)> m_callback;
+};
+
+void LibWebRTCMediaEndpoint::startEventLogs()
+{
+    ASSERT(!m_isGatheringEventLogs);
+    m_isGatheringEventLogs = true;
+    m_backend->StartRtcEventLog(makeUnique<RtcEventLogOutput>([endpoint = ThreadSafeWeakPtr { *this }] (auto&& logs) {
+        std::span<const uint8_t> logsData { reinterpret_cast<const uint8_t*>(logs.data()), logs.size() };
+        callOnMainThread([endpoint, logsData = SharedBuffer::create(logsData)] () mutable {
+            if (RefPtr protectedEndpoint = endpoint.get())
+                protectedEndpoint->provideEventLogs(WTFMove(logsData));
+        });
+        return true;
+    }));
+}
+
+void LibWebRTCMediaEndpoint::stopEventLogs()
+{
+    if (!m_isGatheringEventLogs)
+        return;
+
+    m_isGatheringEventLogs = false;
+    m_backend->StopRtcEventLog();
+}
+
+void LibWebRTCMediaEndpoint::provideEventLogs(Ref<SharedBuffer>&& data)
+{
+    if (m_isGatheringEventLogs)
+        m_peerConnectionBackend.provideEventLogs(WTFMove(data));
 }
 
 } // namespace WebCore

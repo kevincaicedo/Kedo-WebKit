@@ -211,9 +211,9 @@ static int32_t registerEncodeCompleteCallback(webrtc::WebKitVideoEncoder encoder
 
 static void setEncodeRatesCallback(webrtc::WebKitVideoEncoder encoder, const webrtc::VideoEncoder::RateControlParameters& parameters)
 {
-    uint32_t bitRate = parameters.bitrate.get_sum_kbps();
+    uint32_t bitRateInKbps = parameters.bitrate.get_sum_kbps();
     uint32_t frameRate = static_cast<uint32_t>(parameters.framerate_fps + 0.5);
-    WebProcess::singleton().libWebRTCCodecs().setEncodeRates(*static_cast<LibWebRTCCodecs::Encoder*>(encoder), bitRate, frameRate);
+    WebProcess::singleton().libWebRTCCodecs().setEncodeRates(*static_cast<LibWebRTCCodecs::Encoder*>(encoder), bitRateInKbps, frameRate);
 }
 
 Ref<LibWebRTCCodecs> LibWebRTCCodecs::create()
@@ -684,7 +684,7 @@ template<typename Frame> int32_t LibWebRTCCodecs::encodeFrameInternal(Encoder& e
         return WEBRTC_VIDEO_CODEC_ERROR;
 
     SharedVideoFrame sharedVideoFrame { mediaTime, false, rotation, WTFMove(*buffer) };
-    encoder.connection->sendWithPromisedReply(Messages::LibWebRTCCodecsProxy::EncodeFrame { encoder.identifier, WTFMove(sharedVideoFrame), timestamp, duration, shouldEncodeAsKeyFrame }, 0)->whenSettled(workQueue(), [callback = WTFMove(callback)] (auto&& result) mutable {
+    encoder.connection->sendWithPromisedReply(Messages::LibWebRTCCodecsProxy::EncodeFrame { encoder.identifier, WTFMove(sharedVideoFrame), timestamp, duration, shouldEncodeAsKeyFrame })->whenSettled(workQueue(), [callback = WTFMove(callback)] (auto&& result) mutable {
         callback(result ? result.value() : false);
     });
     return WEBRTC_VIDEO_CODEC_OK;
@@ -740,15 +740,13 @@ void LibWebRTCCodecs::registerEncoderDescriptionCallback(Encoder& encoder, Descr
 }
 #endif
 
-void LibWebRTCCodecs::setEncodeRates(Encoder& encoder, uint32_t bitRate, uint32_t frameRate)
+void LibWebRTCCodecs::setEncodeRates(Encoder& encoder, uint32_t bitRateInKbps, uint32_t frameRate)
 {
-    ASSERT(!isMainRunLoop());
-
     Locker locker { m_encodersConnectionLock };
 
     auto* connection = encoderConnection(encoder);
     if (!connection) {
-        ensureGPUProcessConnectionAndDispatchToThread([this, hasSentInitialEncodeRates = &encoder.hasSentInitialEncodeRates, encoderIdentifier = encoder.identifier, bitRate, frameRate] {
+        ensureGPUProcessConnectionAndDispatchToThread([this, hasSentInitialEncodeRates = &encoder.hasSentInitialEncodeRates, encoderIdentifier = encoder.identifier, bitRateInKbps, frameRate] {
             assertIsCurrent(workQueue());
             ASSERT(m_encoders.get(encoderIdentifier));
 
@@ -757,12 +755,12 @@ void LibWebRTCCodecs::setEncodeRates(Encoder& encoder, uint32_t bitRate, uint32_
                 return;
 
             Locker locker { m_connectionLock };
-            m_connection->send(Messages::LibWebRTCCodecsProxy::SetEncodeRates { encoderIdentifier, bitRate, frameRate }, 0);
+            m_connection->send(Messages::LibWebRTCCodecsProxy::SetEncodeRates { encoderIdentifier, bitRateInKbps, frameRate }, 0);
         });
         return;
     }
     encoder.hasSentInitialEncodeRates = true;
-    connection->send(Messages::LibWebRTCCodecsProxy::SetEncodeRates { encoder.identifier, bitRate, frameRate }, 0);
+    connection->send(Messages::LibWebRTCCodecsProxy::SetEncodeRates { encoder.identifier, bitRateInKbps, frameRate }, 0);
 }
 
 void LibWebRTCCodecs::completedEncoding(VideoEncoderIdentifier identifier, std::span<const uint8_t> data, const webrtc::WebKitEncodedFrameInfo& info)

@@ -165,6 +165,7 @@
 #import <wtf/SetForScope.h>
 #import <wtf/cocoa/Entitlements.h>
 #import <wtf/cocoa/SpanCocoa.h>
+#import <wtf/text/MakeString.h>
 #import <wtf/text/StringToIntegerConversion.h>
 #import <wtf/text/TextBreakIterator.h>
 #import <wtf/text/TextStream.h>
@@ -676,8 +677,7 @@ void WebPage::registerRemoteFrameAccessibilityTokens(pid_t, std::span<const uint
 
 void WebPage::registerUIProcessAccessibilityTokens(std::span<const uint8_t> elementToken, std::span<const uint8_t>)
 {
-    NSData *elementTokenData = [NSData dataWithBytes:elementToken.data() length:elementToken.size()];
-    [m_mockAccessibilityElement setRemoteTokenData:elementTokenData];
+    [m_mockAccessibilityElement setRemoteTokenData:toNSData(elementToken).get()];
 }
 
 void WebPage::getStringSelectionForPasteboard(CompletionHandler<void(String&&)>&& completionHandler)
@@ -2767,6 +2767,9 @@ bool WebPage::applyAutocorrectionInternal(const String& correction, const String
     if (!frame->selection().isCaretOrRange())
         return false;
 
+    if (correction == originalText)
+        return false;
+
     std::optional<SimpleRange> range;
     String textForRange;
     auto originalTextWithFoldedQuoteMarks = foldQuoteMarks(originalText);
@@ -2854,7 +2857,7 @@ WebAutocorrectionContext WebPage::autocorrectionContext()
     if (auto compositionRange = frame->editor().compositionRange()) {
         auto markedTextBefore = plainTextForContext(makeSimpleRange(compositionRange->start, startPosition));
         auto markedTextAfter = plainTextForContext(makeSimpleRange(endPosition, compositionRange->end));
-        markedText = markedTextBefore + selectedText + markedTextAfter;
+        markedText = makeString(markedTextBefore, selectedText, markedTextAfter);
         if (!markedText.isEmpty()) {
             selectedRangeInMarkedText.location = markedTextBefore.length();
             selectedRangeInMarkedText.length = selectedText.length();
@@ -3876,23 +3879,38 @@ void WebPage::autofillLoginCredentials(const String& username, const String& pas
     }
 }
 
-void WebPage::setViewportConfigurationViewLayoutSize(const FloatSize& size, double scaleFactor, double minimumEffectiveDeviceWidth)
+void WebPage::setViewportConfigurationViewLayoutSize(const FloatSize& size, double layoutSizeScaleFactorFromClient, double minimumEffectiveDeviceWidth)
 {
-    LOG_WITH_STREAM(VisibleRects, stream << "WebPage " << m_identifier << " setViewportConfigurationViewLayoutSize " << size << " scaleFactor " << scaleFactor << " minimumEffectiveDeviceWidth " << minimumEffectiveDeviceWidth);
+    LOG_WITH_STREAM(VisibleRects, stream << "WebPage " << m_identifier << " setViewportConfigurationViewLayoutSize " << size << " layoutSizeScaleFactorFromClient " << layoutSizeScaleFactorFromClient << " minimumEffectiveDeviceWidth " << minimumEffectiveDeviceWidth);
 
     if (!m_viewportConfiguration.isKnownToLayOutWiderThanViewport())
         m_viewportConfiguration.setMinimumEffectiveDeviceWidthForShrinkToFit(0);
 
+    m_baseViewportLayoutSizeScaleFactor = [&] {
+        if (!m_page->settings().automaticallyAdjustsViewScaleUsingMinimumEffectiveDeviceWidth())
+            return 1.0;
+
+        if (!minimumEffectiveDeviceWidth)
+            return 1.0;
+
+        if (minimumEffectiveDeviceWidth >= size.width())
+            return 1.0;
+
+        return size.width() / minimumEffectiveDeviceWidth;
+    }();
+
+    double layoutSizeScaleFactor = layoutSizeScaleFactorFromClient * m_baseViewportLayoutSizeScaleFactor;
+
     auto previousLayoutSizeScaleFactor = m_viewportConfiguration.layoutSizeScaleFactor();
-    if (!m_viewportConfiguration.setViewLayoutSize(size, scaleFactor, minimumEffectiveDeviceWidth))
+    if (!m_viewportConfiguration.setViewLayoutSize(size, layoutSizeScaleFactor, minimumEffectiveDeviceWidth))
         return;
 
     auto zoomToInitialScale = ZoomToInitialScale::No;
     auto newInitialScale = m_viewportConfiguration.initialScale();
     auto currentPageScaleFactor = pageScaleFactor();
-    if (scaleFactor > previousLayoutSizeScaleFactor && newInitialScale > currentPageScaleFactor)
+    if (layoutSizeScaleFactor > previousLayoutSizeScaleFactor && newInitialScale > currentPageScaleFactor)
         zoomToInitialScale = ZoomToInitialScale::Yes;
-    else if (scaleFactor < previousLayoutSizeScaleFactor && newInitialScale < currentPageScaleFactor)
+    else if (layoutSizeScaleFactor < previousLayoutSizeScaleFactor && newInitialScale < currentPageScaleFactor)
         zoomToInitialScale = ZoomToInitialScale::Yes;
 
     viewportConfigurationChanged(zoomToInitialScale);
@@ -4097,7 +4115,8 @@ void WebPage::dynamicViewportSizeUpdate(const DynamicViewportSizeUpdate& target)
     // FIXME: Move settings from Frame to Frame and remove this check.
     auto& settings = frameView.frame().settings();
     LayoutRect documentRect = IntRect(frameView.scrollOrigin(), frameView.contentsSize());
-    auto layoutViewportSize = LocalFrameView::expandedLayoutViewportSize(frameView.baseLayoutViewportSize(), LayoutSize(documentRect.size()), settings.layoutViewportHeightExpansionFactor());
+    double heightExpansionFactor = m_disallowLayoutViewportHeightExpansionReasons.isEmpty() ? settings.layoutViewportHeightExpansionFactor() : 0;
+    auto layoutViewportSize = LocalFrameView::expandedLayoutViewportSize(frameView.baseLayoutViewportSize(), LayoutSize(documentRect.size()), heightExpansionFactor);
     LayoutRect layoutViewportRect = LocalFrameView::computeUpdatedLayoutViewportRect(frameView.layoutViewportRect(), documentRect, LayoutSize(newUnobscuredContentRect.size()), LayoutRect(newUnobscuredContentRect), layoutViewportSize, frameView.minStableLayoutViewportOrigin(), frameView.maxStableLayoutViewportOrigin(), LayoutViewportConstraint::ConstrainedToDocumentRect);
     frameView.setLayoutViewportOverrideRect(layoutViewportRect);
     frameView.layoutOrVisualViewportChanged();
@@ -4179,6 +4198,19 @@ void WebPage::resetViewportDefaultConfiguration(WebFrame* frame, bool hasMobileD
 }
 
 #if ENABLE(TEXT_AUTOSIZING)
+
+void WebPage::updateTextAutosizingEnablementFromInitialScale(double initialScale)
+{
+    if (m_page->settings().textAutosizingEnabledAtLargeInitialScale())
+        return;
+
+    bool shouldEnable = initialScale <= 1;
+    if (shouldEnable == m_page->settings().textAutosizingEnabled())
+        return;
+
+    m_page->settings().setTextAutosizingEnabled(shouldEnable);
+}
+
 void WebPage::resetIdempotentTextAutosizingIfNeeded(double previousInitialScale)
 {
     if (!m_page->settings().textAutosizingEnabled() || !m_page->settings().textAutosizingUsesIdempotentMode())
@@ -4328,6 +4360,7 @@ void WebPage::viewportConfigurationChanged(ZoomToInitialScale zoomToInitialScale
     double previousInitialScaleIgnoringContentSize = m_page->initialScaleIgnoringContentSize();
     m_page->setInitialScaleIgnoringContentSize(initialScaleIgnoringContentSize);
     resetIdempotentTextAutosizingIfNeeded(previousInitialScaleIgnoringContentSize);
+    updateTextAutosizingEnablementFromInitialScale(initialScale);
 #endif
     if (setFixedLayoutSize(m_viewportConfiguration.layoutSize()))
         resetTextAutosizing();
@@ -4610,24 +4643,31 @@ void WebPage::updateVisibleContentRects(const VisibleContentRectUpdateInfo& visi
     adjustVelocityDataForBoundedScale(scrollVelocity, visibleContentRectUpdateInfo.scale(), m_viewportConfiguration.minimumScale(), m_viewportConfiguration.maximumScale());
     frameView.setScrollVelocity(scrollVelocity);
 
-    if (m_isInStableState) {
-        if (visibleContentRectUpdateInfo.unobscuredContentRect() != visibleContentRectUpdateInfo.unobscuredContentRectRespectingInputViewBounds())
-            frameView.setVisualViewportOverrideRect(LayoutRect(visibleContentRectUpdateInfo.unobscuredContentRectRespectingInputViewBounds()));
-        else
-            frameView.setVisualViewportOverrideRect(std::nullopt);
+    bool visualViewportChanged = visibleContentRectUpdateInfo.unobscuredContentRect() != visibleContentRectUpdateInfo.unobscuredContentRectRespectingInputViewBounds();
+    if (visualViewportChanged)
+        frameView.setVisualViewportOverrideRect(LayoutRect(visibleContentRectUpdateInfo.unobscuredContentRectRespectingInputViewBounds()));
+    else if (m_isInStableState) {
+        frameView.setVisualViewportOverrideRect(std::nullopt);
+        visualViewportChanged = true;
+    }
 
-        LOG_WITH_STREAM(VisibleRects, stream << "WebPage::updateVisibleContentRects - setLayoutViewportOverrideRect " << visibleContentRectUpdateInfo.layoutViewportRect());
-        frameView.setLayoutViewportOverrideRect(LayoutRect(visibleContentRectUpdateInfo.layoutViewportRect()));
+    bool isChangingObscuredInsetsInteractively = visibleContentRectUpdateInfo.viewStability().contains(ViewStabilityFlag::ChangingObscuredInsetsInteractively);
+    bool shouldPerformLayout = m_isInStableState && !isChangingObscuredInsetsInteractively;
+
+    LOG_WITH_STREAM(VisibleRects, stream << "WebPage::updateVisibleContentRects - setLayoutViewportOverrideRect " << visibleContentRectUpdateInfo.layoutViewportRect());
+    frameView.setLayoutViewportOverrideRect(LayoutRect(visibleContentRectUpdateInfo.layoutViewportRect()), shouldPerformLayout ? LocalFrameView::TriggerLayoutOrNot::Yes : LocalFrameView::TriggerLayoutOrNot::No);
+
+    if (m_isInStableState) {
         if (selectionIsInsideFixedPositionContainer(*localMainFrame)) {
             // Ensure that the next layer tree commit contains up-to-date caret/selection rects.
             frameView.frame().selection().setCaretRectNeedsUpdate();
             scheduleFullEditorStateUpdate();
         }
-
-        frameView.layoutOrVisualViewportChanged();
     }
 
-    bool isChangingObscuredInsetsInteractively = visibleContentRectUpdateInfo.viewStability().contains(ViewStabilityFlag::ChangingObscuredInsetsInteractively);
+    if (visualViewportChanged)
+        frameView.layoutOrVisualViewportChanged();
+
     if (!isChangingObscuredInsetsInteractively)
         frameView.setCustomSizeForResizeEvent(expandedIntSize(visibleContentRectUpdateInfo.unobscuredRectInScrollViewCoordinates().size()));
 
@@ -4644,6 +4684,57 @@ void WebPage::updateVisibleContentRects(const VisibleContentRectUpdateInfo& visi
         }
         scrollingCoordinator->reconcileScrollingState(frameView, scrollPosition, visibleContentRectUpdateInfo.layoutViewportRect(), ScrollType::User, viewportStability, layerAction);
     }
+}
+
+void WebPage::updateLayoutViewportHeightExpansionTimerFired()
+{
+    if (m_disallowLayoutViewportHeightExpansionReasons.contains(DisallowLayoutViewportHeightExpansionReason::LargeContainer))
+        return;
+
+    RefPtr mainFrame = m_mainFrame->coreLocalFrame();
+    if (!mainFrame)
+        return;
+
+    RefPtr document = mainFrame->document();
+    if (!document)
+        return;
+
+    RefPtr view = mainFrame->view();
+    if (!view)
+        return;
+
+    FloatRect viewportRect = view->viewportConstrainedObjectsRect();
+
+    bool hitTestedToLargeViewportConstrainedElement = [&] {
+        if (!view->hasViewportConstrainedObjects())
+            return false;
+
+        Vector<Ref<Element>> largeViewportConstrainedElements;
+        for (auto& renderer : *view->viewportConstrainedObjects()) {
+            RefPtr element = renderer.element();
+            if (!element)
+                continue;
+
+            auto bounds = renderer.absoluteBoundingBoxRect();
+            if (intersection(viewportRect, bounds).area() > 0.9 * viewportRect.area())
+                largeViewportConstrainedElements.append(element.releaseNonNull());
+        }
+
+        if (largeViewportConstrainedElements.isEmpty())
+            return false;
+
+        auto hitTestResult = HitTestResult { LayoutRect { viewportRect } };
+        if (!document->hitTest({ HitTestSource::User, { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::CollectMultipleElements } }, hitTestResult))
+            return false;
+
+        auto& hitTestedNodes = hitTestResult.listBasedTestResult();
+        return std::ranges::any_of(largeViewportConstrainedElements, [&hitTestedNodes](auto& element) {
+            return hitTestedNodes.contains(element);
+        });
+    }();
+
+    if (hitTestedToLargeViewportConstrainedElement)
+        addReasonsToDisallowLayoutViewportHeightExpansion(DisallowLayoutViewportHeightExpansionReason::LargeContainer);
 }
 
 void WebPage::willStartUserTriggeredZooming()

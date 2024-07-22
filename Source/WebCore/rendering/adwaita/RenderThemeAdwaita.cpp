@@ -107,7 +107,7 @@ static inline Color getSystemAccentColor()
 static inline Color getAccentColor(const RenderObject& renderObject)
 {
     if (!renderObject.style().hasAutoAccentColor())
-        return renderObject.style().usedAccentColor();
+        return renderObject.style().usedAccentColor(renderObject.styleColorOptions());
 
     return getSystemAccentColor();
 }
@@ -232,17 +232,17 @@ String RenderThemeAdwaita::mediaControlsStyleSheet()
 String RenderThemeAdwaita::mediaControlsBase64StringForIconNameAndType(const String& iconName, const String& iconType)
 {
 #if USE(GLIB)
-    auto path = makeString("/org/webkit/media-controls/", iconName, '.', iconType);
+    auto path = makeString("/org/webkit/media-controls/"_s, iconName, '.', iconType);
     auto data = adoptGRef(g_resources_lookup_data(path.latin1().data(), G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr));
     if (!data)
         return emptyString();
-    return base64EncodeToString(g_bytes_get_data(data.get(), nullptr), g_bytes_get_size(data.get()));
+    return base64EncodeToString({ static_cast<const uint8_t*>(g_bytes_get_data(data.get(), nullptr)), g_bytes_get_size(data.get()) });
 #elif PLATFORM(WIN)
     auto path = webKitBundlePath(iconName, iconType, "media-controls"_s);
     auto data = FileSystem::readEntireFile(path);
     if (!data)
         return { };
-    return base64EncodeToString(data->data(), data->size());
+    return base64EncodeToString(data->span());
 #else
     return { };
 #endif
@@ -418,7 +418,7 @@ bool RenderThemeAdwaita::paintMenuList(const RenderObject& renderObject, const P
         states.add(ControlStyle::State::Pressed);
     if (isHovered(renderObject))
         states.add(ControlStyle::State::Hovered);
-    Theme::singleton().paint(StyleAppearance::Button, states, graphicsContext, rect, renderObject.useDarkAppearance(), renderObject.style().usedAccentColor());
+    Theme::singleton().paint(StyleAppearance::Button, states, graphicsContext, rect, renderObject.useDarkAppearance(), renderObject.style().usedAccentColor(renderObject.styleColorOptions()));
 
     auto zoomedArrowSize = menuListButtonArrowSize * renderObject.style().usedZoom();
     FloatRect fieldRect = rect;

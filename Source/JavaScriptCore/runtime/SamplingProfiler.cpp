@@ -52,7 +52,7 @@
 #include <wtf/RefPtr.h>
 #include <wtf/StackTrace.h>
 #include <wtf/TZoneMallocInlines.h>
-#include <wtf/text/StringBuilder.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
@@ -320,9 +320,7 @@ SamplingProfiler::SamplingProfiler(VM& vm, Ref<Stopwatch>&& stopwatch)
     vm.heap.objectSpace().enablePreciseAllocationTracking();
 }
 
-SamplingProfiler::~SamplingProfiler()
-{
-}
+SamplingProfiler::~SamplingProfiler() = default;
 
 void SamplingProfiler::createThreadIfNecessary()
 {

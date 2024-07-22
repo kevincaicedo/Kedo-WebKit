@@ -63,7 +63,7 @@ using PtrTag = WTF::PtrTag;
     /* Callee:JIT Caller:Native */ \
     v(NativeToJITGatePtrTag, PtrTagCalleeType::JIT, PtrTagCallerType::Native) \
     v(YarrEntryPtrTag, PtrTagCalleeType::JIT, PtrTagCallerType::Native) \
-    v(LLintToWasmEntryPtrTag, PtrTagCalleeType::JIT, PtrTagCallerType::Native) \
+    v(LLIntToWasmEntryPtrTag, PtrTagCalleeType::JIT, PtrTagCallerType::Native) \
     v(CSSSelectorPtrTag, PtrTagCalleeType::JIT, PtrTagCallerType::Native) \
     /* Callee:Native Caller:JIT */ \
     v(OperationPtrTag, PtrTagCalleeType::Native, PtrTagCallerType::JIT) \
@@ -117,16 +117,7 @@ using PtrTag = WTF::PtrTag;
         } \
     };
 
-#if COMPILER(MSVC)
-#pragma warning(push)
-#pragma warning(disable:4307)
-#endif
-
 FOR_EACH_JSC_PTRTAG(JSC_DECLARE_PTRTAG)
-
-#if COMPILER(MSVC)
-#pragma warning(pop)
-#endif
 
 #if CPU(ARM64E)
 JS_EXPORT_PRIVATE PtrTagCallerType callerType(PtrTag);
@@ -183,7 +174,7 @@ ALWAYS_INLINE static bool isTaggedJSCCodePtrImpl(PtrType ptr)
         static_assert(tag == OperationPtrTag);
 #if ENABLE(JIT_CAGE)
         if (Options::useJITCage()) {
-#if JIT_OPERATION_VALIDATION_ASSERT_ENABLED
+#if ENABLE(JIT_OPERATION_VALIDATION_ASSERT)
             return JITOperationList::instance().inverseMap(ptr);
 #else
             // Not supported. We currently don't use this, and don't have an
@@ -261,15 +252,6 @@ const char* ptrTagName(PtrTag);
 } // namespace JSC
 namespace WTF {
 
-#if COMPILER(MSVC)
-#pragma warning(push)
-#pragma warning(disable:4307)
-#endif
-
 FOR_EACH_JSC_PTRTAG(JSC_DECLARE_PTRTAG_TRAIT)
-
-#if COMPILER(MSVC)
-#pragma warning(pop)
-#endif
 
 } // namespace WTF

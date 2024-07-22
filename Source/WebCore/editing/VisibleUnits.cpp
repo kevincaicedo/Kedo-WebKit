@@ -48,6 +48,7 @@
 #include "TextIterator.h"
 #include "VisibleSelection.h"
 #include <unicode/ubrk.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextBreakIterator.h>
 
 namespace WebCore {
@@ -1942,6 +1943,32 @@ std::optional<SimpleRange> rangeExpandedAroundPositionByCharacters(const Visible
         start = start.previous(Character);
         end = end.next(Character);
     }
+    return makeSimpleRange(start, end);
+}
+
+std::optional<SimpleRange> rangeExpandedAroundRangeByCharacters(const VisibleSelection& selection, uint64_t numberOfCharactersToExpandBackwards, uint64_t numberOfCharactersToExpandForwards)
+{
+    auto range = selection.firstRange();
+    if (!range)
+        return std::nullopt;
+
+    auto extendedPosition = [](const BoundaryPoint& point, uint64_t characterCount, SelectionDirection direction) {
+        auto visiblePosition = VisiblePosition { makeContainerOffsetPosition(point) };
+
+        for (uint64_t i = 0; i < characterCount; ++i) {
+            auto nextVisiblePosition = positionOfNextBoundaryOfGranularity(visiblePosition, TextGranularity::CharacterGranularity, direction);
+            if (nextVisiblePosition.isNull())
+                break;
+
+            visiblePosition = nextVisiblePosition;
+        }
+
+        return visiblePosition;
+    };
+
+    auto start = extendedPosition(range->start, numberOfCharactersToExpandBackwards, SelectionDirection::Backward);
+    auto end = extendedPosition(range->end, numberOfCharactersToExpandForwards, SelectionDirection::Forward);
+
     return makeSimpleRange(start, end);
 }
 

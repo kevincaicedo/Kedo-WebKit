@@ -32,6 +32,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/URL.h>
 #include <wtf/glib/ChassisType.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 #if OS(UNIX)
@@ -46,14 +47,14 @@
 
 namespace WebCore {
 
-static const char* platformForUAString()
+static ASCIILiteral platformForUAString()
 {
 #if OS(MACOS)
-    return "Macintosh";
+    return "Macintosh"_s;
 #else
     if (chassisType() == WTF::ChassisType::Mobile)
-        return "Linux";
-    return "X11";
+        return "Linux"_s;
+    return "X11"_s;
 #endif
 }
 
@@ -83,9 +84,9 @@ static String buildUserAgentString(const UserAgentQuirks& quirks)
     if (quirks.contains(UserAgentQuirks::NeedsMacintoshPlatform))
         uaString.append(UserAgentQuirks::stringForQuirk(UserAgentQuirks::NeedsMacintoshPlatform));
     else {
-        uaString.append(platformForUAString(), "; ");
+        uaString.append(platformForUAString(), "; "_s);
 #if defined(USER_AGENT_BRANDING)
-        uaString.append(USER_AGENT_BRANDING "; ");
+        uaString.append(USER_AGENT_BRANDING "; "_s);
 #endif
         uaString.append(platformVersionForUAString());
     }
@@ -137,7 +138,7 @@ String standardUserAgent(const String& applicationName, const String& applicatio
         String finalApplicationVersion = applicationVersion;
         if (finalApplicationVersion.isEmpty())
             finalApplicationVersion = "605.1.15"_s;
-        userAgent = standardUserAgentStatic() + ' ' + applicationName + '/' + finalApplicationVersion;
+        userAgent = makeString(standardUserAgentStatic(), ' ', applicationName, '/', finalApplicationVersion);
     }
 
     static bool checked = false;

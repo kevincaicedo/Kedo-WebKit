@@ -1,4 +1,4 @@
 
 
-FAIL navigate() inside onpagehide assert_unreached: finished must not fulfill Reached unreachable code
+PASS navigate() inside onpagehide
 

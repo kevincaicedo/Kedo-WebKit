@@ -432,6 +432,7 @@ namespace JSC { namespace DFG {
     \
     macro(IsCellWithType, NodeResultBoolean) \
     macro(IsEmpty, NodeResultBoolean) \
+    macro(IsEmptyStorage, NodeResultBoolean) \
     macro(HasStructureWithFlags, NodeResultBoolean) \
     macro(TypeOfIsUndefined, NodeResultBoolean) \
     macro(TypeOfIsObject, NodeResultBoolean) \
@@ -554,13 +555,18 @@ namespace JSC { namespace DFG {
     /* Nodes for JSMap and JSSet */ \
     macro(MapHash, NodeResultInt32) \
     macro(NormalizeMapKey, NodeResultJS) \
-    macro(GetMapBucket, NodeResultJS) \
-    macro(GetMapBucketHead, NodeResultJS) \
-    macro(GetMapBucketNext, NodeResultJS) \
-    macro(LoadKeyFromMapBucket, NodeResultJS) \
-    macro(LoadValueFromMapBucket, NodeResultJS) \
-    macro(SetAdd, NodeMustGenerate | NodeResultJS) \
-    macro(MapSet, NodeMustGenerate | NodeHasVarArgs | NodeResultJS) \
+    macro(MapGet, NodeResultStorage) \
+    macro(LoadMapValue, NodeResultJS) \
+    macro(MapIteratorNext, NodeResultBoolean) \
+    macro(MapIteratorKey, NodeResultJS) \
+    macro(MapIteratorValue, NodeResultJS) \
+    macro(MapStorage, NodeResultJS) \
+    macro(MapIterationNext, NodeResultJS) \
+    macro(MapIterationEntry, NodeResultJS) \
+    macro(MapIterationEntryKey, NodeResultInt32) \
+    macro(MapIterationEntryValue, NodeResultJS) \
+    macro(SetAdd, NodeMustGenerate) \
+    macro(MapSet, NodeMustGenerate | NodeHasVarArgs) \
     macro(MapOrSetDelete, NodeMustGenerate | NodeResultBoolean) \
     /* Nodes for JSWeakMap and JSWeakSet */ \
     macro(WeakMapGet, NodeResultJS) \

@@ -168,14 +168,12 @@ void RenderBlockFlow::willBeDestroyed()
                         childBox->removeFromParent();
                 }
             }
-        } else if (parent())
-            parent()->dirtyLinesFromChangedChild(*this);
+        } else if (auto* parent = this->parent(); parent && parent->isSVGRenderer())
+            parent->dirtyLinesFromChangedChild(*this);
     }
 
     if (legacyLineLayout())
         legacyLineLayout()->lineBoxes().deleteLineBoxes();
-
-    blockWillBeDestroyed();
 
     // NOTE: This jumps down to RenderBox, bypassing RenderBlock since it would do duplicate work.
     RenderBox::willBeDestroyed();
@@ -243,20 +241,16 @@ void RenderBlockFlow::rebuildFloatingObjectSetFromIntrudingFloats()
     bool parentHasFloats = false;
     RenderBlockFlow* previousBlock = previousSiblingWithOverhangingFloats(parentHasFloats);
     LayoutUnit logicalTopOffset = logicalTop();
-    if (parentHasFloats || (parentBlock->lowestFloatLogicalBottom() > logicalTopOffset && previousBlock && previousBlock->isSelfCollapsingBlock()))
+    bool parentHasIntrudingFloats = !parentHasFloats && (!previousBlock  || (previousBlock->isSelfCollapsingBlock() && parentBlock->lowestFloatLogicalBottom() > logicalTopOffset));
+    if (parentHasFloats || parentHasIntrudingFloats)
         addIntrudingFloats(parentBlock.get(), parentBlock.get(), parentBlock->logicalLeftOffsetForContent(), logicalTopOffset);
-    
-    LayoutUnit logicalLeftOffset;
-    if (previousBlock)
-        logicalTopOffset -= previousBlock->logicalTop();
-    else {
-        previousBlock = parentBlock.get();
-        logicalLeftOffset += parentBlock->logicalLeftOffsetForContent();
-    }
 
     // Add overhanging floats from the previous RenderBlock, but only if it has a float that intrudes into our space.    
-    if (previousBlock->m_floatingObjects && previousBlock->lowestFloatLogicalBottom() > logicalTopOffset)
-        addIntrudingFloats(previousBlock, parentBlock.get(), logicalLeftOffset, logicalTopOffset);
+    if (previousBlock) {
+        logicalTopOffset -= previousBlock->logicalTop();
+        if (previousBlock->lowestFloatLogicalBottom() > logicalTopOffset)
+            addIntrudingFloats(previousBlock, parentBlock.get(), 0, logicalTopOffset);
+    }
 
     if (!childrenInline() && !oldIntrudingFloatSet.isEmpty()) {
         // If there are previously intruding floats that no longer intrude, then children with floats
@@ -447,7 +441,7 @@ void RenderBlockFlow::layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalH
     if (!relayoutChildren && simplifiedLayout())
         return;
 
-    LayoutRepainter repainter(*this, checkForRepaintDuringLayout());
+    LayoutRepainter repainter(*this);
 
     if (recomputeLogicalWidthAndColumnWidth())
         relayoutChildren = true;
@@ -3241,49 +3235,43 @@ void RenderBlockFlow::addOverflowFromInlineChildren()
 std::optional<LayoutUnit> RenderBlockFlow::firstLineBaseline() const
 {
     if (isWritingModeRoot() && !isGridItem() && !isFlexItem())
-        return std::nullopt;
+        return { };
 
     if (shouldApplyLayoutContainment())
-        return std::nullopt;
+        return { };
 
     if (!childrenInline())
         return RenderBlock::firstLineBaseline();
 
     if (!hasLines())
-        return std::nullopt;
+        return { };
 
-    if (modernLineLayout())
-        return LayoutUnit { floorToInt(modernLineLayout()->firstLinePhysicalBaseline()) };
+    if (auto* lineLayout = this->modernLineLayout())
+        return LayoutUnit { floorToInt(lineLayout->firstLinePhysicalBaseline()) };
 
-    ASSERT(firstRootBox());
-    if (style().isFlippedLinesWritingMode())
-        return LayoutUnit { firstRootBox()->logicalTop() + firstLineStyle().metricsOfPrimaryFont().intDescent(firstRootBox()->baselineType()) };
-    return LayoutUnit { firstRootBox()->logicalTop() + firstLineStyle().metricsOfPrimaryFont().intAscent(firstRootBox()->baselineType()) };
+    ASSERT_NOT_REACHED();
+    return { };
 }
 
 std::optional<LayoutUnit> RenderBlockFlow::lastLineBaseline() const
 {
     if (isWritingModeRoot() && !isGridItem() && !isFlexItem())
-        return std::nullopt;
+        return { };
 
     if (shouldApplyLayoutContainment())
-        return std::nullopt;
+        return { };
 
     if (!childrenInline())
         return RenderBlock::lastLineBaseline();
 
     if (!hasLines())
-        return std::nullopt;
+        return { };
 
     if (auto* lineLayout = modernLineLayout())
         return LayoutUnit { floorToInt(lineLayout->lastLinePhysicalBaseline()) };
 
-    ASSERT(lastRootBox()); 
-    auto rootBox = lastRootBox();
-    const RenderStyle& lastLineBoxStyle = InlineIterator::lastLineBoxFor(*this)->style();
-    if (style().isFlippedLinesWritingMode())
-        return LayoutUnit { rootBox->logicalTop() + lastLineBoxStyle.metricsOfPrimaryFont().intDescent(rootBox->baselineType()) };
-    return LayoutUnit { rootBox->logicalTop() + lastLineBoxStyle.metricsOfPrimaryFont().intAscent(rootBox->baselineType()) };
+    ASSERT_NOT_REACHED();
+    return { };
 }
 
 std::optional<LayoutUnit> RenderBlockFlow::inlineBlockBaseline(LineDirectionMode lineDirection) const
@@ -3881,11 +3869,8 @@ void RenderBlockFlow::invalidateLineLayoutPath(InvalidationReason invalidationRe
     ASSERT_NOT_REACHED();
 }
 
-static bool hasSimpleStaticPositionForOutOfFlowChildren(const RenderBlockFlow& root)
+static bool hasSimpleStaticPositionForInlineLevelOutOfFlowChildrenByStyle(const RenderStyle& rootStyle)
 {
-    if (root.hasLineIfEmpty())
-        return false;
-    auto& rootStyle = root.style();
     if (rootStyle.textAlign() != TextAlignMode::Start)
         return false;
     if (rootStyle.textIndent() != RenderStyle::zeroLength())
@@ -3897,7 +3882,8 @@ void RenderBlockFlow::layoutModernLines(bool relayoutChildren, LayoutUnit& repai
 {
     auto& layoutState = *view().frameView().layoutContext().layoutState();
 
-    auto hasSimpleOutOfFlowContentOnly = hasSimpleStaticPositionForOutOfFlowChildren(*this);
+    auto hasSimpleOutOfFlowContentOnly = !hasLineIfEmpty();
+    auto hasSimpleStaticPositionForInlineLevelOutOfFlowContentByStyle = hasSimpleStaticPositionForInlineLevelOutOfFlowChildrenByStyle(style());
 
     for (auto walker = InlineWalker(*this); !walker.atEnd(); walker.advance()) {
         auto& renderer = *walker.current();
@@ -3914,14 +3900,17 @@ void RenderBlockFlow::layoutModernLines(bool relayoutChildren, LayoutUnit& repai
             // FIXME: This is only needed because of the synchronous layout call in setStaticPositionsForSimpleOutOfFlowContent
             // which itself appears to be a workaround for a bad subtree layout shown by
             // fast/block/positioning/static_out_of_flow_inside_layout_boundary.html
+            auto& style = renderer.style();
             auto hasParentRelativeHeightOrTop = [&] {
-                auto& style = renderer.style();
                 if (style.logicalHeight().isPercentOrCalculated() || style.logicalTop().isPercentOrCalculated())
                     return true;
                 return !renderer.style().logicalBottom().isAuto();
             }();
             if (hasParentRelativeHeightOrTop)
                 hasSimpleOutOfFlowContentOnly = false;
+
+            if (hasSimpleOutOfFlowContentOnly && style.isOriginalDisplayInlineType())
+                hasSimpleOutOfFlowContentOnly = hasSimpleStaticPositionForInlineLevelOutOfFlowContentByStyle;
         } else
             hasSimpleOutOfFlowContentOnly = false;
 
@@ -3935,7 +3924,7 @@ void RenderBlockFlow::layoutModernLines(bool relayoutChildren, LayoutUnit& repai
             renderer.clearNeedsLayout();
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE) && ENABLE(AX_THREAD_TEXT_APIS)
-        if (auto* cache = document().existingAXObjectCache())
+        if (CheckedPtr cache = document().existingAXObjectCache())
             cache->onTextRunsChanged(renderer);
 #endif
 
@@ -4059,8 +4048,15 @@ void RenderBlockFlow::layoutModernLines(bool relayoutChildren, LayoutUnit& repai
 void RenderBlockFlow::setStaticPositionsForSimpleOutOfFlowContent()
 {
     ASSERT(childrenInline());
-    ASSERT(hasSimpleStaticPositionForOutOfFlowChildren(*this));
-
+#ifndef NDEBUG
+    ASSERT(!hasLineIfEmpty());
+    for (auto walker = InlineWalker(*this); !walker.atEnd(); walker.advance()) {
+        if (walker.current()->style().isDisplayInlineType()) {
+            ASSERT(hasSimpleStaticPositionForInlineLevelOutOfFlowChildrenByStyle(style()));
+            break;
+        }
+    }
+#endif
     // We have nothing but out-of-flow boxes so we don't need to run the actual line layout.
     // Instead, we can just set the static positions to the point where all these boxes would end up.
     // This is a common case when using transforms to animate positioned boxes.
@@ -4463,24 +4459,25 @@ RenderObject* InlineMinMaxIterator::next()
     return result;
 }
 
-static LayoutUnit getBPMWidth(LayoutUnit childValue, Length cssUnit)
-{
-    if (cssUnit.type() != LengthType::Auto)
-        return (cssUnit.isFixed() ? LayoutUnit(cssUnit.value()) : childValue);
-    return 0;
-}
-
 static LayoutUnit getBorderPaddingMargin(const RenderBoxModelObject& child, bool endOfInline)
 {
+    auto borderPaddingAndMarginWidth = [](LayoutUnit childValue, const Length& cssUnit) -> LayoutUnit {
+        if (cssUnit.isFixed())
+            return LayoutUnit(cssUnit.value());
+        if (cssUnit.isAuto())
+            return { };
+        return childValue;
+    };
+
     const RenderStyle& childStyle = child.style();
     if (endOfInline) {
-        return getBPMWidth(child.marginEnd(), childStyle.marginEnd()) +
-               getBPMWidth(child.paddingEnd(), childStyle.paddingEnd()) +
-               child.borderEnd();
+        return borderPaddingAndMarginWidth(child.marginEnd(), childStyle.marginEnd()) +
+            borderPaddingAndMarginWidth(child.paddingEnd(), childStyle.paddingEnd()) +
+            child.borderEnd();
     }
-    return getBPMWidth(child.marginStart(), childStyle.marginStart()) +
-               getBPMWidth(child.paddingStart(), childStyle.paddingStart()) +
-               child.borderStart();
+    return borderPaddingAndMarginWidth(child.marginStart(), childStyle.marginStart()) +
+        borderPaddingAndMarginWidth(child.paddingStart(), childStyle.paddingStart()) +
+        child.borderStart();
 }
 
 static inline void stripTrailingSpace(float& inlineMax, float& inlineMin, RenderObject* trailingSpaceChild)

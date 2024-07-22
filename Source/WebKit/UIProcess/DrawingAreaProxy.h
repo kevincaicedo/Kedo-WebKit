@@ -106,6 +106,9 @@ public:
     virtual void adjustTransientZoom(double, WebCore::FloatPoint) { }
     virtual void commitTransientZoom(double, WebCore::FloatPoint) { }
 
+    virtual void viewIsBecomingVisible() { }
+    virtual void viewIsBecomingInvisible() { }
+
 #if PLATFORM(MAC)
     virtual void didChangeViewExposedRect();
     void viewExposedRectChangedTimerFired();
@@ -150,7 +153,7 @@ public:
     virtual void addRemotePageDrawingAreaProxy(RemotePageDrawingAreaProxy&) { }
     virtual void removeRemotePageDrawingAreaProxy(RemotePageDrawingAreaProxy&) { }
 
-    virtual void remotePageProcessCrashed(WebCore::ProcessIdentifier) { }
+    virtual void remotePageProcessDidTerminate(WebCore::ProcessIdentifier) { }
 
 protected:
     DrawingAreaProxy(DrawingAreaType, WebPageProxy&, WebProcessProxy&);

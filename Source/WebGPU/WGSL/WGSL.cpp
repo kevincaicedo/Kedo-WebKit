@@ -39,6 +39,7 @@
 #include "PhaseTimer.h"
 #include "PointerRewriter.h"
 #include "TypeCheck.h"
+#include "VisibilityValidator.h"
 #include "WGSLShaderModule.h"
 
 namespace WGSL {
@@ -77,6 +78,7 @@ std::variant<SuccessfulCheck, FailedCheck> staticCheck(const String& wgsl, const
     CHECK_PASS(validateAttributes, shaderModule);
     RUN_PASS(buildCallGraph, shaderModule);
     CHECK_PASS(validateIO, shaderModule);
+    CHECK_PASS(validateVisibility, shaderModule);
 
     Vector<Warning> warnings { };
     return std::variant<SuccessfulCheck, FailedCheck>(std::in_place_type<SuccessfulCheck>, WTFMove(warnings), WTFMove(shaderModule));
@@ -103,8 +105,8 @@ inline std::variant<PrepareResult, Error> prepareImpl(ShaderModule& shaderModule
         HashMap<String, Reflection::EntryPointInformation> entryPoints;
 
         RUN_PASS(mangleNames, shaderModule);
-        RUN_PASS(rewritePointers, shaderModule);
         RUN_PASS(insertBoundsChecks, shaderModule);
+        RUN_PASS(rewritePointers, shaderModule);
         RUN_PASS(rewriteEntryPoints, shaderModule, pipelineLayouts);
         CHECK_PASS(rewriteGlobalVariables, shaderModule, pipelineLayouts, entryPoints);
 
@@ -142,11 +144,14 @@ std::variant<PrepareResult, Error> prepare(ShaderModule& ast, const String& entr
     return prepareImpl(ast, pipelineLayouts);
 }
 
-ConstantValue evaluate(const AST::Expression& expression, const HashMap<String, ConstantValue>& constants)
+std::optional<ConstantValue> evaluate(const AST::Expression& expression, const HashMap<String, ConstantValue>& constants)
 {
     if (auto constantValue = expression.constantValue())
         return *constantValue;
-    auto constantValue = constants.get(downcast<const AST::IdentifierExpression>(expression).identifier());
+    auto* maybeIdentifierExpression = dynamicDowncast<const AST::IdentifierExpression>(expression);
+    if (!maybeIdentifierExpression)
+        return std::nullopt;
+    auto constantValue = constants.get(maybeIdentifierExpression->identifier());
     const_cast<AST::Expression&>(expression).setConstantValue(constantValue);
     return constantValue;
 }

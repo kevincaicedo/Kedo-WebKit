@@ -40,6 +40,7 @@
 #include <wtf/StringPrintStream.h>
 #include <wtf/cf/TypeCastsCF.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
 #include <wtf/unicode/CharacterNames.h>
@@ -153,7 +154,7 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
                     continue;
 
                 tagStart.append("<b>"_s);
-                tagEnd = "</b>" + tagEnd;
+                tagEnd = makeString("</b>"_s, tagEnd);
                 continue;
             }
 
@@ -162,7 +163,7 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
                     continue;
 
                 tagStart.append("<i>"_s);
-                tagEnd = "</i>" + tagEnd;
+                tagEnd = makeString("</i>"_s, tagEnd);
                 continue;
             }
 
@@ -171,7 +172,7 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
                     continue;
 
                 tagStart.append("<u>"_s);
-                tagEnd = "</u>" + tagEnd;
+                tagEnd = makeString("</u>"_s, tagEnd);
                 continue;
             }
 
@@ -518,7 +519,7 @@ void InbandTextTrackPrivateAVF::processNativeSamples(CFArrayRef nativeSamples, c
             continue;
 
         while (true) {
-            buffer = ArrayBuffer::create(m_sampleInputBuffer.data(), m_sampleInputBuffer.size());
+            buffer = ArrayBuffer::create(m_sampleInputBuffer);
             auto view = JSC::DataView::create(WTFMove(buffer), 0, buffer->byteLength());
 
             auto peekResult = ISOBox::peekBox(view, 0);
@@ -556,7 +557,7 @@ void InbandTextTrackPrivateAVF::processNativeSamples(CFArrayRef nativeSamples, c
 
                 // A WebVTT header is terminated by "One or more WebVTT line terminators" so append two line feeds to make sure the parser
                 // reccognized this string as a full header.
-                auto header = makeString(std::span { CFDataGetBytePtr(webvttHeaderData), length }, "\n\n");
+                auto header = makeString(std::span { CFDataGetBytePtr(webvttHeaderData), length }, "\n\n"_s);
 
                 INFO_LOG(LOGIDENTIFIER, "VTT header ", header);
                 notifyMainThreadClient([&](auto& client) {
@@ -607,7 +608,7 @@ bool InbandTextTrackPrivateAVF::readNativeSampleBuffer(CFArrayRef nativeSamples,
     m_sampleInputBuffer.grow(m_sampleInputBuffer.size() + bufferLength);
     CMBlockBufferCopyDataBytes(blockBuffer, 0, bufferLength, m_sampleInputBuffer.data() + m_sampleInputBuffer.size() - bufferLength);
 
-    buffer = ArrayBuffer::create(m_sampleInputBuffer.data(), m_sampleInputBuffer.size());
+    buffer = ArrayBuffer::create(m_sampleInputBuffer);
 
     formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer);
 

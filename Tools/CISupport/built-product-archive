@@ -87,7 +87,7 @@ def main():
 def webkitBuildDirectoryForConfigurationAndPlatform(configuration, platform, fullPlatform='', returnTopLevelDirectory=False, crossTarget=None):
     if 'simulator' in fullPlatform:
         platform = platform + '-simulator'
-    elif platform in ['ios', 'tvos', 'watchos']:
+    elif platform in ['ios', 'tvos', 'visionos', 'watchos']:
         platform = platform + '-device'
     command = ['perl', os.path.join(os.path.dirname(__file__), '..', 'Scripts', 'webkit-build-directory'), '--' + platform, '--' + configuration]
     if returnTopLevelDirectory:
@@ -105,7 +105,7 @@ def determineWebKitBuildDirectories(platform, fullPlatform, configuration, cross
     global _hostBuildDirectory
     _configurationBuildDirectory = webkitBuildDirectoryForConfigurationAndPlatform(configuration, platform, fullPlatform, crossTarget=cross_target)
     _topLevelBuildDirectory = webkitBuildDirectoryForConfigurationAndPlatform(configuration, platform, fullPlatform, returnTopLevelDirectory=True, crossTarget=cross_target)
-    if platform in ['ios', 'tvos', 'watchos']:
+    if platform in ['ios', 'tvos', 'visionos', 'watchos']:
         _hostBuildDirectory = webkitBuildDirectoryForConfigurationAndPlatform(configuration, 'mac')
     else:
         _hostBuildDirectory = _configurationBuildDirectory
@@ -203,7 +203,7 @@ def createZip(directoryToZip, configuration, excludePatterns=None, embedParentDi
         command += [directoryToZip, archiveFile]
         return subprocess.call(command) or addFilesToArchive(archiveFile, PATH_TO_LAUNCHER, PATH_TO_README)
     elif sys.platform == 'cygwin':
-        zipCommand = ["zip", "-r", archiveFile, "bin64"]
+        zipCommand = ["zip", "-r", archiveFile, "bin"]
         if excludePatterns:
             for excludePattern in excludePatterns:
                 zipCommand += ['-x', excludePattern]
@@ -234,12 +234,12 @@ ALWAYS_EXCLUDED_PATTERNS = ('*.a',)
 MINIFIED_EXCLUDED_PATTERNS = (*ALWAYS_EXCLUDED_PATTERNS, '*.dSYM', 'DerivedSources')
 
 def archiveBuiltProduct(configuration, platform, fullPlatform, minify=False):
-    assert platform in ('gtk', 'ios', 'jsc-only', 'mac', 'tvos', 'watchos', 'win', 'wincairo', 'wpe')
+    assert platform in ('gtk', 'ios', 'jsc-only', 'mac', 'tvos', 'visionos', 'watchos', 'win', 'wincairo', 'wpe')
     global _configurationBuildDirectory
 
     print("Archiving built product from directory: %s" % _configurationBuildDirectory)
 
-    if platform in ['ios', 'tvos', 'watchos']:
+    if platform in ['ios', 'tvos', 'visionos', 'watchos']:
         combinedDirectory = os.path.join(_topLevelBuildDirectory, 'combined-mac-and-{}'.format(platform))
         removeDirectoryIfExists(combinedDirectory)
         os.makedirs(combinedDirectory)
@@ -257,20 +257,18 @@ def archiveBuiltProduct(configuration, platform, fullPlatform, minify=False):
         else:
             return createZip(_configurationBuildDirectory, configuration, excludePatterns=ALWAYS_EXCLUDED_PATTERNS, embedParentDirectoryNameOnDarwin=True)
     elif platform in ('win', 'wincairo'):
-        binType = 'bin64' if os.path.exists(os.path.join(_configurationBuildDirectory, 'bin64')) else 'bin32'
-        binDirectory = os.path.join(_configurationBuildDirectory, binType)
+        binDirectory = os.path.join(_configurationBuildDirectory, 'bin')
         thinDirectory = os.path.join(_configurationBuildDirectory, 'thin')
-        thinBinDirectory = os.path.join(thinDirectory, binType)
+        thinBinDirectory = os.path.join(thinDirectory, 'bin')
 
         removeDirectoryIfExists(thinDirectory)
         copyBuildFiles(binDirectory, thinBinDirectory, ['*.ilk'])
 
-        # Save WinCairoRequirements version for test bot use
-        if platform == 'wincairo':
-            libDirectory = os.getenv('WEBKIT_LIBRARIES') or os.path.join(webkitTopAbsPath, 'WebKitLibraries', 'win')
-            shutil.copy(
-                os.path.join(libDirectory, 'WebKitRequirementsWin64.zip.version'),
-                os.path.join(thinDirectory, 'WebKitRequirementsWin64.zip.config'))
+        # Save WebKitRequirements version for test bot use
+        libDirectory = os.getenv('WEBKIT_LIBRARIES') or os.path.join(webkitTopAbsPath, 'WebKitLibraries', 'win')
+        shutil.copy(
+            os.path.join(libDirectory, 'WebKitRequirementsWin64.zip.version'),
+            os.path.join(thinDirectory, 'WebKitRequirementsWin64.zip.config'))
 
         if createZip(thinDirectory, configuration):
             return 1
@@ -347,22 +345,22 @@ def unzipArchive(directoryToExtractTo, configuration):
 
 
 def extractBuiltProduct(configuration, platform):
-    assert platform in ('gtk', 'ios', 'jsc-only', 'mac', 'tvos', 'watchos', 'win', 'wincairo', 'wpe')
+    assert platform in ('gtk', 'ios', 'jsc-only', 'mac', 'tvos', 'visionos', 'watchos', 'win', 'wincairo', 'wpe')
 
     archiveFile = os.path.join(_topLevelBuildDirectory, configuration + '.zip')
 
     removeDirectoryIfExists(_configurationBuildDirectory)
     os.makedirs(_configurationBuildDirectory)
 
-    if platform in ('mac', 'ios', 'tvos', 'watchos'):
+    if platform in ('mac', 'ios', 'visionos', 'tvos', 'watchos'):
         return unzipArchive(_topLevelBuildDirectory, configuration)
     elif platform in ('gtk', 'jsc-only', 'win', 'wincairo', 'wpe'):
         print('Extracting: {}'.format(_configurationBuildDirectory))
         if unzipArchive(_configurationBuildDirectory, configuration):
             return 1
 
-        # Restore WinCairoRequirements version for test bot use
-        if platform == 'wincairo':
+        # Restore WebKitRequirements version for test bot use
+        if platform in ('win', 'wincairo'):
             libDirectory = os.getenv('WEBKIT_LIBRARIES') or os.path.join(webkitTopAbsPath, 'WebKitLibraries', 'win')
             os.makedirs(libDirectory, exist_ok=True)
             shutil.copy(os.path.join(_configurationBuildDirectory, 'WebKitRequirementsWin64.zip.config'), libDirectory)

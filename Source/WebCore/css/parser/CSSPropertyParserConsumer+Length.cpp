@@ -26,13 +26,16 @@
 #include "CSSPropertyParserConsumer+Length.h"
 #include "CSSPropertyParserConsumer+LengthDefinitions.h"
 
+#include "CSSAnchorValue.h"
 #include "CSSCalcParser.h"
 #include "CSSCalcSymbolTable.h"
+#include "CSSCalcSymbolsAllowed.h"
 #include "CSSCalcValue.h"
 #include "CSSPropertyParserConsumer+CSSPrimitiveValueResolver.h"
 #include "CSSPropertyParserConsumer+MetaConsumer.h"
 #include "CSSPropertyParserConsumer+PercentDefinitions.h"
 #include "CSSPropertyParserConsumer+RawResolver.h"
+#include "CSSPropertyParserHelpers.h"
 
 namespace WebCore {
 namespace CSSPropertyParserHelpers {
@@ -46,19 +49,19 @@ std::optional<LengthRaw> validatedRange(LengthRaw value, CSSPropertyParserOption
     return value;
 }
 
-std::optional<UnevaluatedCalc<LengthRaw>> LengthKnownTokenTypeFunctionConsumer::consume(CSSParserTokenRange& range, const CSSCalcSymbolTable& symbolTable, CSSPropertyParserOptions options)
+std::optional<UnevaluatedCalc<LengthRaw>> LengthKnownTokenTypeFunctionConsumer::consume(CSSParserTokenRange& range, CSSCalcSymbolsAllowed symbolsAllowed, CSSPropertyParserOptions options)
 {
     ASSERT(range.peek().type() == FunctionToken);
 
     auto rangeCopy = range;
-    if (RefPtr value = consumeCalcRawWithKnownTokenTypeFunction(rangeCopy, CalculationCategory::Length, symbolTable, options)) {
+    if (RefPtr value = consumeCalcRawWithKnownTokenTypeFunction(rangeCopy, CalculationCategory::Length, WTFMove(symbolsAllowed), options)) {
         range = rangeCopy;
         return {{ value.releaseNonNull() }};
     }
     return std::nullopt;
 }
 
-std::optional<LengthRaw> LengthKnownTokenTypeDimensionConsumer::consume(CSSParserTokenRange& range, const CSSCalcSymbolTable&, CSSPropertyParserOptions options)
+std::optional<LengthRaw> LengthKnownTokenTypeDimensionConsumer::consume(CSSParserTokenRange& range, CSSCalcSymbolsAllowed, CSSPropertyParserOptions options)
 {
     ASSERT(range.peek().type() == DimensionToken);
 
@@ -131,7 +134,7 @@ std::optional<LengthRaw> LengthKnownTokenTypeDimensionConsumer::consume(CSSParse
     return std::nullopt;
 }
 
-std::optional<LengthRaw> LengthKnownTokenTypeNumberConsumer::consume(CSSParserTokenRange& range, const CSSCalcSymbolTable&, CSSPropertyParserOptions options)
+std::optional<LengthRaw> LengthKnownTokenTypeNumberConsumer::consume(CSSParserTokenRange& range, CSSCalcSymbolsAllowed, CSSPropertyParserOptions options)
 {
     ASSERT(range.peek().type() == NumberToken);
 
@@ -158,7 +161,7 @@ RefPtr<CSSPrimitiveValue> consumeLength(CSSParserTokenRange& range, CSSParserMod
         .unitless = unitless,
         .unitlessZero = UnitlessZeroQuirk::Allow
     };
-    return CSSPrimitiveValueResolver<LengthRaw>::consumeAndResolve(range, { }, options);
+    return CSSPrimitiveValueResolver<LengthRaw>::consumeAndResolve(range, { }, { }, options);
 }
 
 std::optional<LengthOrPercentRaw> consumeLengthOrPercentRaw(CSSParserTokenRange& range, CSSParserMode parserMode)
@@ -167,17 +170,18 @@ std::optional<LengthOrPercentRaw> consumeLengthOrPercentRaw(CSSParserTokenRange&
         .parserMode = parserMode,
         .valueRange = ValueRange::NonNegative
     };
-    return RawResolver<LengthRaw, PercentRaw>::consumeAndResolve(range, { }, options);
+    return RawResolver<LengthRaw, PercentRaw>::consumeAndResolve(range, { }, { }, options);
 }
 
 // FIXME: This doesn't work with the current scheme due to the NegativePercentagePolicy parameter
-RefPtr<CSSPrimitiveValue> consumeLengthOrPercent(CSSParserTokenRange& range, CSSParserMode parserMode, ValueRange valueRange, UnitlessQuirk unitless, UnitlessZeroQuirk unitlessZero, NegativePercentagePolicy negativePercentage)
+RefPtr<CSSPrimitiveValue> consumeLengthOrPercent(CSSParserTokenRange& range, CSSParserMode parserMode, ValueRange valueRange, UnitlessQuirk unitless, UnitlessZeroQuirk unitlessZero, NegativePercentagePolicy negativePercentage, AnchorPolicy anchorPolicy)
 {
     auto& token = range.peek();
 
     const auto options = CSSPropertyParserOptions {
         .parserMode = parserMode,
         .valueRange = valueRange,
+        .anchorPolicy = anchorPolicy,
         .negativePercentage = negativePercentage,
         .unitless = unitless,
         .unitlessZero = unitlessZero
@@ -185,6 +189,12 @@ RefPtr<CSSPrimitiveValue> consumeLengthOrPercent(CSSParserTokenRange& range, CSS
 
     switch (token.type()) {
     case FunctionToken: {
+        if (range.peek().functionId() == CSSValueAnchor) {
+            if (anchorPolicy == AnchorPolicy::Allow)
+                return consumeAnchor(range, parserMode);
+            return nullptr;
+        }
+
         // FIXME: Should this be using trying to generate the calc with both Length and Percent destination category types?
         CalcParser parser(range, CalculationCategory::Length, { }, options);
         if (auto calculation = parser.value(); calculation && canConsumeCalcValue(calculation->category(), options))

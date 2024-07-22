@@ -137,26 +137,8 @@ macro cCall2(function)
     checkStackPointerAlignment(t4, 0xbad0c002)
     if C_LOOP or C_LOOP_WIN
         cloopCallSlowPath function, a0, a1
-    elsif X86_64 or ARM64 or ARM64E or RISCV64
+    elsif X86_64 or X86_64_WIN or ARM64 or ARM64E or RISCV64
         call function
-    elsif X86_64_WIN
-        # Note: this implementation is only correct if the return type size is > 8 bytes.
-        # See macro cCall2Void for an implementation when the return type <= 8 bytes.
-        # On Win64, when the return type is larger than 8 bytes, we need to allocate space on the stack for the return value.
-        # On entry rcx (a0), should contain a pointer to this stack space. The other parameters are shifted to the right,
-        # rdx (a1) should contain the first argument, and r8 (a2) should contain the second argument.
-        # On return, rax contains a pointer to this stack value, and we then need to copy the 16 byte return value into rax (r0) and rdx (r1)
-        # since the return value is expected to be split between the two.
-        # See http://msdn.microsoft.com/en-us/library/7572ztz4.aspx
-        move a1, a2
-        move a0, a1
-        subp 48, sp
-        move sp, a0
-        addp 32, a0
-        call function
-        move 8[r0], r1
-        move [r0], r0
-        addp 48, sp
     else
         error
     end
@@ -165,15 +147,6 @@ end
 macro cCall2Void(function)
     if C_LOOP or C_LOOP_WIN
         cloopCallSlowPathVoid function, a0, a1
-    elsif X86_64_WIN
-        # Note: we cannot use the cCall2 macro for Win64 in this case,
-        # as the Win64 cCall2 implemenation is only correct when the return type size is > 8 bytes.
-        # On Win64, rcx and rdx are used for passing the first two parameters.
-        # We also need to make room on the stack for all four parameter registers.
-        # See http://msdn.microsoft.com/en-us/library/ms235286.aspx
-        subp 32, sp 
-        call function
-        addp 32, sp
     else
         cCall2(function)
     end
@@ -183,27 +156,8 @@ macro cCall3(function)
     checkStackPointerAlignment(t4, 0xbad0c004)
     if C_LOOP or C_LOOP_WIN
         cloopCallSlowPath3 function, a0, a1, a2
-    elsif X86_64 or ARM64 or ARM64E or RISCV64
+    elsif X86_64 or X86_64_WIN or ARM64 or ARM64E or RISCV64
         call function
-    elsif X86_64_WIN
-        # Note: this implementation is only correct if the return type size is > 8 bytes.
-        # See macro cCall2Void for an implementation when the return type <= 8 bytes.
-        # On Win64, when the return type is larger than 8 bytes, we need to allocate space on the stack for the return value.
-        # On entry rcx (a0), should contain a pointer to this stack space. The other parameters are shifted to the right,
-        # rdx (a1) should contain the first argument, r8 (a2) should contain the second argument, and r9 (a3) should contain the third argument.
-        # On return, rax contains a pointer to this stack value, and we then need to copy the 16 byte return value into rax (r0) and rdx (r1)
-        # since the return value is expected to be split between the two.
-        # See http://msdn.microsoft.com/en-us/library/7572ztz4.aspx
-        move a2, a3
-        move a1, a2
-        move a0, a1
-        subp 64, sp
-        move sp, a0
-        addp 32, a0
-        call function
-        move 8[r0], r1
-        move [r0], r0
-        addp 64, sp
     else
         error
     end
@@ -214,15 +168,8 @@ macro cCall4(function)
     checkStackPointerAlignment(t4, 0xbad0c004)
     if C_LOOP or C_LOOP_WIN
         cloopCallSlowPath4 function, a0, a1, a2, a3
-    elsif X86_64 or ARM64 or ARM64E or RISCV64
+    elsif X86_64 or X86_64_WIN or ARM64 or ARM64E or RISCV64
         call function
-    elsif X86_64_WIN
-        # On Win64, rcx, rdx, r8, and r9 are used for passing the first four parameters.
-        # We also need to make room on the stack for all four parameter registers.
-        # See http://msdn.microsoft.com/en-us/library/ms235286.aspx
-        subp 64, sp
-        call function
-        addp 64, sp
     else
         error
     end
@@ -420,11 +367,6 @@ macro makeHostFunctionCall(entry, protoCallFrame, temp1, temp2)
     if C_LOOP or C_LOOP_WIN
         storep lr, 8[sp]
         cloopCallNative temp1
-    elsif X86_64_WIN
-        # We need to allocate 32 bytes on the stack for the shadow space.
-        subp 32, sp
-        call temp1, HostFunctionPtrTag
-        addp 32, sp
     else
         call temp1, HostFunctionPtrTag
     end
@@ -1709,6 +1651,11 @@ llintOpWithMetadata(op_get_by_id_direct, OpGetByIdDirect, macro (size, get, disp
 .opGetByIdDirectSlow:
     callSlowPath(_llint_slow_path_get_by_id_direct)
     dispatch()
+
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_get_by_id_direct, size)
+    valueProfile(size, OpGetByIdDirect, m_valueProfile, r0, t2)
+    return(r0)
 end)
 
 # The base object is expected in t3
@@ -1979,7 +1926,6 @@ llintOpWithMetadata(op_get_by_val, OpGetByVal, macro (size, get, dispatch, metad
     getterSetterOSRExitReturnPoint(op_get_by_val, size)
     valueProfile(size, OpGetByVal, m_valueProfile, r0, t5)
     return(r0)
-
 end)
 
 llintOpWithMetadata(op_get_private_name, OpGetPrivateName, macro (size, get, dispatch, metadata, return)
@@ -2198,8 +2144,11 @@ putByValOp(put_by_val, OpPutByVal, macro (size, dispatch)
     dispatch()
 end)
 
-putByValOp(put_by_val_direct, OpPutByValDirect, macro (a, b) end)
-
+putByValOp(put_by_val_direct, OpPutByValDirect, macro (size, dispatch)
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_put_by_val_direct, size)
+    dispatch()
+end)
 
 macro llintJumpTrueOrFalseOp(opcodeName, opcodeStruct, miscConditionOp, truthyCellConditionOp)
     llintOpWithJump(op_%opcodeName%, opcodeStruct, macro (size, get, jump, dispatch)
@@ -2557,7 +2506,7 @@ macro callHelper(opcodeName, opcodeStruct, dispatchAfterCall, valueProfileName, 
     loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_callee[t5], t1
     btpz t1, (constexpr CallLinkInfo::polymorphicCalleeMask), .notPolymorphic
     prepareCall(t2, t3, t4, t1, macro(address)
-        loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_codeBlock[t5], t2
+        loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_codeBlock[t5], t2
         storep t2, address
     end)
     addp %opcodeStruct%::Metadata::m_callLinkInfo, t5, t2 # CallLinkInfo* in t2
@@ -2566,12 +2515,12 @@ macro callHelper(opcodeName, opcodeStruct, dispatchAfterCall, valueProfileName, 
 .notPolymorphic:
     bqneq t0, t1, .opCallSlow
     prepareCall(t2, t3, t4, t1, macro(address)
-        loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_codeBlock[t5], t2
+        loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_codeBlock[t5], t2
         storep t2, address
     end)
 
 .goPolymorphic:
-    loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_monomorphicCallDestination[t5], t5
+    loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_monomorphicCallDestination[t5], t5
 .dispatch:
     invokeCall(opcodeName, size, opcodeStruct, valueProfileName, dstVirtualRegister, dispatch, t5, t1, JSEntryPtrTag)
 
@@ -2646,7 +2595,7 @@ macro doCallVarargs(opcodeName, size, get, opcodeStruct, valueProfileName, dstVi
             loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_callee[t5], t1
             btpz t1, (constexpr CallLinkInfo::polymorphicCalleeMask), .notPolymorphic
             prepareCall(t2, t3, t4, t1, macro(address)
-                loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_codeBlock[t5], t2
+                loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_codeBlock[t5], t2
                 storep t2, address
             end)
             addp %opcodeStruct%::Metadata::m_callLinkInfo, t5, t2 # CallLinkInfo* in t2
@@ -2655,12 +2604,12 @@ macro doCallVarargs(opcodeName, size, get, opcodeStruct, valueProfileName, dstVi
         .notPolymorphic:
             bqneq t0, t1, .opCallSlow
             prepareCall(t2, t3, t4, t1, macro(address)
-                loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_codeBlock[t5], t2
+                loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_codeBlock[t5], t2
                 storep t2, address
             end)
 
         .goPolymorphic:
-            loadp %opcodeStruct%::Metadata::m_callLinkInfo.u.dataIC.m_monomorphicCallDestination[t5], t5
+            loadp %opcodeStruct%::Metadata::m_callLinkInfo.m_monomorphicCallDestination[t5], t5
         .dispatch:
             invokeCall(opcodeName, size, opcodeStruct, valueProfileName, dstVirtualRegister, dispatch, t5, t1, JSEntryPtrTag)
 
@@ -2833,13 +2782,7 @@ macro nativeCallTrampoline(executableOffsetToFunction)
     if C_LOOP or C_LOOP_WIN
         cloopCallNative executableOffsetToFunction[a2]
     else
-        if X86_64_WIN
-            subp 32, sp
-            call executableOffsetToFunction[a2], HostFunctionPtrTag
-            addp 32, sp
-        else
-            call executableOffsetToFunction[a2], HostFunctionPtrTag
-        end
+        call executableOffsetToFunction[a2], HostFunctionPtrTag
     end
 
     loadp Callee[cfr], t3
@@ -2871,13 +2814,7 @@ macro internalFunctionCallTrampoline(offsetOfFunction)
     if C_LOOP or C_LOOP_WIN
         cloopCallNative offsetOfFunction[a2]
     else
-        if X86_64_WIN
-            subp 32, sp
-            call offsetOfFunction[a2], HostFunctionPtrTag
-            addp 32, sp
-        else
-            call offsetOfFunction[a2], HostFunctionPtrTag
-        end
+        call offsetOfFunction[a2], HostFunctionPtrTag
     end
 
     loadp Callee[cfr], t3
@@ -3535,6 +3472,11 @@ llintOpWithMetadata(op_enumerator_get_by_val, OpEnumeratorGetByVal, macro (size,
 .getSlowPath:
     callSlowPath(_slow_path_enumerator_get_by_val)
     dispatch()
+
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_enumerator_get_by_val, size)
+    valueProfile(size, OpEnumeratorGetByVal, m_valueProfile, r0, t5)
+    return(r0)
 end)
 
 llintOpWithMetadata(op_enumerator_put_by_val, OpEnumeratorPutByVal, macro (size, get, dispatch, metadata, return)
@@ -3583,6 +3525,10 @@ llintOpWithMetadata(op_enumerator_put_by_val, OpEnumeratorPutByVal, macro (size,
 .putSlowPath:
     callSlowPath(_slow_path_enumerator_put_by_val)
     dispatch()
+
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_enumerator_put_by_val, size)
+    dispatch()
 end)
 
 macro hasPropertyImpl(opcodeStruct, size, get, dispatch, metadata, return, slowPath)
@@ -3613,10 +3559,29 @@ end
 
 llintOpWithMetadata(op_enumerator_in_by_val, OpEnumeratorInByVal, macro (size, get, dispatch, metadata, return)
     hasPropertyImpl(OpEnumeratorInByVal, size, get, dispatch, metadata, return, _slow_path_enumerator_in_by_val)
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_enumerator_in_by_val, size)
+    return(r0)
 end)
 
 llintOpWithMetadata(op_enumerator_has_own_property, OpEnumeratorHasOwnProperty, macro (size, get, dispatch, metadata, return)
     hasPropertyImpl(OpEnumeratorHasOwnProperty, size, get, dispatch, metadata, return, _slow_path_enumerator_has_own_property)
+end)
+
+llintOpWithReturn(op_in_by_id, OpInById, macro (size, get, dispatch, return)
+    callSlowPath(_llint_slow_path_in_by_id)
+    dispatch()
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_in_by_id, size)
+    return(r0)
+end)
+
+llintOpWithReturn(op_in_by_val, OpInByVal, macro (size, get, dispatch, return)
+    callSlowPath(_llint_slow_path_in_by_val)
+    dispatch()
+.osrReturnPoint:
+    getterSetterOSRExitReturnPoint(op_in_by_val, size)
+    return(r0)
 end)
 
 llintOpWithProfile(op_get_internal_field, OpGetInternalField, macro (size, get, dispatch, return)

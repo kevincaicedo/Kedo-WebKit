@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -57,7 +57,6 @@
 #include "GetterSetterInlines.h"
 #include "GigacageAlignedMemoryAllocator.h"
 #include "HasOwnPropertyCache.h"
-#include "HashMapImplInlines.h"
 #include "Heap.h"
 #include "HeapProfiler.h"
 #include "IncrementalSweeper.h"
@@ -323,14 +322,12 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
     moduleProgramCodeBlockStructure.setWithoutWriteBarrier(ModuleProgramCodeBlock::createStructure(*this, nullptr, jsNull()));
     evalCodeBlockStructure.setWithoutWriteBarrier(EvalCodeBlock::createStructure(*this, nullptr, jsNull()));
     functionCodeBlockStructure.setWithoutWriteBarrier(FunctionCodeBlock::createStructure(*this, nullptr, jsNull()));
-    hashMapBucketSetStructure.setWithoutWriteBarrier(HashMapBucket<HashMapBucketDataKey>::createStructure(*this, nullptr, jsNull()));
-    hashMapBucketMapStructure.setWithoutWriteBarrier(HashMapBucket<HashMapBucketDataKeyValue>::createStructure(*this, nullptr, jsNull()));
     bigIntStructure.setWithoutWriteBarrier(JSBigInt::createStructure(*this, nullptr, jsNull()));
 
     // Eagerly initialize constant cells since the concurrent compiler can access them.
     if (Options::useJIT()) {
-        sentinelMapBucket();
-        sentinelSetBucket();
+        orderedHashTableDeletedValue();
+        orderedHashTableSentinel();
         emptyPropertyNameEnumerator();
         ensureMegamorphicCache();
     }
@@ -351,8 +348,6 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
     Gigacage::addPrimitiveDisableCallback(primitiveGigacageDisabledCallback, this);
 
     heap.notifyIsSafeToCollect();
-    
-    LLInt::Data::performAssertions(*this);
     
     if (UNLIKELY(Options::useProfiler())) {
         m_perBytecodeProfiler = makeUnique<Profiler::Database>(*this);
@@ -453,7 +448,7 @@ VM::~VM()
     Locker destructionLocker { s_destructionLock.read() };
 
     if (Options::useAtomicsWaitAsync() && vmType == Default)
-        WaiterListManager::singleton().unregisterVM(this);
+        WaiterListManager::singleton().unregister(this);
 
     Gigacage::removePrimitiveDisableCallback(primitiveGigacageDisabledCallback, this);
     deferredWorkTimer->stopRunningTasks();
@@ -685,12 +680,10 @@ static ThunkGenerator thunkGeneratorForIntrinsic(Intrinsic intrinsic)
     case ObjectIsIntrinsic:
         return objectIsThunkGenerator;
 #endif
-#if !OS(WINDOWS)
     case BoundFunctionCallIntrinsic:
         return boundFunctionCallGenerator;
     case RemoteFunctionCallIntrinsic:
         return remoteFunctionCallGenerator;
-#endif
     case NumberConstructorIntrinsic:
         return numberConstructorCallThunkGenerator;
     case StringConstructorIntrinsic:
@@ -785,11 +778,8 @@ NativeExecutable* VM::getRemoteFunction(bool isJSFunction)
             return cached;
 
         Intrinsic intrinsic = NoIntrinsic;
-        if (!slowCase) {
-#if !(OS(WINDOWS) && CPU(X86_64))
+        if (!slowCase)
             intrinsic = RemoteFunctionCallIntrinsic;
-#endif
-        }
 
         NativeExecutable* result = getHostFunction(
             slowCase ? remoteFunctionCallGeneric : remoteFunctionCallForJSFunction,
@@ -1490,19 +1480,19 @@ Ref<Waiter> VM::syncWaiter()
     return m_syncWaiter;
 }
 
-JSCell* VM::sentinelSetBucketSlow()
+JSCell* VM::orderedHashTableDeletedValueSlow()
 {
-    ASSERT(!m_sentinelSetBucket);
-    auto* sentinel = JSSet::BucketType::createSentinel(*this);
-    m_sentinelSetBucket.setWithoutWriteBarrier(sentinel);
-    return sentinel;
+    ASSERT(!m_orderedHashTableDeletedValue);
+    Symbol* deleted = OrderedHashMap::createDeletedValue(*this);
+    m_orderedHashTableDeletedValue.setWithoutWriteBarrier(deleted);
+    return deleted;
 }
 
-JSCell* VM::sentinelMapBucketSlow()
+JSCell* VM::orderedHashTableSentinelSlow()
 {
-    ASSERT(!m_sentinelMapBucket);
-    auto* sentinel = JSMap::BucketType::createSentinel(*this);
-    m_sentinelMapBucket.setWithoutWriteBarrier(sentinel);
+    ASSERT(!m_orderedHashTableSentinel);
+    JSCell* sentinel = OrderedHashMap::createSentinel(*this);
+    m_orderedHashTableSentinel.setWithoutWriteBarrier(sentinel);
     return sentinel;
 }
 
@@ -1673,8 +1663,8 @@ void VM::visitAggregateImpl(Visitor& visitor)
     visitor.append(bigIntStructure);
 
     visitor.append(m_emptyPropertyNameEnumerator);
-    visitor.append(m_sentinelSetBucket);
-    visitor.append(m_sentinelMapBucket);
+    visitor.append(m_orderedHashTableDeletedValue);
+    visitor.append(m_orderedHashTableSentinel);
     visitor.append(m_fastCanConstructBoundExecutable);
     visitor.append(m_slowCanConstructBoundExecutable);
     visitor.append(lastCachedString);
@@ -1696,10 +1686,10 @@ void VM::performOpportunisticallyScheduledTasks(MonotonicTime deadline, OptionSe
 {
     constexpr bool verbose = false;
 
-    dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] QUERY");
+    dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] QUERY", " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
     JSLockHolder locker { *this };
     if (deferredWorkTimer->hasAnyPendingWork()) {
-        dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: No pending tasks");
+        dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: No pending tasks", " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
         return;
     }
 
@@ -1709,7 +1699,7 @@ void VM::performOpportunisticallyScheduledTasks(MonotonicTime deadline, OptionSe
         auto remainingTime = deadline.secondsSinceEpoch() - secondsSinceEpoch;
 
         if (options.contains(SchedulerOptions::HasImminentlyScheduledWork)) {
-            dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: HasImminentlyScheduledWork ", remainingTime);
+            dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: HasImminentlyScheduledWork ", remainingTime, " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
             return;
         }
 
@@ -1722,7 +1712,7 @@ void VM::performOpportunisticallyScheduledTasks(MonotonicTime deadline, OptionSe
         if (timeSinceFinishingLastFullGC > minimumDelayBeforeOpportunisticFullGC && heap.m_shouldDoOpportunisticFullCollection && heap.m_totalBytesVisitedAfterLastFullCollect) {
             auto estimatedGCDuration = (heap.lastFullGCLength() * heap.m_totalBytesVisited) / heap.m_totalBytesVisitedAfterLastFullCollect;
             if (estimatedGCDuration + extraDurationToAvoidExceedingDeadlineDuringFullGC < remainingTime) {
-                dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] FULL");
+                dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] FULL", " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
                 heap.collectSync(CollectionScope::Full);
                 heap.m_shouldDoOpportunisticFullCollection = false;
                 return;
@@ -1733,14 +1723,14 @@ void VM::performOpportunisticallyScheduledTasks(MonotonicTime deadline, OptionSe
         if (timeSinceLastGC > minimumDelayBeforeOpportunisticEdenGC && heap.m_bytesAllocatedThisCycle && heap.m_bytesAllocatedBeforeLastEdenCollect) {
             auto estimatedGCDuration = (heap.lastEdenGCLength() * heap.m_bytesAllocatedThisCycle) / heap.m_bytesAllocatedBeforeLastEdenCollect;
             if (estimatedGCDuration + extraDurationToAvoidExceedingDeadlineDuringEdenGC < remainingTime) {
-                dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] EDEN: ", timeSinceFinishingLastFullGC, " ", timeSinceLastGC, " ", heap.m_shouldDoOpportunisticFullCollection, " ", heap.m_totalBytesVisitedAfterLastFullCollect, " ", heap.m_bytesAllocatedThisCycle, " ", heap.m_bytesAllocatedBeforeLastEdenCollect, " ", heap.m_lastGCEndTime, " ", heap.m_currentGCStartTime, " ", (heap.lastFullGCLength() * heap.m_totalBytesVisited) / heap.m_totalBytesVisitedAfterLastFullCollect, " ", remainingTime, " ", (heap.lastEdenGCLength() * heap.m_bytesAllocatedThisCycle) / heap.m_bytesAllocatedBeforeLastEdenCollect);
+                dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] EDEN: ", timeSinceFinishingLastFullGC, " ", timeSinceLastGC, " ", heap.m_shouldDoOpportunisticFullCollection, " ", heap.m_totalBytesVisitedAfterLastFullCollect, " ", heap.m_bytesAllocatedThisCycle, " ", heap.m_bytesAllocatedBeforeLastEdenCollect, " ", heap.m_lastGCEndTime, " ", heap.m_currentGCStartTime, " ", (heap.lastFullGCLength() * heap.m_totalBytesVisited) / heap.m_totalBytesVisitedAfterLastFullCollect, " ", remainingTime, " ", (heap.lastEdenGCLength() * heap.m_bytesAllocatedThisCycle) / heap.m_bytesAllocatedBeforeLastEdenCollect, " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
                 heap.collectSync(CollectionScope::Eden);
                 heap.m_shouldDoOpportunisticFullCollection = false;
                 return;
             }
         }
 
-        dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: nothing met. ", timeSinceFinishingLastFullGC, " ", timeSinceLastGC, " ", heap.m_shouldDoOpportunisticFullCollection, " ", heap.m_totalBytesVisitedAfterLastFullCollect, " ", heap.m_bytesAllocatedThisCycle, " ", heap.m_bytesAllocatedBeforeLastEdenCollect, " ", heap.m_lastGCEndTime, " ", heap.m_currentGCStartTime, " ", (heap.lastFullGCLength() * heap.m_totalBytesVisited) / heap.m_totalBytesVisitedAfterLastFullCollect, " ", remainingTime, " ", (heap.lastEdenGCLength() * heap.m_bytesAllocatedThisCycle) / heap.m_bytesAllocatedBeforeLastEdenCollect);
+        dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: nothing met. ", timeSinceFinishingLastFullGC, " ", timeSinceLastGC, " ", heap.m_shouldDoOpportunisticFullCollection, " ", heap.m_totalBytesVisitedAfterLastFullCollect, " ", heap.m_bytesAllocatedThisCycle, " ", heap.m_bytesAllocatedBeforeLastEdenCollect, " ", heap.m_lastGCEndTime, " ", heap.m_currentGCStartTime, " ", (heap.lastFullGCLength() * heap.m_totalBytesVisited) / heap.m_totalBytesVisitedAfterLastFullCollect, " ", remainingTime, " ", (heap.lastEdenGCLength() * heap.m_bytesAllocatedThisCycle) / heap.m_bytesAllocatedBeforeLastEdenCollect, " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
     }();
 
     heap.sweeper().doWorkUntil(*this, deadline);

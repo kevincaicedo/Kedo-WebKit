@@ -81,6 +81,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Scope.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 #if ENABLE(WEBASSEMBLY)
@@ -122,10 +123,25 @@ JSValue eval(CallFrame* callFrame, JSValue thisValue, JSScope* callerScopeChain,
         return jsUndefined();
 
     JSValue program = callFrame->argument(0);
-    if (!program.isString())
+    JSString* programString = nullptr;
+    if (LIKELY(program.isString()))
+        programString = asString(program);
+    else if (Options::useTrustedTypes()) {
+        auto code = globalObject->globalObjectMethodTable()->codeForEval(globalObject, program);
+        if (!code.isNull())
+            programString = jsString(vm, code);
+    }
+
+    if (!programString)
         return program;
 
-    auto* programString = asString(program);
+    auto programSource = programString->value(globalObject);
+    RETURN_IF_EXCEPTION(scope, JSValue());
+
+    if (Options::useTrustedTypes() && globalObject->requiresTrustedTypes() && !globalObject->globalObjectMethodTable()->canCompileStrings(globalObject, CompilationType::DirectEval, programSource, program)) {
+        throwException(globalObject, scope, createEvalError(globalObject, "Refused to evaluate a string as JavaScript because this document requires a 'Trusted Type' assignment."_s));
+        return { };
+    }
 
     TopCallFrameSetter topCallFrame(vm, callFrame);
     if (!globalObject->evalEnabled()) {
@@ -133,9 +149,6 @@ JSValue eval(CallFrame* callFrame, JSValue thisValue, JSScope* callerScopeChain,
         throwException(globalObject, scope, createEvalError(globalObject, globalObject->evalDisabledErrorMessage()));
         return { };
     }
-    String programSource = programString->value(globalObject);
-    RETURN_IF_EXCEPTION(scope, JSValue());
-    
 
     bool isArrowFunctionContext = callerUnlinkedCodeBlock->isArrowFunction() || callerUnlinkedCodeBlock->isArrowFunctionContext();
 
@@ -159,13 +172,13 @@ JSValue eval(CallFrame* callFrame, JSValue thisValue, JSScope* callerScopeChain,
     DirectEvalExecutable* eval = callerBaselineCodeBlock->directEvalCodeCache().tryGet(programSource, bytecodeIndex);
     if (!eval) {
         if (!ecmaMode.isStrict()) {
-            if (programSource.is8Bit()) {
-                LiteralParser preparser(globalObject, programSource.span8(), SloppyJSON, callerBaselineCodeBlock);
+            if (programSource->is8Bit()) {
+                LiteralParser preparser(globalObject, programSource->span8(), SloppyJSON, callerBaselineCodeBlock);
                 if (JSValue parsedObject = preparser.tryLiteralParse())
                     RELEASE_AND_RETURN(scope, parsedObject);
 
             } else {
-                LiteralParser preparser(globalObject, programSource.span16(), SloppyJSON, callerBaselineCodeBlock);
+                LiteralParser preparser(globalObject, programSource->span16(), SloppyJSON, callerBaselineCodeBlock);
                 if (JSValue parsedObject = preparser.tryLiteralParse())
                     RELEASE_AND_RETURN(scope, parsedObject);
 
@@ -367,9 +380,7 @@ Interpreter::Interpreter()
 #endif // ASSERT_ENABLED
 }
 
-Interpreter::~Interpreter()
-{
-}
+Interpreter::~Interpreter() = default;
 
 #if ENABLE(COMPUTED_GOTO_OPCODES)
 #if !ENABLE(LLINT_EMBEDDED_OPCODE_ID) || ASSERT_ENABLED

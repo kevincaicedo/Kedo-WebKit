@@ -49,23 +49,23 @@ void RenderMathMLSpace::computePreferredLogicalWidths()
 {
     ASSERT(preferredLogicalWidthsDirty());
 
-    m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = spaceWidth();
+    m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = spaceWidth() + borderAndPaddingLogicalWidth();
 
     setPreferredLogicalWidthsDirty(false);
 }
 
 LayoutUnit RenderMathMLSpace::spaceWidth() const
 {
-    auto& spaceElement = element();
+    Ref spaceElement = element();
     // FIXME: Negative width values are not supported yet.
-    return std::max<LayoutUnit>(0, toUserUnits(spaceElement.width(), style(), 0));
+    return std::max<LayoutUnit>(0, toUserUnits(spaceElement->width(), style(), 0));
 }
 
 void RenderMathMLSpace::getSpaceHeightAndDepth(LayoutUnit& height, LayoutUnit& depth) const
 {
-    auto& spaceElement = element();
-    height = toUserUnits(spaceElement.height(), style(), 0);
-    depth = toUserUnits(spaceElement.depth(), style(), 0);
+    Ref spaceElement = element();
+    height = toUserUnits(spaceElement->height(), style(), 0);
+    depth = toUserUnits(spaceElement->depth(), style(), 0);
 
     // If the total height is negative, set vertical dimensions to 0.
     if (height + depth < 0) {
@@ -81,10 +81,12 @@ void RenderMathMLSpace::layoutBlock(bool relayoutChildren, LayoutUnit)
     if (!relayoutChildren && simplifiedLayout())
         return;
 
-    setLogicalWidth(spaceWidth());
+    recomputeLogicalWidth();
+
+    setLogicalWidth(spaceWidth() + borderAndPaddingLogicalWidth());
     LayoutUnit height, depth;
     getSpaceHeightAndDepth(height, depth);
-    setLogicalHeight(height + depth);
+    setLogicalHeight(height + depth + borderAndPaddingLogicalHeight());
 
     updateScrollInfoAfterLayout();
 
@@ -95,7 +97,7 @@ std::optional<LayoutUnit> RenderMathMLSpace::firstLineBaseline() const
 {
     LayoutUnit height, depth;
     getSpaceHeightAndDepth(height, depth);
-    return height;
+    return height + borderAndPaddingBefore();
 }
 
 }

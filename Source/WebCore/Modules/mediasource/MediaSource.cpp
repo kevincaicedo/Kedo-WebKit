@@ -71,6 +71,7 @@
 #include <wtf/NativePromise.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -162,13 +163,6 @@ private:
     {
         ensureWeakOnDispatcher([type](MediaSource& parent) {
             parent.failedToCreateRenderer(type);
-        });
-    }
-
-    void seeked(const MediaTime& time)
-    {
-        ensureWeakOnDispatcher([time = time](MediaSource& parent) {
-            parent.seeked(time);
         });
     }
 
@@ -1478,16 +1472,7 @@ WTFLogChannel& MediaSource::logChannel() const
 void MediaSource::failedToCreateRenderer(RendererType type)
 {
     if (auto context = scriptExecutionContext())
-        context->addConsoleMessage(MessageSource::JS, MessageLevel::Error, makeString("MediaSource ", type == RendererType::Video ? "video" : "audio", " renderer creation failed."));
-}
-
-void MediaSource::seeked(const MediaTime& time)
-{
-    ALWAYS_LOG(LOGIDENTIFIER, time);
-#if RELEASE_LOG_DISABLED
-    UNUSED_PARAM(time);
-#endif
-    monitorSourceBuffers();
+        context->addConsoleMessage(MessageSource::JS, MessageLevel::Error, makeString("MediaSource "_s, type == RendererType::Video ? "video"_s : "audio"_s, " renderer creation failed."_s));
 }
 
 void MediaSource::sourceBufferReceivedFirstInitializationSegmentChanged()

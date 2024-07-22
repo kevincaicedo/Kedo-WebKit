@@ -59,13 +59,13 @@ MediaKeySystemController::~MediaKeySystemController()
 
 void provideMediaKeySystemTo(Page& page, MediaKeySystemClient& client)
 {
-    MediaKeySystemController::provideTo(&page, MediaKeySystemController::supplementName(), makeUnique<MediaKeySystemController>(client));
+    Supplement<Page>::provideTo(&page, MediaKeySystemController::supplementName(), makeUnique<MediaKeySystemController>(client));
 }
 
 void MediaKeySystemController::logRequestMediaKeySystemDenial(Document& document)
 {
     if (RefPtr window = document.domWindow())
-        window->printErrorMessage(makeString("Not allowed to access MediaKeySystem."));
+        window->printErrorMessage("Not allowed to access MediaKeySystem."_str);
 }
 
 } // namespace WebCore

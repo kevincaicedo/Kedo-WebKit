@@ -42,6 +42,7 @@
 #include <wtf/GetPtr.h>
 #include <wtf/PointerPreparations.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 
 
 namespace WebCore {
@@ -190,7 +191,7 @@ void JSTestInterfaceLeadingUnderscore::analyzeHeap(JSCell* cell, HeapAnalyzer& a
     auto* thisObject = jsCast<JSTestInterfaceLeadingUnderscore*>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (thisObject->scriptExecutionContext())
-        analyzer.setLabelForCell(cell, "url "_s + thisObject->scriptExecutionContext()->url().string());
+        analyzer.setLabelForCell(cell, makeString("url "_s, thisObject->scriptExecutionContext()->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
 
@@ -216,14 +217,9 @@ extern "C" { extern void (*const __identifier("??_7TestInterfaceLeadingUnderscor
 #else
 extern "C" { extern void* _ZTVN7WebCore30TestInterfaceLeadingUnderscoreE[]; }
 #endif
-#endif
-
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestInterfaceLeadingUnderscore>&& impl)
-{
-
-    if constexpr (std::is_polymorphic_v<TestInterfaceLeadingUnderscore>) {
-#if ENABLE(BINDING_INTEGRITY)
-        const void* actualVTablePointer = getVTablePointer(impl.ptr());
+template<typename T, typename = std::enable_if_t<std::is_same_v<T, TestInterfaceLeadingUnderscore>, void>> static inline void verifyVTable(TestInterfaceLeadingUnderscore* ptr) {
+    if constexpr (std::is_polymorphic_v<T>) {
+        const void* actualVTablePointer = getVTablePointer<T>(ptr);
 #if PLATFORM(WIN)
         void* expectedVTablePointer = __identifier("??_7TestInterfaceLeadingUnderscore@WebCore@@6B@");
 #else
@@ -235,8 +231,14 @@ JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObj
         // to toJS() we currently require TestInterfaceLeadingUnderscore you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
         RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
-#endif
     }
+}
+#endif
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestInterfaceLeadingUnderscore>&& impl)
+{
+#if ENABLE(BINDING_INTEGRITY)
+    verifyVTable<TestInterfaceLeadingUnderscore>(impl.ptr());
+#endif
     return createWrapper<TestInterfaceLeadingUnderscore>(globalObject, WTFMove(impl));
 }
 

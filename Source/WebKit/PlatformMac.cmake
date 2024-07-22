@@ -1,4 +1,4 @@
-add_definitions("-ObjC++ -std=c++2a -D__STDC_WANT_LIB_EXT1__")
+add_definitions("-ObjC++ -std=c++2b -D__STDC_WANT_LIB_EXT1__")
 find_library(APPLICATIONSERVICES_LIBRARY ApplicationServices)
 find_library(CARBON_LIBRARY Carbon)
 find_library(CORESERVICES_LIBRARY CoreServices)
@@ -811,7 +811,7 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
             VERBATIM)
         list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb)
     endif ()
-    if (ENABLE_BUILT_IN_NOTIFICATIONS)
+    if (ENABLE_WEB_PUSH_NOTIFICATIONS)
         add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.mac.sb COMMAND
             grep -o "^[^;]*" ${WEBKIT_DIR}/webpushd/mac/com.apple.WebKit.webpushd.mac.sb.in | clang -E -P -w -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.mac.sb
             VERBATIM)

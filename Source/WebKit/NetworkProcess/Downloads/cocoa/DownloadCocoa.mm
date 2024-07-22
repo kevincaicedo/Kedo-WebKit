@@ -47,7 +47,7 @@ void Download::resume(std::span<const uint8_t> resumeData, const String& path, S
         return;
     }
     auto& cocoaSession = static_cast<NetworkSessionCocoa&>(*networkSession);
-    auto nsData = adoptNS([[NSData alloc] initWithBytes:resumeData.data() length:resumeData.size()]);
+    RetainPtr nsData = toNSData(resumeData);
 
     NSMutableDictionary *dictionary = [NSPropertyListSerialization propertyListWithData:nsData.get() options:NSPropertyListMutableContainersAndLeaves format:0 error:nullptr];
     [dictionary setObject:static_cast<NSString*>(path) forKey:@"NSURLSessionResumeInfoLocalPath"];
@@ -85,6 +85,13 @@ void Download::platformDestroyDownload()
 #endif
 }
 
+#if HAVE(MODERN_DOWNLOADPROGRESS)
+void Download::publishProgress(const URL& url, std::span<const uint8_t> bookmarkData)
+{
+    RetainPtr bookmark = toNSData(bookmarkData);
+    m_progress = adoptNS([[WKDownloadProgress alloc] initWithDownloadTask:m_downloadTask.get() download:*this URL:(NSURL *)url bookmarkData:bookmark.get()]);
+}
+#else
 void Download::publishProgress(const URL& url, SandboxExtension::Handle&& sandboxExtensionHandle)
 {
     ASSERT(!m_progress);
@@ -103,5 +110,6 @@ void Download::publishProgress(const URL& url, SandboxExtension::Handle&& sandbo
     [m_progress publish];
 #endif
 }
+#endif
 
 }

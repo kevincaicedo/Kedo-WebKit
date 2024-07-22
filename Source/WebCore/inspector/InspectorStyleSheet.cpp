@@ -69,6 +69,7 @@
 #include <JavaScriptCore/ContentSearchUtilities.h>
 #include <JavaScriptCore/RegularExpression.h>
 #include <wtf/NotFound.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 using JSON::ArrayOf;
@@ -157,12 +158,12 @@ static bool isValidRuleHeaderText(const String& headerText, StyleRuleType styleR
         // the rule text is entirely consumed and it creates a rule of the expected type, we consider it valid because
         // we will be able to continue to edit the rule in the future.
         CSSParserContext context(parserContextForDocument(document)); // CSSParserImpl holds a reference to this.
-        CSSParserImpl parser(context, atRuleIdentifier + ' ' + headerText + " {}");
+        CSSParserImpl parser(context, makeString(atRuleIdentifier, ' ', headerText, " {}"_s));
         if (!parser.tokenizer())
             return false;
 
         auto tokenRange = parser.tokenizer()->tokenRange();
-        auto rule = parser.consumeAtRule(tokenRange, CSSParserImpl::AllowedRulesType::RegularRules);
+        auto rule = parser.consumeAtRule(tokenRange, CSSParserImpl::AllowedRules::RegularRules);
 
         if (!rule)
             return false;
@@ -884,11 +885,11 @@ Ref<Inspector::Protocol::CSS::CSSStyle> InspectorStyle::styleWithProperties() co
                 HashMap<String, RefPtr<Inspector::Protocol::CSS::CSSProperty>>::iterator activeIt = propertyNameToPreviousActiveProperty.find(canonicalPropertyName);
                 if (activeIt != propertyNameToPreviousActiveProperty.end()) {
                     if (propertyEntry.parsedOk) {
-                        auto newPriority = activeIt->value->getString(Inspector::Protocol::CSS::CSSProperty::priorityKey);
+                        auto newPriority = activeIt->value->getString("priority"_s);
                         if (!!newPriority)
                             previousPriority = newPriority;
 
-                        auto newStatus = activeIt->value->getString(Inspector::Protocol::CSS::CSSProperty::statusKey);
+                        auto newStatus = activeIt->value->getString("status"_s);
                         if (!!newStatus) {
                             previousStatus = newStatus;
                             if (previousStatus != Inspector::Protocol::Helpers::getEnumConstantValue(Inspector::Protocol::CSS::CSSPropertyStatus::Inactive)) {
@@ -901,7 +902,7 @@ Ref<Inspector::Protocol::CSS::CSSStyle> InspectorStyle::styleWithProperties() co
                             }
                         }
                     } else {
-                        auto previousParsedOk = activeIt->value->getBoolean(Inspector::Protocol::CSS::CSSProperty::parsedOkKey);
+                        auto previousParsedOk = activeIt->value->getBoolean("parsedOk"_s);
                         if (previousParsedOk && !previousParsedOk)
                             shouldInactivate = true;
                     }
@@ -1130,7 +1131,7 @@ ExceptionOr<void> InspectorStyleSheet::setRuleHeaderText(const InspectorCSSId& i
         // include the space between the `@whatever` and the query/name/etc.. However, not all rules must contain a
         // space between those, for example `@media(...)`. We need to add the space if the new header text does not
         // start with an opening parenthesis, otherwise we will create an invalid declaration (e.g. `@mediascreen`).
-        correctedHeaderText = " "_s + correctedHeaderText;
+        correctedHeaderText = makeString(' ', correctedHeaderText);
     }
 
     sheetText = makeStringByReplacing(sheetText, sourceData->ruleHeaderRange.start, sourceData->ruleHeaderRange.length(), correctedHeaderText);
@@ -1171,7 +1172,7 @@ ExceptionOr<CSSStyleRule*> InspectorStyleSheet::addRule(const String& selector)
     if (!styleSheetText.isEmpty())
         styleSheetText.append('\n');
 
-    styleSheetText.append(selector, " {}");
+    styleSheetText.append(selector, " {}"_s);
 
     // Using setText() as this operation changes the stylesheet rule set.
     setText(styleSheetText.toString());

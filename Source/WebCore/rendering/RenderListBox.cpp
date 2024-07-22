@@ -70,6 +70,7 @@
 #include <math.h>
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/StackStats.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -236,7 +237,10 @@ void RenderListBox::computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, L
     if (m_scrollbar)
         maxLogicalWidth += m_scrollbar->orientation() == ScrollbarOrientation::Vertical ? m_scrollbar->width() : m_scrollbar->height();
 
-    if (!style().logicalWidth().isPercentOrCalculated())
+    auto& logicalWidth = style().logicalWidth();
+    if (logicalWidth.isCalculated())
+        minLogicalWidth = std::max(0_lu, valueForLength(logicalWidth, 0_lu));
+    else if (!logicalWidth.isPercent())
         minLogicalWidth = maxLogicalWidth;
 }
 
@@ -1151,7 +1155,7 @@ bool RenderListBox::mockScrollbarsControllerEnabled() const
 
 void RenderListBox::logMockScrollbarsControllerMessage(const String& message) const
 {
-    document().addConsoleMessage(MessageSource::Other, MessageLevel::Debug, "RenderListBox: " + message);
+    document().addConsoleMessage(MessageSource::Other, MessageLevel::Debug, makeString("RenderListBox: "_s, message));
 }
 
 String RenderListBox::debugDescription() const
@@ -1212,6 +1216,11 @@ float RenderListBox::deviceScaleFactor() const
 bool RenderListBox::isVisibleToHitTesting() const
 {
     return visibleToHitTesting();
+}
+
+FrameIdentifier RenderListBox::rootFrameID() const
+{
+    return view().frameView().frame().rootFrame().frameID();
 }
 
 } // namespace WebCore

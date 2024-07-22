@@ -33,6 +33,7 @@
 #include <wtf/SetForScope.h>
 #include <wtf/StringPrintStream.h>
 #include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 #define updateErrorMessage(shouldPrintToken, ...) do {\
     propagateError(); \
@@ -562,7 +563,7 @@ template <class TreeBuilder> TreeSourceElements Parser<LexerType>::parseGenerato
         failIfFalse(parseSourceElements(generatorFunctionContext, mode), "Cannot parse the body of a generator");
         popScope(generatorBodyScope, TreeBuilder::NeedsFreeVariableInfo);
     }
-    info.body = context.createFunctionMetadata(startLocation, tokenLocation(), startColumn, tokenColumn(), functionStart, functionNameStart, parametersStart, implementationVisibility(), lexicalScopeFeatures(), ConstructorKind::None, m_superBinding, info.parameterCount, SourceParseMode::GeneratorBodyMode, false);
+    info.body = context.createFunctionMetadata(startLocation, tokenLocation(), startColumn, tokenColumn(), functionStart, functionNameStart, parametersStart, implementationVisibility(), lexicallyScopedFeatures(), ConstructorKind::None, m_superBinding, info.parameterCount, SourceParseMode::GeneratorBodyMode, false);
 
     info.endLine = tokenLine();
     info.endOffset = m_token.m_data.offset;
@@ -616,7 +617,7 @@ template <class TreeBuilder> TreeSourceElements Parser<LexerType>::parseAsyncFun
         }
         popScope(asyncFunctionBodyScope, TreeBuilder::NeedsFreeVariableInfo);
     }
-    info.body = context.createFunctionMetadata(startLocation, tokenLocation(), startColumn, tokenColumn(), functionStart, functionNameStart, parametersStart, implementationVisibility(), lexicalScopeFeatures(), ConstructorKind::None, m_superBinding, info.parameterCount, sourceParseMode(), isArrowFunctionBodyExpression);
+    info.body = context.createFunctionMetadata(startLocation, tokenLocation(), startColumn, tokenColumn(), functionStart, functionNameStart, parametersStart, implementationVisibility(), lexicallyScopedFeatures(), ConstructorKind::None, m_superBinding, info.parameterCount, sourceParseMode(), isArrowFunctionBodyExpression);
 
     info.endLine = tokenLine();
     info.endOffset = isArrowFunctionBodyExpression ? tokenLocation().endOffset : m_token.m_data.offset;
@@ -670,7 +671,7 @@ template <class TreeBuilder> TreeSourceElements Parser<LexerType>::parseAsyncGen
         }
         popScope(asyncFunctionBodyScope, TreeBuilder::NeedsFreeVariableInfo);
     }
-    info.body = context.createFunctionMetadata(startLocation, tokenLocation(), startColumn, tokenColumn(), functionStart, functionNameStart, parametersStart, implementationVisibility(), lexicalScopeFeatures(), ConstructorKind::None, m_superBinding, info.parameterCount, parseMode, isArrowFunctionBodyExpression);
+    info.body = context.createFunctionMetadata(startLocation, tokenLocation(), startColumn, tokenColumn(), functionStart, functionNameStart, parametersStart, implementationVisibility(), lexicallyScopedFeatures(), ConstructorKind::None, m_superBinding, info.parameterCount, parseMode, isArrowFunctionBodyExpression);
 
     info.endLine = tokenLine();
     info.endOffset = isArrowFunctionBodyExpression ? tokenLocation().endOffset : m_token.m_data.offset;
@@ -984,11 +985,11 @@ template <class TreeBuilder> TreeExpression Parser<LexerType>::parseVariableDecl
                 headLocation = location;
             } else {
                 if (!tail) {
-                    head = tail = context.createCommaExpr(headLocation, head);
                     recordPauseLocation(context.breakpointLocation(head));
+                    head = tail = context.createCommaExpr(headLocation, head);
                 }
-                tail = context.appendToCommaExpr(location, head, tail, node);
-                recordPauseLocation(context.breakpointLocation(tail));
+                recordPauseLocation(context.breakpointLocation(node));
+                tail = context.appendToCommaExpr(location, tail, node);
             }
         }
     } while (match(COMMA));
@@ -1711,7 +1712,7 @@ template <class TreeBuilder> TreeStatement Parser<LexerType>::parseReturnStateme
 
     if (autoSemiColon())
         return context.createReturnStatement(location, 0, start, end);
-    TreeExpression expr = parseExpression(context, IsOnlyChildOfStatement::Yes);
+    TreeExpression expr = parseExpression(context);
     failIfFalse(expr, "Cannot parse the return expression");
     end = lastTokenEndPosition();
     if (match(SEMICOLON))
@@ -1731,7 +1732,7 @@ template <class TreeBuilder> TreeStatement Parser<LexerType>::parseThrowStatemen
     failIfTrue(match(SEMICOLON), "Expected expression after 'throw'");
     semanticFailIfTrue(autoSemiColon(), "Cannot have a newline after 'throw'");
     
-    TreeExpression expr = parseExpression(context, IsOnlyChildOfStatement::Yes);
+    TreeExpression expr = parseExpression(context);
     failIfFalse(expr, "Cannot parse expression for throw statement");
     JSTextPosition end = lastTokenEndPosition();
     failIfFalse(autoSemiColon(), "Expected a ';' after a throw statement");
@@ -2239,7 +2240,7 @@ template <class TreeBuilder> TreeFunctionBody Parser<LexerType>::parseFunctionBo
         if (match(CLOSEBRACE)) {
             unsigned endColumn = tokenColumn();
             SuperBinding functionSuperBinding = adjustSuperBindingForBaseConstructor(constructorKind, superBinding, sourceParseMode(), currentScope());
-            return context.createFunctionMetadata(startLocation, tokenLocation(), startColumn, endColumn, functionStart, functionNameStart, parametersStart, implementationVisibility(), lexicalScopeFeatures(), constructorKind, functionSuperBinding, parameterCount, sourceParseMode(), isArrowFunctionBodyExpression);
+            return context.createFunctionMetadata(startLocation, tokenLocation(), startColumn, endColumn, functionStart, functionNameStart, parametersStart, implementationVisibility(), lexicallyScopedFeatures(), constructorKind, functionSuperBinding, parameterCount, sourceParseMode(), isArrowFunctionBodyExpression);
         }
     }
 
@@ -2258,7 +2259,7 @@ template <class TreeBuilder> TreeFunctionBody Parser<LexerType>::parseFunctionBo
     }
     unsigned endColumn = tokenColumn();
     SuperBinding functionSuperBinding = adjustSuperBindingForBaseConstructor(constructorKind, superBinding, sourceParseMode(), currentScope());
-    return context.createFunctionMetadata(startLocation, tokenLocation(), startColumn, endColumn, functionStart, functionNameStart, parametersStart, implementationVisibility(), lexicalScopeFeatures(), constructorKind, functionSuperBinding, parameterCount, sourceParseMode(), isArrowFunctionBodyExpression);
+    return context.createFunctionMetadata(startLocation, tokenLocation(), startColumn, endColumn, functionStart, functionNameStart, parametersStart, implementationVisibility(), lexicallyScopedFeatures(), constructorKind, functionSuperBinding, parameterCount, sourceParseMode(), isArrowFunctionBodyExpression);
 }
 
 static const char* stringArticleForFunctionMode(SourceParseMode mode)
@@ -2482,7 +2483,7 @@ template <class TreeBuilder> bool Parser<LexerType>::parseFunctionInfo(TreeBuild
         // If we know about this function already, we can use the cached info and skip the parser to the end of the function.
         if (const SourceProviderCacheItem* cachedInfo = TreeBuilder::CanUseFunctionCache ? findCachedFunctionInfo(parametersStart) : nullptr) {
             // If we're in a strict context, the cached function info must say it was strict too.
-            ASSERT(!strictMode() || (cachedInfo->lexicalScopeFeatures() & StrictModeLexicalFeature));
+            ASSERT(!strictMode() || (cachedInfo->lexicallyScopedFeatures() & StrictModeLexicallyScopedFeature));
             JSTokenLocation endLocation;
 
             ConstructorKind constructorKind = static_cast<ConstructorKind>(cachedInfo->constructorKind);
@@ -2514,7 +2515,7 @@ template <class TreeBuilder> bool Parser<LexerType>::parseFunctionInfo(TreeBuild
             functionInfo.body = context.createFunctionMetadata(
                 startLocation, endLocation, startColumn, bodyEndColumn, functionStart,
                 functionNameStart, parametersStart, implementationVisibility,
-                cachedInfo->lexicalScopeFeatures(), constructorKind, functionSuperBinding,
+                cachedInfo->lexicallyScopedFeatures(), constructorKind, functionSuperBinding,
                 cachedInfo->parameterCount,
                 mode, functionBodyType == ArrowFunctionBodyExpression);
             functionInfo.endOffset = cachedInfo->endFunctionOffset;
@@ -3477,7 +3478,7 @@ template <class TreeBuilder> TreeStatement Parser<LexerType>::parseExpressionSta
 
     JSTextPosition start = tokenStartPosition();
     JSTokenLocation location(tokenLocation());
-    TreeExpression expression = parseExpression(context, IsOnlyChildOfStatement::Yes);
+    TreeExpression expression = parseExpression(context);
     failIfFalse(expression, "Cannot parse expression statement");
     if (!autoSemiColon())
         failDueToUnexpectedToken();
@@ -4088,7 +4089,7 @@ template <class TreeBuilder> TreeStatement Parser<LexerType>::parseExportDeclara
 }
 
 template <typename LexerType>
-template <class TreeBuilder> TreeExpression Parser<LexerType>::parseExpression(TreeBuilder& context, IsOnlyChildOfStatement isStatement)
+template <class TreeBuilder> TreeExpression Parser<LexerType>::parseExpression(TreeBuilder& context)
 {
     failIfStackOverflow();
     JSTokenLocation headLocation(tokenLocation());
@@ -4097,28 +4098,25 @@ template <class TreeBuilder> TreeExpression Parser<LexerType>::parseExpression(T
     context.setEndOffset(node, m_lastTokenEndPosition.offset);
     if (!match(COMMA))
         return node;
+    recordPauseLocation(context.breakpointLocation(node));
     next();
     m_parserState.nonTrivialExpressionCount++;
     m_parserState.nonLHSCount++;
     JSTokenLocation tailLocation(tokenLocation());
     TreeExpression right = parseAssignmentExpression(context);
     failIfFalse(right, "Cannot parse expression in a comma expression");
+    recordPauseLocation(context.breakpointLocation(right));
     context.setEndOffset(right, m_lastTokenEndPosition.offset);
     typename TreeBuilder::Comma head = context.createCommaExpr(headLocation, node);
-    if (isStatement == IsOnlyChildOfStatement::Yes)
-        recordPauseLocation(context.breakpointLocation(head));
-    typename TreeBuilder::Comma tail = context.appendToCommaExpr(tailLocation, head, head, right);
-    if (isStatement == IsOnlyChildOfStatement::Yes)
-        recordPauseLocation(context.breakpointLocation(tail));
+    typename TreeBuilder::Comma tail = context.appendToCommaExpr(tailLocation, head, right);
     while (match(COMMA)) {
         next(TreeBuilder::DontBuildStrings);
         tailLocation = tokenLocation();
         right = parseAssignmentExpression(context);
         failIfFalse(right, "Cannot parse expression in a comma expression");
         context.setEndOffset(right, m_lastTokenEndPosition.offset);
-        tail = context.appendToCommaExpr(tailLocation, head, tail, right);
-        if (isStatement == IsOnlyChildOfStatement::Yes)
-            recordPauseLocation(context.breakpointLocation(tail));
+        recordPauseLocation(context.breakpointLocation(right));
+        tail = context.appendToCommaExpr(tailLocation, tail, right);
     }
     context.setEndOffset(head, m_lastTokenEndPosition.offset);
     return head;

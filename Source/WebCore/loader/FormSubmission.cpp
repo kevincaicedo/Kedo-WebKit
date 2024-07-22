@@ -51,6 +51,7 @@
 #include "ScriptDisallowedScope.h"
 #include <pal/text/TextEncoding.h>
 #include <wtf/WallTime.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -273,7 +274,7 @@ void FormSubmission::populateFrameLoadRequest(FrameLoadRequest& frameRequest)
         if (m_boundary.isEmpty())
             frameRequest.resourceRequest().setHTTPContentType(m_contentType);
         else
-            frameRequest.resourceRequest().setHTTPContentType(m_contentType + "; boundary=" + m_boundary);
+            frameRequest.resourceRequest().setHTTPContentType(makeString(m_contentType, "; boundary="_s, m_boundary));
     }
 
     frameRequest.resourceRequest().setURL(requestURL());

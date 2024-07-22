@@ -51,18 +51,19 @@ CredentialsContainer::CredentialsContainer(WeakPtr<Document, WeakPtrImplWithEven
 
 ScopeAndCrossOriginParent CredentialsContainer::scopeAndCrossOriginParent() const
 {
-    if (!m_document)
+    RefPtr document = this->document();
+    if (!document)
         return std::pair { WebAuthn::Scope::CrossOrigin, std::nullopt };
 
     bool isSameSite = true;
-    auto& origin = m_document->securityOrigin();
-    auto& url = m_document->url();
+    Ref origin = document->securityOrigin();
+    auto url = document->url();
     std::optional<SecurityOriginData> crossOriginParent;
-    for (RefPtr document = m_document->parentDocument(); document; document = document->parentDocument()) {
-        if (!origin.isSameOriginDomain(document->securityOrigin()) && !areRegistrableDomainsEqual(url, document->url()))
+    for (RefPtr parentDocument = document->parentDocument(); parentDocument; parentDocument = parentDocument->parentDocument()) {
+        if (!origin->isSameOriginDomain(parentDocument->securityOrigin()) && !areRegistrableDomainsEqual(url, parentDocument->url()))
             isSameSite = false;
-        if (!crossOriginParent && !origin.isSameOriginAs(document->securityOrigin()))
-            crossOriginParent = document->securityOrigin().data();
+        if (!crossOriginParent && !origin->isSameOriginAs(parentDocument->securityOrigin()))
+            crossOriginParent = parentDocument->securityOrigin().data();
     }
 
     if (!crossOriginParent)
@@ -89,12 +90,12 @@ void CredentialsContainer::get(CredentialRequestOptions&& options, CredentialPro
     }
 
     // The request will be aborted in WebAuthenticatorCoordinatorProxy if conditional mediation is not available.
-    if (options.mediation != MediationRequirement::Conditional && !m_document->hasFocus()) {
+    if (options.mediation != MediationRequirement::Conditional && !document()->hasFocus()) {
         promise.reject(Exception { ExceptionCode::NotAllowedError, "The document is not focused."_s });
         return;
     }
 
-    m_document->page()->authenticatorCoordinator().discoverFromExternalSource(*m_document, WTFMove(options), scopeAndCrossOriginParent(), WTFMove(promise));
+    document()->page()->authenticatorCoordinator().discoverFromExternalSource(*document(), WTFMove(options), scopeAndCrossOriginParent(), WTFMove(promise));
 }
 
 void CredentialsContainer::store(const BasicCredential&, CredentialPromise&& promise)
@@ -116,32 +117,48 @@ void CredentialsContainer::isCreate(CredentialCreationOptions&& options, Credent
     }
 
     // Extra.
-    if (!m_document->hasFocus()) {
+    if (!document()->hasFocus()) {
         promise.reject(Exception { ExceptionCode::NotAllowedError, "The document is not focused."_s });
         return;
     }
 
-    m_document->page()->authenticatorCoordinator().create(*m_document, WTFMove(options), scopeAndCrossOriginParent().first, WTFMove(options.signal), WTFMove(promise));
+    document()->page()->authenticatorCoordinator().create(*document(), WTFMove(options), scopeAndCrossOriginParent().first, WTFMove(options.signal), WTFMove(promise));
 }
 
 void CredentialsContainer::preventSilentAccess(DOMPromiseDeferred<void>&& promise) const
 {
+    if (document() && !document()->isFullyActive()) {
+        promise.reject(Exception { ExceptionCode::NotAllowedError, "The document is not fully active."_s });
+        return;
+    }
     promise.resolve();
 }
 
 template<typename Options>
 bool CredentialsContainer::performCommonChecks(const Options& options, CredentialPromise& promise)
 {
-    if (!m_document || !m_document->page()) {
+    if (!document()) {
         promise.reject(Exception { ExceptionCode::NotSupportedError });
         return false;
     }
+
+    RefPtr document = this->document();
+    if (!document->isFullyActive()) {
+        promise.reject(Exception { ExceptionCode::NotAllowedError, "The document is not fully active."_s });
+        return false;
+    }
+
+    if (!document->page()) {
+        promise.reject(Exception { ExceptionCode::NotSupportedError, "No browsing context"_s });
+        return false;
+    }
+
     if (options.signal && options.signal->aborted()) {
         promise.reject(Exception { ExceptionCode::AbortError, "Aborted by AbortSignal."_s });
         return false;
     }
-    // Step 1-2.
-    ASSERT(m_document->isSecureContext());
+
+    ASSERT(document->isSecureContext());
     return true;
 }
 

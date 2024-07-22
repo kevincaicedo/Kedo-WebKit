@@ -31,14 +31,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-WK_CLASS_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA))
+WK_CLASS_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0))
 @interface _WKTargetedElementRequest : NSObject
 
 - (instancetype)initWithPoint:(CGPoint)point;
 - (instancetype)initWithSearchText:(NSString *)searchText;
-
-@property (nonatomic, readonly) CGPoint point;
-@property (nonatomic, readonly, nullable, copy) NSString *searchText;
+- (instancetype)initWithSelectors:(NSArray<NSSet<NSString *> *> *)selectors;
 
 @property (nonatomic) BOOL canIncludeNearbyElements;
 @property (nonatomic) BOOL shouldIgnorePointerEventsNone;

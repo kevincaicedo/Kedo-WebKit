@@ -71,6 +71,8 @@ public:
         case DateObjectUse:
         case MapObjectUse:
         case SetObjectUse:
+        case MapIteratorObjectUse:
+        case SetIteratorObjectUse:
         case WeakMapObjectUse:
         case WeakSetObjectUse:
         case DataViewObjectUse:
@@ -261,6 +263,7 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case ToLength:
     case OverridesHasInstance:
     case IsEmpty:
+    case IsEmptyStorage:
     case TypeOfIsUndefined:
     case TypeOfIsObject:
     case TypeOfIsFunction:
@@ -312,11 +315,16 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case StringSlice:
     case StringSubstring:
     case ToLowerCase:
-    case GetMapBucket:
-    case GetMapBucketHead:
-    case GetMapBucketNext:
-    case LoadKeyFromMapBucket:
-    case LoadValueFromMapBucket:
+    case MapGet:
+    case LoadMapValue:
+    case MapStorage:
+    case MapIterationNext:
+    case MapIterationEntry:
+    case MapIterationEntryKey:
+    case MapIterationEntryValue:
+    case MapIteratorNext:
+    case MapIteratorKey:
+    case MapIteratorValue:
     case ExtractValueFromWeakMapGet:
     case WeakMapGet:
     case AtomicsIsLockFree:
@@ -326,7 +334,6 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case DataViewGetInt:
     case DataViewGetFloat:
     case ResolveRope:
-    case GetWebAssemblyInstanceExports:
     case NumberIsNaN:
     case StringIndexOf:
         return true;
@@ -437,6 +444,22 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
             if (checkOffset != desiredOffset || !(attributes & PropertyAttribute::Accessor))
                 return false;
         }
+        return true;
+    }
+
+    case GetWebAssemblyInstanceExports: {
+        if (!state.forNode(node->child1()).isType(SpecCell))
+            return false;
+
+        StructureAbstractValue& value = state.forNode(node->child1()).m_structure;
+        if (value.isInfinite())
+            return false;
+        for (unsigned i = value.size(); i--;) {
+            Structure* structure = value[i].get();
+            if (structure->typeInfo().type() != WebAssemblyInstanceType)
+                return false;
+        }
+
         return true;
     }
 

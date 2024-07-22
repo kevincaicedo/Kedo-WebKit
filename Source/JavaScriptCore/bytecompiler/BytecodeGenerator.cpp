@@ -1133,9 +1133,7 @@ BytecodeGenerator::BytecodeGenerator(VM& vm, ModuleProgramNode* moduleProgramNod
     codeBlock->setModuleEnvironmentSymbolTableConstantRegisterOffset(constantSymbolTable->index());
 }
 
-BytecodeGenerator::~BytecodeGenerator()
-{
-}
+BytecodeGenerator::~BytecodeGenerator() = default;
 
 void BytecodeGenerator::initializeDefaultParameterValuesAndSetupFunctionScopeStack(
     FunctionParameters& parameters, bool isSimpleParameterList, FunctionNode* functionNode, SymbolTable* functionSymbolTable, 
@@ -3041,6 +3039,7 @@ void BytecodeGenerator::emitCheckPrivateBrand(RegisterID* base, RegisterID* bran
 {
     if (isStatic) {
         Ref<Label> brandCheckOkLabel = newLabel();
+        OpCheckTdz::emit(this, brand);
         emitJumpIfTrue(emitEqualityOp<OpStricteq>(newTemporary(), base, brand), brandCheckOkLabel.get());
         emitThrowTypeError("Cannot access static private method or accessor"_s);
         emitLabel(brandCheckOkLabel.get());
@@ -3501,7 +3500,7 @@ RegisterID* BytecodeGenerator::emitNewClassFieldInitializerFunction(RegisterID* 
     SourceParseMode parseMode = SourceParseMode::ClassFieldInitializerMode;
     ConstructAbility constructAbility = ConstructAbility::CannotConstruct;
 
-    FunctionMetadataNode metadata(parserArena(), JSTokenLocation(), JSTokenLocation(), 0, 0, 0, 0, 0, ImplementationVisibility::Private, StrictModeLexicalFeature, ConstructorKind::None, superBinding, 0, parseMode, false);
+    FunctionMetadataNode metadata(parserArena(), JSTokenLocation(), JSTokenLocation(), 0, 0, 0, 0, 0, ImplementationVisibility::Private, StrictModeLexicallyScopedFeature, ConstructorKind::None, superBinding, 0, parseMode, false);
     metadata.finishParsing(m_scopeNode->source(), Identifier(), FunctionMode::MethodDefinition);
     auto initializer = UnlinkedFunctionExecutable::create(m_vm, m_scopeNode->source(), &metadata, isBuiltinFunction() ? UnlinkedBuiltinFunction : UnlinkedNormalFunction, constructAbility, InlineAttribute::Always, scriptMode(), WTFMove(variablesUnderTDZ), { }, WTFMove(parentPrivateNameEnvironment), newDerivedContextType, NeedsClassFieldInitializer::No, PrivateBrandRequirement::None);
     initializer->setClassElementDefinitions(WTFMove(classElementDefinitions));

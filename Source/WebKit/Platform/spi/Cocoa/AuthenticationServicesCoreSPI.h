@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if HAVE(ASC_AUTH_UI) || HAVE(UNIFIED_ASC_AUTH_UI)
+#if HAVE(ASC_AUTH_UI) || HAVE(UNIFIED_ASC_AUTH_UI) || HAVE(WEB_AUTHN_AS_MODERN)
 
 @interface ASCWebKitSPISupport : NSObject
 @property (class, nonatomic) BOOL shouldUseAlternateCredentialStore;
@@ -155,7 +155,7 @@ typedef NS_ENUM(NSUInteger, ASCPublicKeyCredentialKind) {
 
 - (instancetype)initWithKind:(ASCPublicKeyCredentialKind)credentialKind relyingPartyIdentifier:(NSString *)relyingPartyIdentifier clientDataHash:(NSData *)clientDataHash userVerificationPreference:(nullable NSString *)userVerificationPreference allowedCredentials:(nullable NSArray<ASCPublicKeyCredentialDescriptor *> *)allowedCredentials;
 
-- (instancetype)initWithKind:(ASCPublicKeyCredentialKind)credentialKind relyingPartyIdentifier:(NSString *)relyingPartyIdentifier clientDataJSON:(NSData *)clientDataJSON userVerificationPreference:(nullable NSString *)userVerificationPreference allowedCredentials:(nullable NSArray<ASCPublicKeyCredentialDescriptor *> *)allowedCredentials;
+- (instancetype)initWithKind:(ASCPublicKeyCredentialKind)credentialKind relyingPartyIdentifier:(NSString *)relyingPartyIdentifier clientDataJSON:(NSData *)clientDataJSON userVerificationPreference:(nullable NSString *)userVerificationPreference allowedCredentials:(nullable NSArray<ASCPublicKeyCredentialDescriptor *> *)allowedCredentials origin:(nullable NSString *)origin;
 
 @property (nonatomic, readonly) ASCPublicKeyCredentialKind credentialKind;
 @property (nonatomic, copy, readonly) NSString *relyingPartyIdentifier;
@@ -431,4 +431,4 @@ typedef NS_ERROR_ENUM(ASCAuthorizationErrorDomain, ASCAuthorizationError) {
 
 NS_ASSUME_NONNULL_END
 
-#endif // HAVE(ASC_AUTH_UI) || HAVE(UNIFIED_ASC_AUTH_UI)
+#endif // HAVE(ASC_AUTH_UI) || HAVE(UNIFIED_ASC_AUTH_UI) || HAVE(WEB_AUTHN_AS_MODERN)

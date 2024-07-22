@@ -34,6 +34,7 @@
 #include "WasmIPIntPlan.h"
 #include "WasmLLIntPlan.h"
 #include "WasmWorklist.h"
+#include <wtf/text/MakeString.h>
 
 namespace JSC { namespace Wasm {
 
@@ -75,7 +76,7 @@ CalleeGroup::CalleeGroup(VM& vm, MemoryMode mode, ModuleInformation& moduleInfor
     , m_callsiteCollection(m_calleeCount)
 {
     RefPtr<CalleeGroup> protectedThis = this;
-    if (Options::useWasmLLInt()) {
+    if (Options::useWebAssemblyLLInt()) {
         m_plan = adoptRef(*new LLIntPlan(vm, moduleInformation, m_llintCallees->data(), createSharedTask<Plan::CallbackType>([this, protectedThis = WTFMove(protectedThis)] (Plan&) {
             if (!m_plan) {
                 m_errorMessage = makeString("Out of memory while creating LLInt CalleeGroup"_s);
@@ -149,7 +150,7 @@ CalleeGroup::CalleeGroup(VM& vm, MemoryMode mode, ModuleInformation& moduleInfor
     , m_callsiteCollection(m_calleeCount)
 {
     RefPtr<CalleeGroup> protectedThis = this;
-    if (Options::useWasmIPInt()) {
+    if (Options::useWebAssemblyIPInt()) {
         m_plan = adoptRef(*new IPIntPlan(vm, moduleInformation, m_ipintCallees->data(), createSharedTask<Plan::CallbackType>([this, protectedThis = WTFMove(protectedThis)] (Plan&) {
             Locker locker { m_lock };
             if (m_plan->failed()) {
@@ -211,7 +212,7 @@ CalleeGroup::CalleeGroup(VM& vm, MemoryMode mode, ModuleInformation& moduleInfor
     worklist.enqueue(*m_plan.get());
 }
 
-CalleeGroup::~CalleeGroup() { }
+CalleeGroup::~CalleeGroup() = default;
 
 void CalleeGroup::waitUntilFinished()
 {

@@ -57,10 +57,8 @@ public:
     {
         bool changed = false;
 
-        for (BasicBlock* block : m_graph.blocksInNaturalOrder()) {
-            if (block->cfaThinksShouldTryConstantFolding)
-                changed |= foldConstants(block);
-        }
+        for (BasicBlock* block : m_graph.blocksInNaturalOrder())
+            changed |= foldConstants(block);
         
         if (changed && m_graph.m_form == SSA) {
             // It's now possible that we have Upsilons pointed at JSConstants. Fix that.
@@ -1256,7 +1254,32 @@ private:
 
                 break;
             }
-                
+
+            case GetScope: {
+                if (JSValue base = m_state.forNode(node->child1()).m_value) {
+                    if (JSFunction* function = jsDynamicCast<JSFunction*>(base)) {
+                        m_graph.convertToConstant(node, function->scope());
+                        changed = true;
+                        break;
+                    }
+                }
+
+                switch (node->child1()->op()) {
+                case NewFunction:
+                case NewGeneratorFunction:
+                case NewAsyncGeneratorFunction:
+                case NewAsyncFunction: {
+                    node->convertToIdentityOn(node->child1()->child1().node());
+                    node->child1().setUseKind(KnownCellUse);
+                    eliminated = true;
+                    break;
+                }
+                default:
+                    break;
+                }
+                break;
+            }
+
             case PhantomNewObject:
             case PhantomNewFunction:
             case PhantomNewGeneratorFunction:
@@ -1325,6 +1348,8 @@ private:
             
             changed = true;
         }
+        if (m_graph.m_form == SSA || m_graph.m_form == ThreadedCPS)
+            m_state.endBasicBlock();
         m_state.reset();
         m_insertionSet.execute(block);
         

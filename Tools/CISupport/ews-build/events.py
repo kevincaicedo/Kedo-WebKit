@@ -62,8 +62,7 @@ class Events(service.BuildbotService):
         'ews-unit-tests', 'resultsdbpy-unit-tests',
         'upload-built-product', 'upload-test-results',
         'apply-watch-list', 'bindings-tests', 'check-webkit-style',
-        'webkitperl-tests', 're-run-webkitperl-tests',
-        'webkitpy-tests-python2', 'webkitpy-tests-python3'
+        'webkitperl-tests', 're-run-webkitperl-tests', 'webkitpy-tests'
     ]
 
     def __init__(self, master_hostname, type_prefix='', name='Events'):
@@ -530,6 +529,11 @@ class GitHubEventHandlerNoEdits(GitHubEventHandler):
 
         if sender in self.ACCOUNTS_TO_IGNORE:
             log.msg(f"PR #{pr_number} ({head_sha}) was updated by '{sender}', ignoring it")
+            return defer.returnValue(([], 'git'))
+
+        if custom_suffix != '' and pr_number % 10 != 0:
+            # To trigger testing environment on every PR, please comment out this if block and restart buildbot
+            log.msg(f'Ignoring PR {pr_number} ({head_sha}) on testing environment.')
             return defer.returnValue(([], 'git'))
 
         if action == 'labeled' and GitHub.UNSAFE_MERGE_QUEUE_LABEL in labels:

@@ -25,6 +25,7 @@
 #include <wtf/HashTraits.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/StringHasher.h>
+#include <wtf/text/StringView.h>
 
 namespace WTF {
 
@@ -249,6 +250,11 @@ namespace WTF {
         static bool equal(const String& a, StringView b)
         {
             return equalIgnoringASCIICaseCommon(a, b);
+        }
+
+        static void translate(String& location, StringView view, unsigned)
+        {
+            location = view.toString();
         }
     };
 

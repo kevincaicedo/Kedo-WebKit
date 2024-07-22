@@ -73,6 +73,7 @@
 #include "RenderTreeBuilderSVG.h"
 #include "RenderTreeBuilderTable.h"
 #include "RenderTreeMutationDisallowedScope.h"
+#include "RenderVideo.h"
 #include "RenderView.h"
 #include <wtf/SetForScope.h>
 
@@ -439,6 +440,12 @@ void RenderTreeBuilder::attachToRenderElementInternal(RenderElement& parent, Ren
     while (beforeChild && beforeChild->parent() && beforeChild->parent() != &parent)
         beforeChild = beforeChild->parent();
 
+    if (beforeChild && !beforeChild->parent()) {
+        // Should never let the RenderView be beforeChild (as who is the parent then)
+        ASSERT_NOT_REACHED();
+        beforeChild = nullptr;
+    }
+
     ASSERT(!beforeChild || beforeChild->parent() == &parent);
     ASSERT(!is<RenderText>(beforeChild) || !downcast<RenderText>(*beforeChild).inlineWrapperForDisplayContents());
 
@@ -461,12 +468,23 @@ void RenderTreeBuilder::attachToRenderElementInternal(RenderElement& parent, Ren
     }
 
     newChild->setNeedsLayoutAndPrefWidthsRecalc();
-    if (!newChild->style().hasOutOfFlowPosition())
+    auto isOutOfFlowBox = newChild->style().hasOutOfFlowPosition();
+    if (!isOutOfFlowBox)
         parent.setPreferredLogicalWidthsDirty(true);
 
     if (!parent.normalChildNeedsLayout()) {
-        // We may supply the static position for an absolute positioned child.
-        parent.setChildNeedsLayout();
+        if (isOutOfFlowBox) {
+            // setNeedsLayoutAndPrefWidthsRecalc above already takes care of propagating dirty bits on the ancestor chain, but
+            // in order to compute static position for out of flow boxes, the parent has to run normal flow layout as well (as opposed to simplified)
+            // FIXME: Introduce a dirty bit to bridge the gap between parent and containing block which would
+            // not trigger layout but a simple traversal all the way to the direct parent and also expand it non-direct parent cases.
+            // FIXME: RenderVideo's setNeedsLayout pattern does not play well with this optimization: see webkit.org/b/276253
+            if (newChild->containingBlock() == &parent && !is<RenderVideo>(*newChild))
+                parent.setOutOfFlowChildNeedsStaticPositionLayout();
+            else
+                parent.setChildNeedsLayout();
+        } else
+            parent.setChildNeedsLayout();
     }
 
     if (AXObjectCache* cache = parent.document().axObjectCache())
@@ -844,12 +862,6 @@ void RenderTreeBuilder::destroyAndCleanUpAnonymousWrappers(RenderObject& rendere
         return;
     }
 
-    // Also destroy ::backdrop along with element if there is one
-    if (auto* renderElement = dynamicDowncast<RenderElement>(rendererToDestroy)) {
-        if (auto backdropRenderer = renderElement->backdropRenderer())
-            destroy(*backdropRenderer);
-    }
-
     auto isAnonymousAndSafeToDelete = [] (const auto& renderer) {
         return renderer.isAnonymous() && !renderer.isRenderView() && !renderer.isRenderFragmentedFlow() && !renderer.isRenderSVGViewportContainer();
     };
@@ -868,32 +880,32 @@ void RenderTreeBuilder::destroyAndCleanUpAnonymousWrappers(RenderObject& rendere
         return *destroyRoot;
     };
 
-    auto& destroyRoot = destroyRootIncludingAnonymous();
+    WeakPtr destroyRoot = destroyRootIncludingAnonymous();
 
     auto clearFloatsAndOutOfFlowPositionedObjects = [&] {
         // Remove floats and out-of-flow positioned objects from their containing block before detaching
         // the renderer from the tree. It includes all the anonymous block descendants that we are about
         // to destroy as well as part of the cleanup process below.
-        auto* destroyRootElement = dynamicDowncast<RenderElement>(destroyRoot);
+        WeakPtr destroyRootElement = dynamicDowncast<RenderElement>(destroyRoot.get());
         if (!destroyRootElement)
             return;
         for (auto& descendant : descendantsOfType<RenderBox>(*destroyRootElement)) {
             if (descendant.isFloatingOrOutOfFlowPositioned())
                 descendant.removeFloatingOrPositionedChildFromBlockLists();
         }
-        if (CheckedPtr box = dynamicDowncast<RenderBox>(destroyRoot); box && box->isFloatingOrOutOfFlowPositioned())
+        if (CheckedPtr box = dynamicDowncast<RenderBox>(destroyRoot.get()); box && box->isFloatingOrOutOfFlowPositioned())
             box->removeFloatingOrPositionedChildFromBlockLists();
     };
     clearFloatsAndOutOfFlowPositionedObjects();
 
     auto collapseAndDestroyAnonymousSiblings = [&] {
         // FIXME: Probably need to handle other table parts here as well.
-        if (CheckedPtr cell = dynamicDowncast<RenderTableCell>(destroyRoot)) {
+        if (CheckedPtr cell = dynamicDowncast<RenderTableCell>(destroyRoot.get())) {
             tableBuilder().collapseAndDestroyAnonymousSiblingCells(*cell);
             return;
         }
 
-        if (CheckedPtr row = dynamicDowncast<RenderTableRow>(destroyRoot)) {
+        if (CheckedPtr row = dynamicDowncast<RenderTableRow>(destroyRoot.get())) {
             tableBuilder().collapseAndDestroyAnonymousSiblingRows(*row);
             return;
         }
@@ -901,14 +913,22 @@ void RenderTreeBuilder::destroyAndCleanUpAnonymousWrappers(RenderObject& rendere
     collapseAndDestroyAnonymousSiblings();
 
     // FIXME: Do not try to collapse/cleanup the anonymous wrappers inside destroy (see webkit.org/b/186746).
-    WeakPtr destroyRootParent = *destroyRoot.parent();
-    if (&rendererToDestroy != &destroyRoot) {
+    WeakPtr destroyRootParent = destroyRoot->parent();
+    if (&rendererToDestroy != destroyRoot.get()) {
         // Destroy the child renderer first, before we start tearing down the anonymous wrapper ancestor chain.
+        auto anonymousDestroyRoot = SetForScope { m_anonymousDestroyRoot, destroyRoot };
         destroy(rendererToDestroy);
     }
-    destroy(destroyRoot);
+
+    if (destroyRoot) {
+        auto anonymousDestroyRoot = SetForScope { m_anonymousDestroyRoot, destroyRoot.get() != &rendererToDestroy ? destroyRoot : nullptr };
+        destroy(*destroyRoot);
+    }
+
     if (!destroyRootParent)
         return;
+
+    auto anonymousDestroyRoot = SetForScope { m_anonymousDestroyRoot, destroyRootParent };
     removeAnonymousWrappersForInlineChildrenIfNeeded(*destroyRootParent);
 
     // Anonymous parent might have become empty, try to delete it too.
@@ -954,15 +974,13 @@ static void resetRendererStateOnDetach(RenderElement& parent, RenderObject& chil
         downcast<RenderBox>(child).removeFloatingOrPositionedChildFromBlockLists();
     else if (CheckedPtr parentFlexibleBox = dynamicDowncast<RenderFlexibleBox>(parent)) {
         if (CheckedPtr childBox = dynamicDowncast<RenderBox>(child)) {
-            parentFlexibleBox->clearCachedChildIntrinsicContentLogicalHeight(*childBox);
-            parentFlexibleBox->clearCachedMainSizeForChild(*childBox);
+            parentFlexibleBox->clearCachedFlexItemIntrinsicContentLogicalHeight(*childBox);
+            parentFlexibleBox->clearCachedMainSizeForFlexItem(*childBox);
         }
     }
 
-    // So that we'll get the appropriate dirty bit set (either that a normal flow child got yanked or
-    // that a positioned child got yanked). We also repaint, so that the area exposed when the child
-    // disappears gets repainted properly.
-    child.setNeedsLayoutAndPrefWidthsRecalc();
+    if (willBeDestroyed == RenderTreeBuilder::WillBeDestroyed::No)
+        child.setNeedsLayoutAndPrefWidthsRecalc();
 
     // If we have a line box wrapper, delete it.
     if (CheckedPtr textRenderer = dynamicDowncast<RenderText>(child))

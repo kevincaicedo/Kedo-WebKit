@@ -87,7 +87,7 @@
 
 /* --------- Windows port --------- */
 #if PLATFORM(WIN)
-#include <wtf/PlatformEnableWinCairo.h>
+#include <wtf/PlatformEnableWin.h>
 #endif
 
 /* --------- PlayStation port --------- */
@@ -561,6 +561,14 @@
 #define ENABLE_WHEEL_EVENT_REGIONS 0
 #endif
 
+#if !defined(ENABLE_WRITING_TOOLS)
+#define ENABLE_WRITING_TOOLS 0
+#endif
+
+#if !defined(ENABLE_WRITING_TOOLS_UI)
+#define ENABLE_WRITING_TOOLS_UI 0
+#endif
+
 #if !defined(ENABLE_WKPDFVIEW)
 #define ENABLE_WKPDFVIEW 0
 #endif
@@ -729,7 +737,7 @@
 #undef ENABLE_B3_JIT
 #define ENABLE_B3_JIT 1
 #undef ENABLE_WEBASSEMBLY_OMGJIT
-#define ENABLE_WEBASSEMBLY_OMGJIT 0
+#define ENABLE_WEBASSEMBLY_OMGJIT 1
 #undef ENABLE_WEBASSEMBLY_BBQJIT
 #define ENABLE_WEBASSEMBLY_BBQJIT 1
 #endif
@@ -805,15 +813,15 @@
 #endif
 
 /* Enable JIT'ing Regular Expressions that have nested parenthesis . */
-#if ENABLE(YARR_JIT) && (CPU(ARM64) || (CPU(X86_64) && !OS(WINDOWS)) || CPU(RISCV64))
+#if ENABLE(YARR_JIT) && (CPU(ARM64) || CPU(X86_64) || CPU(RISCV64))
 #define ENABLE_YARR_JIT_ALL_PARENS_EXPRESSIONS 1
 #define ENABLE_YARR_JIT_REGEXP_TEST_INLINE 1
 #endif
 
 /* Enable JIT'ing Regular Expressions that have back references. */
-#if ENABLE(YARR_JIT) && (CPU(ARM64) || (CPU(X86_64) && !OS(WINDOWS)) || CPU(RISCV64))
+#if ENABLE(YARR_JIT) && (CPU(ARM64) || CPU(X86_64) || CPU(RISCV64))
 #define ENABLE_YARR_JIT_BACKREFERENCES 1
-#if CPU(ARM64) || (CPU(X86_64) && !OS(WINDOWS))
+#if CPU(ARM64) || CPU(X86_64)
 #define ENABLE_YARR_JIT_BACKREFERENCES_FOR_16BIT_EXPRS 1
 #else
 #define ENABLE_YARR_JIT_BACKREFERENCES_FOR_16BIT_EXPRS 0
@@ -871,8 +879,12 @@
 #define ENABLE_UNIFIED_AND_FREEZABLE_CONFIG_RECORD 1
 #endif
 
+#if !defined(ENABLE_MPROTECT_RX_TO_RWX)
+#define ENABLE_MPROTECT_RX_TO_RWX 0
+#endif
+
 /* CSS Selector JIT Compiler */
-#if !defined(ENABLE_CSS_SELECTOR_JIT) && ((CPU(X86_64) || CPU(ARM64)) && ENABLE(JIT) && (OS(DARWIN) || OS(WINDOWS) || PLATFORM(GTK) || PLATFORM(WPE)))
+#if !defined(ENABLE_CSS_SELECTOR_JIT) && ((CPU(X86_64) || CPU(ARM64)) && ENABLE(JIT))
 #define ENABLE_CSS_SELECTOR_JIT 1
 #endif
 
@@ -904,6 +916,10 @@
 
 #if USE(APPLE_INTERNAL_SDK) && ENABLE(DISASSEMBLER) && CPU(ARM64E) && HAVE(DLADDR)
 #define ENABLE_JIT_OPERATION_DISASSEMBLY 1
+#endif
+
+#if CPU(ARM64E)
+#define ENABLE_JIT_SIGN_ASSEMBLER_BUFFER 1
 #endif
 
 #if !defined(ENABLE_BINDING_INTEGRITY) && !OS(WINDOWS)
@@ -990,6 +1006,6 @@
 #endif
 
 #if !defined(ENABLE_WRITING_SUGGESTIONS) \
-    && (PLATFORM(COCOA) && HAVE(INLINE_PREDICTIONS))
+    && (PLATFORM(COCOA) && HAVE(INLINE_PREDICTIONS) && !PLATFORM(MACCATALYST))
 #define ENABLE_WRITING_SUGGESTIONS 1
 #endif

@@ -22,7 +22,6 @@
 
 #if ENABLE(WEB_CODECS) && USE(GSTREAMER)
 
-#include "GStreamerCodecUtilities.h"
 #include "GStreamerCommon.h"
 #include "GStreamerElementHarness.h"
 #include "GStreamerRegistryScanner.h"
@@ -30,6 +29,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WorkQueue.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -112,7 +112,7 @@ void GStreamerAudioEncoder::create(const String& codecName, const AudioEncoder::
     if (!error.isEmpty()) {
         encoder->m_internalEncoder->postTask([callback = WTFMove(callback), error = WTFMove(error)]() mutable {
             GST_WARNING("Error creating encoder: %s", error.ascii().data());
-            callback(makeUnexpected(makeString("GStreamer encoding initialization failed with error: ", error)));
+            callback(makeUnexpected(makeString("GStreamer encoding initialization failed with error: "_s, error)));
         });
         return;
     }
@@ -231,16 +231,10 @@ GStreamerInternalAudioEncoder::GStreamerInternalAudioEncoder(AudioEncoder::Descr
             AudioEncoder::ActiveConfiguration configuration;
             if (header) {
                 GstMappedBuffer buffer(header, GST_MAP_READ);
-                configuration.description = { { buffer.data(), buffer.size() } };
+                configuration.description = Vector<uint8_t> { std::span { buffer.data(), buffer.size() } };
             }
-            int numberOfChannels;
-            if (gst_structure_get_int(structure, "channels", &numberOfChannels))
-                configuration.numberOfChannels = numberOfChannels;
-
-            int sampleRate;
-            if (gst_structure_get_int(structure, "rate", &sampleRate))
-                configuration.sampleRate = sampleRate;
-
+            configuration.numberOfChannels = gstStructureGet<int>(structure, "channels"_s);
+            configuration.sampleRate = gstStructureGet<int>(structure, "rate"_s);
             encoder->m_descriptionCallback(WTFMove(configuration));
         });
     }), new ThreadSafeWeakPtr { *this }, [](void* data, GClosure*) {

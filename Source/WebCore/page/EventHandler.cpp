@@ -773,13 +773,7 @@ bool EventHandler::handleMousePressEventSingleClick(const MouseEventWithHitTestR
         newSelection = expandSelectionToRespectSelectOnMouseDown(*targetNode, visiblePosition);
     }
 
-    bool handled = updateSelectionForMouseDownDispatchingSelectStart(targetNode.get(), newSelection, granularity);
-
-    if (event.event().button() == MouseButton::Middle) {
-        // Ignore handled, since we want to paste to where the caret was placed anyway.
-        handled = handlePasteGlobalSelection(event.event()) || handled;
-    }
-    return handled;
+    return updateSelectionForMouseDownDispatchingSelectStart(targetNode.get(), newSelection, granularity);
 }
 
 bool EventHandler::canMouseDownStartSelect(const MouseEventWithHitTestResults& event)
@@ -970,7 +964,8 @@ bool EventHandler::handleMouseDraggedEvent(const MouseEventWithHitTestResults& e
         frame->protectedDocument()->hitTest(HitTestRequest(), result);
 
         updateSelectionForMouseDrag(result);
-    }
+    } else
+        event.targetNode()->protectedDocument()->updateStyleIfNeeded();
     updateSelectionForMouseDrag(event.hitTestResult());
     return true;
 }
@@ -1188,9 +1183,28 @@ bool EventHandler::handleMouseReleaseEvent(const MouseEventWithHitTestResults& e
         handled = true;
     }
 
+    // If the event was a middle click, attempt to copy global selection in after
+    // the newly set caret position.
+    //
+    // There is some debate about when the global selection is pasted:
+    //   xterm: pastes on up.
+    //   GTK: pastes on down.
+    //   Qt: pastes on up.
+    //   Firefox: pastes on up.
+    //   Chromium: pastes on up.
+    //
+    // However, WebKitGTK actually needs to paste on up to avoid clashing with
+    // mouse gestures, https://gitlab.gnome.org/GNOME/epiphany/-/issues/1814. So
+    // let's always paste on up, and forget about matching GTK.
+    //
+    // There is something of a webcompat angle to this well, as highlighted by
+    // crbug.com/14608. Pages can clear text boxes 'onclick' and, if we paste on
+    // down then the text is pasted just before the onclick handler runs and
+    // clears the text box. So it's important this happens after the event
+    // handlers have been fired.
     if (event.event().button() == MouseButton::Middle) {
         // Ignore handled, since we want to paste to where the caret was placed anyway.
-        handled = handlePasteGlobalSelection(event.event()) || handled;
+        handled = handlePasteGlobalSelection() || handled;
     }
 
     return handled;
@@ -1211,7 +1225,7 @@ void EventHandler::didPanScrollStop()
 void EventHandler::startPanScrolling(RenderElement& renderer)
 {
     CheckedPtr renderBox = dynamicDowncast<RenderBox>(renderer);
-    if (renderBox)
+    if (!renderBox)
         return;
     m_autoscrollController->startPanScrolling(*renderBox, lastKnownMousePosition());
     invalidateClick();
@@ -1978,7 +1992,7 @@ bool EventHandler::handleMouseDoubleClickEvent(const PlatformMouseEvent& platfor
 
     m_clickCount = platformMouseEvent.clickCount();
     bool swallowMouseUpEvent = !dispatchMouseEvent(eventNames().mouseupEvent, mouseEvent.protectedTargetNode().get(), m_clickCount, platformMouseEvent, FireMouseOverOut::No);
-    bool swallowClickEvent = platformMouseEvent.button() != MouseButton::Right && mouseEvent.targetNode() == m_clickNode && !dispatchMouseEvent(eventNames().clickEvent, mouseEvent.protectedTargetNode().get(), m_clickCount, platformMouseEvent, FireMouseOverOut::Yes);
+    bool swallowClickEvent = swallowAnyClickEvent(platformMouseEvent, mouseEvent, IgnoreAncestorNodesForClickEvent::Yes);
 
     if (m_lastScrollbarUnderMouse)
         swallowMouseUpEvent = m_lastScrollbarUnderMouse->mouseUp(platformMouseEvent);
@@ -2250,6 +2264,38 @@ static RefPtr<Node> targetNodeForClickEvent(Node* mousePressNode, Node* mouseRel
     return nullptr;
 }
 
+bool EventHandler::swallowAnyClickEvent(const PlatformMouseEvent& platformMouseEvent, const MouseEventWithHitTestResults& mouseEvent, IgnoreAncestorNodesForClickEvent ignoreAncestorNodesForClickEvent)
+{
+    if (!m_clickCount)
+        return false;
+
+    auto nodeToClick = [&] -> RefPtr<Node> {
+        if (ignoreAncestorNodesForClickEvent == IgnoreAncestorNodesForClickEvent::Yes) {
+            if (mouseEvent.targetNode() != m_clickNode)
+                return nullptr;
+
+            return m_clickNode;
+        }
+
+        return targetNodeForClickEvent(RefPtr { m_clickNode }.get(), mouseEvent.protectedTargetNode().get());
+    }();
+
+    if (!nodeToClick)
+        return false;
+
+    bool isPrimaryPointerButton = platformMouseEvent.button() == MouseButton::Left;
+    if (!isPrimaryPointerButton && !protectedFrame()->settings().auxclickEventEnabled())
+        return false;
+
+    // The auxclick event should only be fired for the non-primary pointer buttons.
+    // In the case of right button, the auxclick event is dispatched after any contextmenu event.
+    //
+    // The click event should only be fired for the primary pointer button.
+
+    auto& eventName = isPrimaryPointerButton ? eventNames().clickEvent : eventNames().auxclickEvent;
+    return !dispatchMouseEvent(eventName, nodeToClick.get(), m_clickCount, platformMouseEvent, FireMouseOverOut::Yes);
+}
+
 HandleUserInputEventResult EventHandler::handleMouseReleaseEvent(const PlatformMouseEvent& platformMouseEvent)
 {
     Ref frame = m_frame.get();
@@ -2319,10 +2365,8 @@ HandleUserInputEventResult EventHandler::handleMouseReleaseEvent(const PlatformM
         return true;
 
     bool swallowMouseUpEvent = !dispatchMouseEvent(eventNames().mouseupEvent, mouseEvent.protectedTargetNode().get(), m_clickCount, platformMouseEvent, FireMouseOverOut::No);
-    bool contextMenuEvent = platformMouseEvent.button() == MouseButton::Right;
 
-    auto nodeToClick = targetNodeForClickEvent(RefPtr { m_clickNode }.get(), mouseEvent.protectedTargetNode().get());
-    bool swallowClickEvent = m_clickCount > 0 && !contextMenuEvent && nodeToClick && !dispatchMouseEvent(eventNames().clickEvent, nodeToClick.get(), m_clickCount, platformMouseEvent, FireMouseOverOut::Yes);
+    bool swallowClickEvent = swallowAnyClickEvent(platformMouseEvent, mouseEvent, IgnoreAncestorNodesForClickEvent::No);
 
     if (m_resizeLayer) {
         m_resizeLayer->setInResizeMode(false);
@@ -2372,32 +2416,8 @@ bool EventHandler::handleMouseForceEvent(const PlatformMouseEvent& event)
     return swallowedEvent;
 }
 
-bool EventHandler::handlePasteGlobalSelection(const PlatformMouseEvent& platformMouseEvent)
+bool EventHandler::handlePasteGlobalSelection()
 {
-    // If the event was a middle click, attempt to copy global selection in after
-    // the newly set caret position.
-    //
-    // This code is called from either the mouse up or mouse down handling. There
-    // is some debate about when the global selection is pasted:
-    //   xterm: pastes on up.
-    //   GTK: pastes on down.
-    //   Qt: pastes on up.
-    //   Firefox: pastes on up.
-    //   Chromium: pastes on up.
-    //
-    // There is something of a webcompat angle to this well, as highlighted by
-    // crbug.com/14608. Pages can clear text boxes 'onclick' and, if we paste on
-    // down then the text is pasted just before the onclick handler runs and
-    // clears the text box. So it's important this happens after the event
-    // handlers have been fired.
-#if PLATFORM(GTK)
-    if (platformMouseEvent.type() != PlatformEvent::Type::MousePressed)
-        return false;
-#else
-    if (platformMouseEvent.type() != PlatformEvent::Type::MouseReleased)
-        return false;
-#endif
-
     if (!m_frame->page())
         return false;
     RefPtr focusFrame = m_frame->page()->checkedFocusController()->focusedOrMainFrame();
@@ -2509,12 +2529,12 @@ static bool findDropZone(Node& target, DataTransfer& dataTransfer)
         SpaceSplitString keywords(element->attributeWithoutSynchronization(webkitdropzoneAttr), SpaceSplitString::ShouldFoldCase::Yes);
         bool matched = false;
         std::optional<DragOperation> dragOperation;
-        for (unsigned i = 0, size = keywords.size(); i < size; ++i) {
-            if (auto operationFromKeyword = convertDropZoneOperationToDragOperation(keywords[i])) {
+        for (auto& keyword : keywords) {
+            if (auto operationFromKeyword = convertDropZoneOperationToDragOperation(keyword)) {
                 if (!dragOperation)
                     dragOperation = operationFromKeyword;
             } else
-                matched = matched || hasDropZoneType(dataTransfer, keywords[i].string());
+                matched = matched || hasDropZoneType(dataTransfer, keyword.string());
             if (matched && dragOperation)
                 break;
         }

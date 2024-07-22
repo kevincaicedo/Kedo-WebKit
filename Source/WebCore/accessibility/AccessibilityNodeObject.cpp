@@ -300,11 +300,7 @@ AccessibilityRole AccessibilityNodeObject::determineAccessibilityRole()
 
 bool AccessibilityNodeObject::matchesTextAreaRole() const
 {
-#if !PLATFORM(COCOA)
-    if (hasContentEditableAttributeSet())
-        return true;
-#endif
-    return is<HTMLTextAreaElement>(node());
+    return is<HTMLTextAreaElement>(node()) || hasContentEditableAttributeSet();
 }
 
 AccessibilityRole AccessibilityNodeObject::determineAccessibilityRoleFromNode(TreatStyleFormatGroupAsInline treatStyleFormatGroupAsInline) const
@@ -440,13 +436,9 @@ AccessibilityRole AccessibilityNodeObject::determineAccessibilityRoleFromNode(Tr
     if (RefPtr summaryElement = dynamicDowncast<HTMLSummaryElement>(*element); summaryElement && summaryElement->isActiveSummary())
         return AccessibilityRole::Summary;
 
-#if PLATFORM(COCOA)
-    if (isNonNativeTextControl())
-        return AccessibilityRole::Group;
-#endif
-
-    // https://w3c.github.io/html-aam/#el-output
-    if (element->hasTagName(outputTag))
+    // http://rawgit.com/w3c/aria/master/html-aam/html-aam.html
+    // Output elements should be mapped to status role.
+    if (isOutput())
         return AccessibilityRole::ApplicationStatus;
 
 #if ENABLE(VIDEO)
@@ -2360,7 +2352,7 @@ String AccessibilityNodeObject::textUnderElement(TextUnderElementMode mode) cons
     StringBuilder builder;
     RefPtr<AXCoreObject> previous;
     bool previousRequiresSpace = false;
-    auto appendTextUnderElement = [&] (AXCoreObject& object) {
+    auto appendTextUnderElement = [&] (auto& object) {
         // We don't want to trim whitespace in these intermediate calls to textUnderElement, as doing so will wipe out
         // spaces we need to build the string properly. If anything (depending on the original `mode`), we will trim
         // whitespace at the very end.
@@ -2482,7 +2474,7 @@ String AccessibilityNodeObject::title() const
     if (isLink())
         return textUnderElement();
     if (isHeading())
-        return textUnderElement(TextUnderElementMode(TextUnderElementMode::Children::SkipIgnoredChildren, true));
+        return textUnderElement({ TextUnderElementMode::Children::SkipIgnoredChildren, true });
 
     return { };
 }
@@ -2666,7 +2658,7 @@ static String accessibleNameForNode(Node& node, Node* labelledbyNode)
     String text;
     if (axObject) {
         if (axObject->accessibleNameDerivesFromContent())
-            text = axObject->textUnderElement(TextUnderElementMode(TextUnderElementMode::Children::IncludeNameFromContentsChildren, true, labelledbyNode));
+            text = axObject->textUnderElement({ TextUnderElementMode::Children::IncludeNameFromContentsChildren, true, true, false, TrimWhitespace::Yes, labelledbyNode });
     } else
         text = (element ? element->innerText() : node.textContent()).simplifyWhiteSpace(isASCIIWhitespace);
 

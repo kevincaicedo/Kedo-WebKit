@@ -45,6 +45,7 @@ class SVGPropertyAnimatorFactory;
 class SVGResourceElementClient;
 class SVGSVGElement;
 class SVGUseElement;
+class Settings;
 class Timer;
 
 class SVGElement : public StyledElement, public SVGPropertyOwner {
@@ -181,7 +182,7 @@ protected:
     SVGElementRareData& ensureSVGRareData();
 
     void reportAttributeParsingError(SVGParsingError, const QualifiedName&, const AtomString&);
-    static CSSPropertyID cssPropertyIdForSVGAttributeName(const QualifiedName&);
+    static CSSPropertyID cssPropertyIdForSVGAttributeName(const QualifiedName&, const Settings&);
 
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const override;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) override;
@@ -265,4 +266,3 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SVGElement)
     static bool isType(const WebCore::EventTarget& eventTarget) { return eventTarget.isNode() && static_cast<const WebCore::Node&>(eventTarget).isSVGElement(); }
     static bool isType(const WebCore::Node& node) { return node.isSVGElement(); }
 SPECIALIZE_TYPE_TRAITS_END()
-

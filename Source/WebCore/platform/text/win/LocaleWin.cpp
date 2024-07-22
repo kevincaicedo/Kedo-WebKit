@@ -39,6 +39,7 @@
 #include <wtf/DateMath.h>
 #include <wtf/HashMap.h>
 #include <wtf/Language.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/win/WCharStringExtras.h>
@@ -425,13 +426,13 @@ void LocaleWin::initializeLocaleData()
         negativeSuffix = ")"_s;
         break;
     case NegativeFormatSignSpacePrefix:
-        negativePrefix = negativeSign + " ";
+        negativePrefix = makeString(negativeSign, ' ');
         break;
     case NegativeFormatSignSuffix:
         negativeSuffix = negativeSign;
         break;
     case NegativeFormatSpaceSignSuffix:
-        negativeSuffix = " " + negativeSign;
+        negativeSuffix = makeString(' ', negativeSign);
         break;
     case NegativeFormatSignPrefix:
         FALLTHROUGH;

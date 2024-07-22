@@ -135,6 +135,8 @@ public:
     static void registerMediaEngine(MediaEngineRegistrar);
     static bool supportsKeySystem(const String& keySystem, const String& mimeType);
 
+    void mediaPlayerWillBeDestroyed() final;
+
     bool hasVideo() const final { return m_hasVideo; }
     bool hasAudio() const final { return m_hasAudio; }
     void load(const String &url) override;
@@ -162,7 +164,7 @@ public:
     void setMuted(bool) final;
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;
-    void setPageIsVisible(bool visible, String&&) final { m_visible = visible; }
+    void setPageIsVisible(bool visible) final { m_visible = visible; }
     void setVisibleInViewport(bool isVisible) final;
     void setPresentationSize(const IntSize&) final;
     MediaTime duration() const override;
@@ -193,12 +195,7 @@ public:
 
 #if USE(TEXTURE_MAPPER)
     PlatformLayer* platformLayer() const override;
-#if PLATFORM(WIN)
-    // FIXME: Accelerated rendering has not been implemented for WinCairo yet.
-    bool supportsAcceleratedRendering() const override { return false; }
-#else
     bool supportsAcceleratedRendering() const override { return true; }
-#endif
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
@@ -230,7 +227,7 @@ public:
     void flushCurrentBuffer();
 #endif
 
-    void handleTextSample(GstSample*, const char* streamId);
+    void handleTextSample(GRefPtr<GstSample>&&, const String& streamId);
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger; }
@@ -328,7 +325,7 @@ protected:
     template <typename TrackPrivateType> void notifyPlayerOfTrack();
 
     void ensureAudioSourceProvider();
-    void checkPlayingConsistency();
+    virtual void checkPlayingConsistency();
 
     virtual bool doSeek(const SeekTarget& position, float rate);
     void invalidateCachedPosition() const;
@@ -401,7 +398,8 @@ protected:
     mutable MediaPlayer::NetworkState m_networkState { MediaPlayer::NetworkState::Empty };
 
     mutable Lock m_sampleMutex;
-    GRefPtr<GstSample> m_sample;
+    GRefPtr<GstSample> m_sample WTF_GUARDED_BY_LOCK(m_sampleMutex);
+    bool m_hasFirstVideoSampleBeenRendered WTF_GUARDED_BY_LOCK(m_sampleMutex) { false };
 
     mutable FloatSize m_videoSize;
     bool m_isUsingFallbackVideoSink { false };
@@ -460,6 +458,7 @@ private:
         Function<void()> m_task = Function<void()>();
     };
 
+    void tearDown(bool clearMediaPlayer);
     bool isPlayerShuttingDown() const { return m_isPlayerShuttingDown.load(); }
     MediaTime maxTimeLoaded() const;
     bool setVideoSourceOrientation(ImageOrientation);
@@ -537,6 +536,8 @@ private:
 
     void configureMediaStreamAudioTracks();
     void invalidateCachedPositionOnNextIteration() const;
+
+    void textureMapperPlatformLayerProxyWasInvalidated();
 
     Atomic<bool> m_isPlayerShuttingDown;
     GRefPtr<GstElement> m_textSink;

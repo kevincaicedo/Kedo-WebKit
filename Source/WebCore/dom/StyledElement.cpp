@@ -39,7 +39,6 @@
 #include "ElementInlines.h"
 #include "ElementRareData.h"
 #include "HTMLElement.h"
-#include "HTMLImageElement.h"
 #include "HTMLParserIdioms.h"
 #include "InlineStylePropertyMap.h"
 #include "InspectorInstrumentation.h"
@@ -158,7 +157,7 @@ void StyledElement::styleAttributeChanged(const AtomString& newStyleString, Attr
 
     elementData()->setStyleAttributeIsDirty(false);
 
-    invalidateStyleInternal();
+    Node::invalidateStyle(Style::Validity::InlineStyleInvalid);
     InspectorInstrumentation::didInvalidateStyleAttr(*this);
 }
 
@@ -184,7 +183,8 @@ void StyledElement::invalidateStyleAttribute()
     }
 
     elementData()->setStyleAttributeIsDirty(true);
-    invalidateStyleInternal();
+
+    Node::invalidateStyle(Style::Validity::InlineStyleInvalid);
 
     // In the rare case of selectors like "[style] ~ div" we need to synchronize immediately to invalidate.
     if (styleResolver().ruleSets().hasComplexSelectorsForStyleAttribute()) {
@@ -332,9 +332,7 @@ void StyledElement::rebuildPresentationalHintStyle()
     auto style = MutableStyleProperties::create(isSVG ? SVGAttributeMode : HTMLQuirksMode);
     for (auto& attribute : attributesIterator())
         collectPresentationalHintsForAttribute(attribute.name(), attribute.value(), style);
-
-    if (auto* imageElement = dynamicDowncast<HTMLImageElement>(*this))
-        imageElement->collectExtraStyleForPresentationalHints(style);
+    collectExtraStyleForPresentationalHints(style);
 
     // ShareableElementData doesn't store presentation attribute style, so make sure we have a UniqueElementData.
     auto& elementData = ensureUniqueElementData();
@@ -380,6 +378,11 @@ void StyledElement::addPropertyToPresentationalHintStyle(MutableStyleProperties&
 void StyledElement::addPropertyToPresentationalHintStyle(MutableStyleProperties& style, CSSPropertyID propertyID, const String& value)
 {
     style.setProperty(propertyID, value, false, CSSParserContext(document()));
+}
+
+void StyledElement::addPropertyToPresentationalHintStyle(MutableStyleProperties& style, CSSPropertyID propertyID, RefPtr<CSSValue>&& value)
+{
+    style.setProperty(propertyID, WTFMove(value), false);
 }
 
 }

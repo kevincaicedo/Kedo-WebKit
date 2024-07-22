@@ -165,7 +165,7 @@ void WebXRSystem::isSessionSupported(XRSessionMode mode, IsSessionSupportedPromi
     // 3. If the requesting document's origin is not allowed to use the "xr-spatial-tracking" feature policy,
     //    reject promise with a "SecurityError" DOMException and return it.
     auto document = downcast<Document>(scriptExecutionContext());
-    if (!isPermissionsPolicyAllowedByDocumentAndAllOwners(PermissionsPolicy::Type::XRSpatialTracking, *document, LogPermissionsPolicyFailure::Yes)) {
+    if (!PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::XRSpatialTracking, *document)) {
         promise.reject(Exception { ExceptionCode::SecurityError });
         return;
     }
@@ -279,7 +279,7 @@ bool WebXRSystem::isFeaturePermitted(PlatformXR::SessionFeature feature) const
     case PlatformXR::SessionFeature::HandTracking:
 #endif
         RefPtr document = downcast<Document>(scriptExecutionContext());
-        return document && isPermissionsPolicyAllowedByDocumentAndAllOwners(PermissionsPolicy::Type::XRSpatialTracking, *document, LogPermissionsPolicyFailure::Yes);
+        return document && PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::XRSpatialTracking, *document);
     }
 
     ASSERT_NOT_REACHED();
@@ -453,7 +453,7 @@ void WebXRSystem::resolveFeaturePermissions(XRSessionMode mode, const XRSessionI
     }
 
     // FIXME: Replace with Permissions API implementation.
-    document->page()->chrome().client().requestPermissionOnXRSessionFeatures(document->securityOrigin().data(), mode, resolvedFeatures->granted, resolvedFeatures->consentRequired, resolvedFeatures->consentOptional, resolvedFeatures->requiredFeaturesRequested, resolvedFeatures->optionalFeaturesRequested, [device, mode, consentRequired = WTFMove(resolvedFeatures->consentRequired), completionHandler = WTFMove(completionHandler)](std::optional<PlatformXR::Device::FeatureList>&& userGranted) mutable {
+    document->page()->chrome().client().requestPermissionOnXRSessionFeatures(document->securityOrigin().data(), mode, resolvedFeatures->granted, resolvedFeatures->consentRequired, resolvedFeatures->consentOptional, resolvedFeatures->requiredFeaturesRequested, resolvedFeatures->optionalFeaturesRequested, [device, document, isUserGesture = UserGestureIndicator::processingUserGesture(), mode, consentRequired = WTFMove(resolvedFeatures->consentRequired), completionHandler = WTFMove(completionHandler)](std::optional<PlatformXR::Device::FeatureList>&& userGranted) mutable {
         if (!userGranted) {
             completionHandler(std::nullopt);
             return;
@@ -470,6 +470,11 @@ void WebXRSystem::resolveFeaturePermissions(XRSessionMode mode, const XRSessionI
         // 12. Set device's list of enabled features for mode to granted.
         // 13. Set status's state to "granted".
         device->setEnabledFeatures(mode, *userGranted);
+
+        // https://immersive-web.github.io/webxr/#protect-immersiveness
+        // requestSession() requires transient activation.
+        if (isUserGesture)
+            UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, document);
 
         completionHandler(*userGranted);
     });
@@ -609,9 +614,9 @@ void WebXRSystem::sessionEnded(WebXRSession& session)
     m_inlineSessions.remove(session);
 }
 
-bool WebXRSystem::hasActiveImmersiveSession() const
+RefPtr<WebXRSession> WebXRSystem::activeImmersiveSession() const
 {
-    return !!m_activeImmersiveSession;
+    return m_activeImmersiveSession;
 }
 
 class InlineRequestAnimationFrameCallback final: public RequestAnimationFrameCallback {
@@ -620,6 +625,9 @@ public:
     {
         return adoptRef(*new InlineRequestAnimationFrameCallback(scriptExecutionContext, WTFMove(callback)));
     }
+
+    bool hasCallback() const final { return true; }
+
 private:
     InlineRequestAnimationFrameCallback(ScriptExecutionContext& scriptExecutionContext, Function<void()>&& callback)
         : RequestAnimationFrameCallback(&scriptExecutionContext), m_callback(WTFMove(callback)) 

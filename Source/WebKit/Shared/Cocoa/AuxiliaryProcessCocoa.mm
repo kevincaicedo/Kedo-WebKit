@@ -39,11 +39,13 @@
 #import <objc/runtime.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/NSKeyedUnarchiverSPI.h>
+#import <pal/spi/cocoa/NotifySPI.h>
 #import <wtf/FileSystem.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/cocoa/Entitlements.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/cocoa/SoftLinking.h>
+#import <wtf/text/MakeString.h>
 
 #if ENABLE(CFPREFS_DIRECT_MODE)
 #import "AccessibilitySupportSPI.h"
@@ -112,7 +114,7 @@ void AuxiliaryProcess::platformInitialize(const AuxiliaryProcessInitializationPa
 
 void AuxiliaryProcess::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName messageName)
 {
-    auto errorMessage = makeString("Received invalid message: '", description(messageName), "' (", messageName, ')');
+    auto errorMessage = makeString("Received invalid message: '"_s, description(messageName), "' ("_s, messageName, ')');
     logAndSetCrashLogMessage(errorMessage.utf8().data());
     CRASH_WITH_INFO(WTF::enumToUnderlyingType(messageName));
 }
@@ -335,5 +337,13 @@ bool AuxiliaryProcess::isSystemWebKit()
     return isSystemWebKit;
 }
 
+void AuxiliaryProcess::setNotifyOptions()
+{
+#if ENABLE(NOTIFY_BLOCKING)
+    notify_set_options(NOTIFY_OPT_DISPATCH);
+#elif ENABLE(NOTIFY_FILTERING)
+    notify_set_options(NOTIFY_OPT_DISPATCH | NOTIFY_OPT_REGEN | NOTIFY_OPT_FILTERED);
+#endif
+}
 
 } // namespace WebKit

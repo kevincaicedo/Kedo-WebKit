@@ -33,6 +33,7 @@
 #import <WebKit/WKWebViewConfiguration.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/text/MakeString.h>
 
 @interface CookieAcceptPolicyMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -143,16 +144,16 @@ TEST(WKHTTPCookieStore, CookiePolicyAllowIsOnlyFromMainDocumentDomain)
         connection.receiveHTTPRequest([connectionCount, connection] (Vector<char>&& request) {
             String reply;
             if (connectionCount == 1) {
-                const char* body =
+                constexpr auto body =
                 "<script>"
                     "fetch('http://www.example.com', { credentials : 'include' }).then(()=>{ alert('fetched'); }).catch((e)=>{ alert(e); })"
-                "</script>";
+                "</script>"_s;
                 reply = makeString(
                     "HTTP/1.1 200 OK\r\n"
-                    "Content-Length: ", strlen(body), "\r\n"
+                    "Content-Length: "_s, body.length(), "\r\n"
                     "Set-Cookie: a=b\r\n"
                     "Connection: close\r\n"
-                    "\r\n", body
+                    "\r\n"_s, body
                 );
             } else {
                 EXPECT_TRUE(strnstr(request.data(), "GET http://www.example.com/ HTTP/1.1\r\n", request.size()));

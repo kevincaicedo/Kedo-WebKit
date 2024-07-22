@@ -35,6 +35,7 @@
 #import "AXLogger.h"
 #import "AXObjectCache.h"
 #import "AXRemoteFrame.h"
+#import "AXSearchManager.h"
 #import "AXTextMarker.h"
 #import "AccessibilityARIAGridRow.h"
 #import "AccessibilityLabel.h"
@@ -82,6 +83,7 @@
 #import <pal/spi/cocoa/NSAccessibilitySPI.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
+#import <wtf/text/MakeString.h>
 
 using namespace WebCore;
 
@@ -490,6 +492,31 @@ static id parameterizedAttributeValueForTesting(const RefPtr<AXCoreObject>&, NSS
 #define kAXConvertRelativeFrameParameterizedAttribute @"AXConvertRelativeFrame"
 #endif
 
+// Static C helper functions.
+
+// The CFAttributedStringType representation of the text associated with this accessibility
+// object that is specified by the given range.
+static NSAttributedString *attributedStringForNSRange(const AXCoreObject& backingObject, NSRange range)
+{
+    if (!range.length)
+        return nil;
+
+    auto markerRange = backingObject.textMarkerRangeForNSRange(range);
+    if (!markerRange)
+        return nil;
+
+    auto attributedString = backingObject.attributedStringForTextMarkerRange(WTFMove(markerRange), AXCoreObject::SpellCheck::Yes);
+    return [attributedString length] ? attributedString.autorelease() : nil;
+}
+
+// The RTF representation of the text associated with this accessibility object that is
+// specified by the given range.
+static NSData *rtfForNSRange(const AXCoreObject& backingObject, NSRange range)
+{
+    NSAttributedString *attrString = attributedStringForNSRange(backingObject, range);
+    return [attrString RTFFromRange:NSMakeRange(0, attrString.length) documentAttributes:@{ }];
+}
+
 // Date time helpers.
 
 // VO requests a bit-wise combination of these constants via the API
@@ -742,25 +769,6 @@ static RetainPtr<AXTextMarkerRef> previousTextMarker(AXObjectCache* cache, const
 
     auto previousMarker = cache->previousTextMarker(marker);
     return previousMarker ? previousMarker.platformData() : nil;
-}
-
-- (RetainPtr<AXTextMarkerRef>)textMarkerForFirstPositionInTextControl:(HTMLTextFormControlElement &)textControl
-{
-    ASSERT(isMainThread());
-
-    RefPtr<AXCoreObject> backingObject = self.axBackingObject;
-    if (!backingObject)
-        return nil;
-
-    auto* cache = backingObject->axObjectCache();
-    if (!cache)
-        return nil;
-
-    auto textMarkerData = cache->textMarkerDataForFirstPositionInTextControl(textControl);
-    if (!textMarkerData)
-        return nil;
-
-    return adoptCF(AXTextMarkerCreate(kCFAllocatorDefault, (const UInt8*)&textMarkerData.value(), sizeof(textMarkerData.value())));
 }
 
 static NSAttributedString *attributedStringForTextMarkerRange(const AXCoreObject& object, AXTextMarkerRangeRef textMarkerRangeRef, AXCoreObject::SpellCheck spellCheck)
@@ -1535,11 +1543,11 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (id)accessibilityAttributeValue:(NSString *)attributeName
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
-    AXTRACE(makeString("WebAccessibilityObjectWrapper accessibilityAttributeValue:", String(attributeName)));
+    AXTRACE(makeString("WebAccessibilityObjectWrapper accessibilityAttributeValue:"_s, String(attributeName)));
 
     RefPtr<AXCoreObject> backingObject = self.updateObjectBackingStore;
     if (!backingObject) {
-        AXLOG(makeString("No backingObject for wrapper ", hex(reinterpret_cast<uintptr_t>(self))));
+        AXLOG(makeString("No backingObject for wrapper "_s, hex(reinterpret_cast<uintptr_t>(self))));
         return nil;
     }
 
@@ -2679,7 +2687,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     RefPtr<AXCoreObject> backingObject = self.axBackingObject;
     if (!backingObject) {
-        AXLOG(makeString("No backingObject for wrapper ", hex(reinterpret_cast<uintptr_t>(self))));
+        AXLOG(makeString("No backingObject for wrapper "_s, hex(reinterpret_cast<uintptr_t>(self))));
         return;
     }
 
@@ -2702,7 +2710,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     RefPtr<AXCoreObject> backingObject = self.axBackingObject;
     if (!backingObject) {
-        AXLOG(makeString("No backingObject for wrapper ", hex(reinterpret_cast<uintptr_t>(self))));
+        AXLOG(makeString("No backingObject for wrapper "_s, hex(reinterpret_cast<uintptr_t>(self))));
         return;
     }
 
@@ -2806,11 +2814,11 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 - (void)_accessibilitySetValue:(id)value forAttribute:(NSString *)attributeName
 {
-    AXTRACE(makeString("WebAccessibilityObjectWrapper _accessibilitySetValue: forAttribute:", String(attributeName)));
+    AXTRACE(makeString("WebAccessibilityObjectWrapper _accessibilitySetValue: forAttribute:"_s, String(attributeName)));
 
     RefPtr<AXCoreObject> backingObject = self.updateObjectBackingStore;
     if (!backingObject) {
-        AXLOG(makeString("No backingObject for wrapper ", hex(reinterpret_cast<uintptr_t>(self))));
+        AXLOG(makeString("No backingObject for wrapper "_s, hex(reinterpret_cast<uintptr_t>(self))));
         return;
     }
 
@@ -2914,21 +2922,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     return NSAccessibilityActionDescription(action);
 }
 
-// The CFAttributedStringType representation of the text associated with this accessibility
-// object that is specified by the given range.
-- (NSAttributedString *)attributedStringForNSRange:(const NSRange&)range
-{
-    if (!range.length)
-        return nil;
-
-    RefPtr<AXCoreObject> backingObject = self.axBackingObject;
-    if (!backingObject)
-        return nil;
-
-    auto attributedString = backingObject->attributedStringForTextMarkerRange(backingObject->textMarkerRangeForNSRange(range), AXCoreObject::SpellCheck::Yes);
-    return [attributedString length] ? attributedString.autorelease() : nil;
-}
-
 - (NSInteger)_indexForTextMarker:(AXTextMarkerRef)markerRef
 {
     if (!markerRef)
@@ -2966,14 +2959,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
         return textMarkerForCharacterOffset(cache, characterOffset);
     });
-}
-
-// The RTF representation of the text associated with this accessibility object that is
-// specified by the given range.
-- (NSData *)rtfForNSRange:(const NSRange&)range
-{
-    NSAttributedString *attrString = [self attributedStringForNSRange:range];
-    return [attrString RTFFromRange:NSMakeRange(0, attrString.length) documentAttributes:@{ }];
 }
 
 #if ENABLE(TREE_DEBUGGING)
@@ -3019,7 +3004,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 static void formatForDebugger(const VisiblePositionRange& range, char* buffer, unsigned length)
 {
-    strlcpy(buffer, makeString("from ", range.start.debugDescription(), " to ", range.end.debugDescription()).utf8().data(), length);
+    strlcpy(buffer, makeString("from "_s, range.start.debugDescription(), " to "_s, range.end.debugDescription()).utf8().data(), length);
 }
 #endif
 
@@ -3162,7 +3147,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (id)accessibilityAttributeValue:(NSString*)attribute forParameter:(id)parameter
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
-    AXTRACE(makeString("WebAccessibilityObjectWrapper accessibilityAttributeValue:", String(attribute)));
+    AXTRACE(makeString("WebAccessibilityObjectWrapper accessibilityAttributeValue:"_s, String(attribute)));
     RefPtr<AXCoreObject> backingObject = self.updateObjectBackingStore;
     if (!backingObject)
         return nil;
@@ -3290,8 +3275,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
             }
         }
 
-        AccessibilityObject::AccessibilityChildrenVector results;
-        backingObject->findMatchingObjects(&criteria, results);
+        auto results = backingObject->findMatchingObjects(WTFMove(criteria));
         if (widgetChildren)
             return [widgetChildren arrayByAddingObjectsFromArray:makeNSArray(results)];
         return makeNSArray(results);
@@ -3772,10 +3756,10 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         }
 
         if ([attribute isEqualToString:(NSString *)kAXRTFForRangeParameterizedAttribute])
-            return rangeSet ? [self rtfForNSRange:range] : nil;
+            return rangeSet ? rtfForNSRange(*backingObject, range) : nil;
 
         if ([attribute isEqualToString:(NSString *)kAXAttributedStringForRangeParameterizedAttribute])
-            return rangeSet ? [self attributedStringForNSRange:range] : nil;
+            return rangeSet ? attributedStringForNSRange(*backingObject, range) : nil;
 
         if ([attribute isEqualToString:(NSString *)kAXStyleRangeForIndexParameterizedAttribute]) {
             auto textRange = backingObject->doAXStyleRangeForIndex([number intValue]);
@@ -3857,7 +3841,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 - (NSUInteger)accessibilityArrayAttributeCount:(NSString *)attribute
 {
-    AXTRACE(makeString("WebAccessibilityObjectWrapper accessibilityArrayAttributeCount:", String(attribute)));
+    AXTRACE(makeString("WebAccessibilityObjectWrapper accessibilityArrayAttributeCount:"_s, String(attribute)));
 
     RefPtr<AXCoreObject> backingObject = self.updateObjectBackingStore;
     if (!backingObject)
@@ -3896,7 +3880,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (NSArray *)accessibilityArrayAttributeValues:(NSString *)attribute index:(NSUInteger)index maxCount:(NSUInteger)maxCount
 {
-    AXTRACE(makeString("WebAccessibilityObjectWrapper accessibilityArrayAttributeValue:", String(attribute)));
+    AXTRACE(makeString("WebAccessibilityObjectWrapper accessibilityArrayAttributeValue:"_s, String(attribute)));
     RefPtr<AXCoreObject> backingObject = self.updateObjectBackingStore;
     if (!backingObject)
         return nil;

@@ -33,8 +33,7 @@
 #include "PlatformXR.h"
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
-
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace PlatformXR {
@@ -55,7 +54,7 @@ inline String resultToString(XrResult value, XrInstance instance)
     XrResult result = xrResultToString(instance, value, buffer);
     if (result == XR_SUCCESS)
         return String::fromLatin1(buffer);
-    return makeString("<unknown ", int(value), ">");
+    return makeString("<unknown "_s, int(value), '>');
 }
 
 #define RETURN_IF_FAILED(call, label, instance, ...)                                                      \

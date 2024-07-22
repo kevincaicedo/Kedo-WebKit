@@ -230,7 +230,6 @@ set(WebKit_MESSAGES_IN_FILES
     Shared/IPCStreamTesterProxy
     Shared/IPCTester
     Shared/IPCTesterReceiver
-    Shared/WebConnection
 
     Shared/Authentication/AuthenticationManager
 
@@ -346,6 +345,7 @@ set(WebKit_MESSAGES_IN_FILES
     WebProcess/WebPage/EventDispatcher
     WebProcess/WebPage/VisitedLinkTableController
     WebProcess/WebPage/WebPage
+    WebProcess/WebPage/WebPageTesting
 
     WebProcess/WebStorage/StorageAreaMap
 
@@ -361,7 +361,6 @@ set(WebKit_SERIALIZATION_IN_FILES
 
     GPUProcess/graphics/PathSegment.serialization.in
     GPUProcess/graphics/RemoteGraphicsContextGLInitializationState.serialization.in
-    GPUProcess/graphics/RemoteRenderingBackendCreationParameters.serialization.in
 
     GPUProcess/graphics/WebGPU/RemoteGPURequestAdapterResponse.serialization.in
 
@@ -784,7 +783,9 @@ macro(GENERATE_MESSAGE_SOURCES _output_source _inputs)
 endmacro()
 GENERATE_MESSAGE_SOURCES(WebKit_DERIVED_SOURCES "${WebKit_MESSAGES_IN_FILES}")
 
-set(WebKit_SERIALIZATION_DEPENDENCIES ${WebKit_SERIALIZATION_IN_FILES})
+foreach (in_file ${WebKit_SERIALIZATION_IN_FILES})
+    list(APPEND WebKit_SERIALIZATION_DEPENDENCIES "${WEBKIT_DIR}/${in_file}")
+endforeach ()
 foreach (in_file ${WebCore_GENERATED_SERIALIZATION_IN_FILES})
     list(APPEND WebKit_SERIALIZATION_DEPENDENCIES "${WebCore_DERIVED_SOURCES_DIR}/${in_file}")
 endforeach ()
@@ -808,7 +809,7 @@ add_custom_command(
     MAIN_DEPENDENCY ${WEBKIT_DIR}/Scripts/generate-serializers.py
     DEPENDS
         ${WebKit_SERIALIZATION_DEPENDENCIES}
-    COMMAND ${PYTHON_EXECUTABLE} ${WEBKIT_DIR}/Scripts/generate-serializers.py ${WebKit_GENERATED_SERIALIZERS_SUFFIX} DIRECTORY ${WEBKIT_DIR} ${WebKit_SERIALIZATION_IN_FILES} DIRECTORY ${WebCore_DERIVED_SOURCES_DIR} ${WebCore_GENERATED_SERIALIZATION_IN_FILES} DIRECTORY ${WebCore_PRIVATE_FRAMEWORK_HEADERS_DIR}/WebCore ${WebCore_SERIALIZATION_IN_FILES}
+    COMMAND ${PYTHON_EXECUTABLE} ${WEBKIT_DIR}/Scripts/generate-serializers.py ${WebKit_GENERATED_SERIALIZERS_SUFFIX} ${WebKit_SERIALIZATION_DEPENDENCIES}
     WORKING_DIRECTORY ${WebKit_DERIVED_SOURCES_DIR}
     VERBATIM
 )

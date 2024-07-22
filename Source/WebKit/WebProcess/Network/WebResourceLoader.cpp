@@ -56,6 +56,7 @@
 #include <WebCore/SubresourceLoader.h>
 #include <WebCore/SubstituteData.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/text/MakeString.h>
 
 #define WEBRESOURCELOADER_RELEASE_LOG(fmt, ...) RELEASE_LOG(Network, "%p - [webPageID=%" PRIu64 ", frameID=%" PRIu64 ", resourceID=%" PRIu64 ", durationSeconds=%.3f] WebResourceLoader::" fmt, this, m_trackingParameters.pageID.toUInt64(), m_trackingParameters.frameID.object().toUInt64(), m_trackingParameters.resourceID.toUInt64(), timeSinceLoadStart().value(), ##__VA_ARGS__)
 
@@ -260,7 +261,7 @@ void WebResourceLoader::didFailServiceWorkerLoad(const ResourceError& error)
         if (m_coreLoader->options().destination != FetchOptions::Destination::EmptyString || error.isGeneral())
             document->addConsoleMessage(MessageSource::JS, MessageLevel::Error, error.localizedDescription());
         if (m_coreLoader->options().destination != FetchOptions::Destination::EmptyString)
-            document->addConsoleMessage(MessageSource::JS, MessageLevel::Error, makeString("Cannot load ", error.failingURL().string(), "."));
+            document->addConsoleMessage(MessageSource::JS, MessageLevel::Error, makeString("Cannot load "_s, error.failingURL().string(), '.'));
     }
 
     didFailResourceLoad(error);

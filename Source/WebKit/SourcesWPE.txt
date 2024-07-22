@@ -202,6 +202,7 @@ UIProcess/API/wpe/InputMethodFilterWPE.cpp @no-unify
 UIProcess/API/wpe/PageClientImpl.cpp @no-unify
 UIProcess/API/wpe/WebKitColor.cpp @no-unify
 UIProcess/API/wpe/WebKitInputMethodContextWPE.cpp @no-unify
+UIProcess/API/wpe/WebKitInputMethodContextImplWPE.cpp @no-unify
 UIProcess/API/wpe/WebKitPopupMenu.cpp @no-unify
 UIProcess/API/wpe/WebKitRectangle.cpp @no-unify
 UIProcess/API/wpe/WebKitScriptDialogWPE.cpp @no-unify
@@ -210,8 +211,11 @@ UIProcess/API/wpe/WebKitWebViewWPE1.cpp @no-unify
 UIProcess/API/wpe/WebKitWebViewWPE2.cpp @no-unify
 UIProcess/API/wpe/WebKitWebViewWPE.cpp @no-unify
 UIProcess/API/wpe/WPEWebView.cpp @no-unify
+UIProcess/API/wpe/WPEWebViewLegacy.cpp @no-unify
+UIProcess/API/wpe/WPEWebViewPlatform.cpp @no-unify
 
 UIProcess/Automation/libwpe/WebAutomationSessionLibWPE.cpp
+UIProcess/Automation/libwpe/WebAutomationSessionWPE.cpp
 
 UIProcess/CoordinatedGraphics/DrawingAreaProxyCoordinatedGraphics.cpp
 
@@ -232,6 +236,8 @@ UIProcess/gstreamer/WebPageProxyGStreamer.cpp
 
 UIProcess/Inspector/glib/RemoteInspectorClient.cpp
 UIProcess/Inspector/glib/RemoteInspectorHTTPServer.cpp
+
+UIProcess/Inspector/wpe/WebInspectorUIProxyWPE.cpp
 
 UIProcess/Launcher/glib/BubblewrapLauncher.cpp
 UIProcess/Launcher/glib/FlatpakLauncher.cpp
@@ -261,6 +267,7 @@ WebProcess/GPU/graphics/gbm/RemoteGraphicsContextGLProxyGBM.cpp
 
 WebProcess/GPU/media/gstreamer/VideoLayerRemoteGStreamer.cpp
 
+WebProcess/InjectedBundle/API/glib/WebKitConsoleMessage.cpp @no-unify
 WebProcess/InjectedBundle/API/glib/WebKitFrame.cpp @no-unify
 WebProcess/InjectedBundle/API/glib/WebKitScriptWorld.cpp @no-unify
 WebProcess/InjectedBundle/API/glib/WebKitWebEditor.cpp @no-unify
@@ -270,6 +277,8 @@ WebProcess/InjectedBundle/API/glib/WebKitWebPage.cpp @no-unify
 WebProcess/InjectedBundle/API/glib/WebProcessExtensionManager.cpp @no-unify
 
 WebProcess/InjectedBundle/glib/InjectedBundleGlib.cpp
+
+WebProcess/Inspector/wpe/WebInspectorUIWPE.cpp
 
 WebProcess/MediaCache/WebMediaKeyStorageManager.cpp
 

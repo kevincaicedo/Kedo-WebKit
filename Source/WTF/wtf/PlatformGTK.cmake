@@ -4,6 +4,7 @@ list(APPEND WTF_SOURCES
     generic/MainThreadGeneric.cpp
     generic/WorkQueueGeneric.cpp
 
+    glib/Application.cpp
     glib/ChassisType.cpp
     glib/FileSystemGlib.cpp
     glib/GRefPtr.cpp
@@ -26,6 +27,7 @@ list(APPEND WTF_SOURCES
 )
 
 list(APPEND WTF_PUBLIC_HEADERS
+    glib/Application.h
     glib/ChassisType.h
     glib/GMutexLocker.h
     glib/GRefPtr.h
@@ -37,6 +39,7 @@ list(APPEND WTF_PUBLIC_HEADERS
     glib/RunLoopSourcePriority.h
     glib/Sandbox.h
     glib/SocketConnection.h
+    glib/SysprofAnnotator.h
     glib/WTFGType.h
 
     linux/CurrentProcessMemoryStatus.h
@@ -87,5 +90,11 @@ list(APPEND WTF_SYSTEM_INCLUDE_DIRECTORIES
 if (USE_LIBBACKTRACE)
     list(APPEND WTF_LIBRARIES
         LIBBACKTRACE::LIBBACKTRACE
+    )
+endif ()
+
+if (USE_SYSPROF_CAPTURE)
+    list(APPEND WTF_LIBRARIES
+        SysProfCapture::SysProfCapture
     )
 endif ()

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -116,8 +116,6 @@ static RTCRtpSFrameTransformErrorEvent::Type errorTypeFromInformation(const RTCR
         return RTCRtpSFrameTransformErrorEvent::Type::Authentication;
     case RTCRtpSFrameTransformer::Error::Syntax:
         return RTCRtpSFrameTransformErrorEvent::Type::Syntax;
-    case RTCRtpSFrameTransformer::Error::Other:
-        return RTCRtpSFrameTransformErrorEvent::Type::Other;
     default:
         RELEASE_ASSERT_NOT_REACHED();
     }
@@ -233,9 +231,10 @@ ExceptionOr<void> RTCRtpSFrameTransform::createStreams()
         auto& globalObject = *JSC::jsCast<JSDOMGlobalObject*>(context.globalObject());
         auto scope = DECLARE_THROW_SCOPE(globalObject.vm());
 
-        auto frame = convert<IDLUnion<IDLArrayBuffer, IDLArrayBufferView, IDLInterface<RTCEncodedAudioFrame>, IDLInterface<RTCEncodedVideoFrame>>>(globalObject, value);
-        if (scope.exception())
+        auto frameConversionResult = convert<IDLUnion<IDLArrayBuffer, IDLArrayBufferView, IDLInterface<RTCEncodedAudioFrame>, IDLInterface<RTCEncodedVideoFrame>>>(globalObject, value);
+        if (UNLIKELY(frameConversionResult.hasException(scope)))
             return Exception { ExceptionCode::ExistingExceptionError };
+        auto frame = frameConversionResult.releaseReturnValue();
 
         // We do not want to throw any exception in the transform to make sure we do not error the transform.
         WTF::switchOn(frame, [&](RefPtr<RTCEncodedAudioFrame>& value) {

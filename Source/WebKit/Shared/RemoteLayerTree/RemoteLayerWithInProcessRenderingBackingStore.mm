@@ -37,6 +37,7 @@
 #import "SwapBuffersDisplayRequirement.h"
 #import <WebCore/GraphicsContext.h>
 #import <WebCore/IOSurfacePool.h>
+#import <WebCore/ImageBufferPixelFormat.h>
 #import <WebCore/PlatformCALayerClient.h>
 #import <wtf/Scope.h>
 
@@ -102,7 +103,7 @@ DynamicContentScalingResourceCache RemoteLayerWithInProcessRenderingBackingStore
 void RemoteLayerWithInProcessRenderingBackingStore::createContextAndPaintContents()
 {
     if (!m_frontBuffer.imageBuffer) {
-        ASSERT(m_layer->owner()->platformCALayerDelegatesDisplay(m_layer));
+        ASSERT(m_layer.owner()->platformCALayerDelegatesDisplay(&m_layer));
         return;
     }
 
@@ -149,9 +150,10 @@ public:
         return std::unique_ptr<ImageBufferBackingStoreFlusher> { new ImageBufferBackingStoreFlusher(WTFMove(imageBufferFlusher)) };
     }
 
-    void flushAndCollectHandles(HashMap<RemoteImageBufferSetIdentifier, std::unique_ptr<BufferSetBackendHandle>>&) final
+    bool flushAndCollectHandles(HashMap<RemoteImageBufferSetIdentifier, std::unique_ptr<BufferSetBackendHandle>>&) final
     {
         m_imageBufferFlusher->flush();
+        return true;
     }
 
 private:
@@ -192,7 +194,7 @@ SwapBuffersDisplayRequirement RemoteLayerWithInProcessRenderingBackingStore::pre
     if (!hasFrontBuffer() || result == SetNonVolatileResult::Empty)
         displayRequirement = SwapBuffersDisplayRequirement::NeedsFullDisplay;
 
-    LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStore " << m_layer->layerID() << " prepareBuffers() - " << displayRequirement);
+    LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStore " << m_layer.layerID() << " prepareBuffers() - " << displayRequirement);
     return displayRequirement;
 }
 
@@ -248,7 +250,7 @@ SetNonVolatileResult RemoteLayerWithInProcessRenderingBackingStore::setFrontBuff
 }
 
 template<typename ImageBufferType>
-static RefPtr<ImageBuffer> allocateBufferInternal(RemoteLayerBackingStore::Type type, const WebCore::FloatSize& logicalSize, WebCore::RenderingPurpose purpose, float resolutionScale, const WebCore::DestinationColorSpace& colorSpace, WebCore::PixelFormat pixelFormat, WebCore::ImageBufferCreationContext& creationContext)
+static RefPtr<ImageBuffer> allocateBufferInternal(RemoteLayerBackingStore::Type type, const WebCore::FloatSize& logicalSize, WebCore::RenderingPurpose purpose, float resolutionScale, const WebCore::DestinationColorSpace& colorSpace, WebCore::ImageBufferPixelFormat pixelFormat, WebCore::ImageBufferCreationContext& creationContext)
 {
     switch (type) {
     case RemoteLayerBackingStore::Type::IOSurface:
@@ -260,7 +262,7 @@ static RefPtr<ImageBuffer> allocateBufferInternal(RemoteLayerBackingStore::Type 
 
 RefPtr<WebCore::ImageBuffer> RemoteLayerWithInProcessRenderingBackingStore::allocateBuffer()
 {
-    auto purpose = m_layer->containsBitmapOnly() ? WebCore::RenderingPurpose::BitmapOnlyLayerBacking : WebCore::RenderingPurpose::LayerBacking;
+    auto purpose = m_layer.containsBitmapOnly() ? WebCore::RenderingPurpose::BitmapOnlyLayerBacking : WebCore::RenderingPurpose::LayerBacking;
     ImageBufferCreationContext creationContext;
     creationContext.surfacePool = &WebCore::IOSurfacePool::sharedPool();
 
@@ -293,7 +295,7 @@ void RemoteLayerWithInProcessRenderingBackingStore::prepareToDisplay()
         return;
     }
 
-    LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStore " << m_layer->layerID() << " prepareToDisplay()");
+    LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStore " << m_layer.layerID() << " prepareToDisplay()");
 
     if (performDelegatedLayerDisplay())
         return;

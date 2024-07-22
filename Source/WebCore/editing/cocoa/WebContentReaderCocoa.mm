@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -67,6 +67,7 @@
 #import "WebArchiveResourceWebResourceHandler.h"
 #import "WebNSAttributedStringExtras.h"
 #import "markup.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <pal/spi/cocoa/NSAttributedStringSPI.h>
 #import <wtf/FileSystem.h>
 #import <wtf/SoftLinking.h>
@@ -221,14 +222,13 @@ static bool shouldReplaceRichContentWithAttachments()
 
 static String mimeTypeFromContentType(const String& contentType)
 {
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    if (contentType == String(kUTTypeVCard)) {
+    if (contentType == String(UTTypeVCard.identifier)) {
         // CoreServices erroneously reports that "public.vcard" maps to "text/directory", rather
         // than either "text/vcard" or "text/x-vcard". Work around this by special casing the
         // "public.vcard" UTI type. See <rdar://problem/49478229> for more detail.
         return "text/vcard"_s;
     }
-ALLOW_DEPRECATED_DECLARATIONS_END
+
     return isDeclaredUTI(contentType) ? MIMETypeFromUTI(contentType) : contentType;
 }
 
@@ -378,6 +378,16 @@ static void replaceRichContentWithAttachments(LocalFrame& frame, DocumentFragmen
         RefPtr parent { originalElement->parentNode() };
         if (!parent)
             continue;
+
+        // If the filename begins with this sentinel value, this means that an existing attachment should be used.
+        // See `HTMLConverter.mm` for more details.
+        if (info.fileName.startsWith(WebContentReader::placeholderAttachmentFilenamePrefix)) {
+            RefPtr document = frame.document();
+            if (RefPtr existingAttachment = document->attachmentForIdentifier({ info.data->span() })) {
+                parent->replaceChild(*existingAttachment.get(), WTFMove(originalElement));
+                continue;
+            }
+        }
 
         auto attachment = HTMLAttachmentElement::create(HTMLNames::attachmentTag, fragment.document());
         if (supportsClientSideAttachmentData(frame)) {
@@ -755,15 +765,13 @@ static Ref<HTMLElement> attachmentForFilePath(LocalFrame& frame, const String& p
     bool isDirectory = fileType == FileSystem::FileType::Directory;
     String contentType = typeForAttachmentElement(explicitContentType);
     if (contentType.isEmpty()) {
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         if (isDirectory)
-            contentType = kUTTypeDirectory;
+            contentType = UTTypeDirectory.identifier;
         else {
             contentType = File::contentTypeForFile(path);
             if (contentType.isEmpty())
-                contentType = kUTTypeData;
+                contentType = UTTypeData.identifier;
         }
-ALLOW_DEPRECATED_DECLARATIONS_END
     }
 
     std::optional<uint64_t> fileSizeForDisplay;

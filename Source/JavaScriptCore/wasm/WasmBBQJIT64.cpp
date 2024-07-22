@@ -2973,14 +2973,14 @@ void BBQJIT::emitCatchImpl(ControlData& dataCatch, const TypeDefinition& excepti
         ScratchScope<1, 0> scratches(*this);
         GPRReg bufferGPR = scratches.gpr(0);
         m_jit.loadPtr(Address(GPRInfo::returnValueGPR, JSWebAssemblyException::offsetOfPayload() + JSWebAssemblyException::Payload::offsetOfStorage()), bufferGPR);
+        unsigned offset = 0;
         for (unsigned i = 0; i < exceptionSignature.as<FunctionSignature>()->argumentCount(); ++i) {
             Type type = exceptionSignature.as<FunctionSignature>()->argumentType(i);
             Value result = Value::fromTemp(type.kind, dataCatch.enclosedHeight() + dataCatch.implicitSlots() + i);
             Location slot = canonicalSlot(result);
             switch (type.kind) {
             case TypeKind::I32:
-                m_jit.load32(Address(bufferGPR, JSWebAssemblyException::Payload::Storage::offsetOfData() + i * sizeof(uint64_t)), wasmScratchGPR);
-                m_jit.store32(wasmScratchGPR, slot.asAddress());
+                m_jit.transfer32(Address(bufferGPR, JSWebAssemblyException::Payload::Storage::offsetOfData() + offset * sizeof(uint64_t)), slot.asAddress());
                 break;
             case TypeKind::I31ref:
             case TypeKind::I64:
@@ -3000,22 +3000,17 @@ void BBQJIT::emitCatchImpl(ControlData& dataCatch, const TypeDefinition& excepti
             case TypeKind::Subfinal:
             case TypeKind::Array:
             case TypeKind::Struct:
-            case TypeKind::Func: {
-                m_jit.load64(Address(bufferGPR, JSWebAssemblyException::Payload::Storage::offsetOfData() + i * sizeof(uint64_t)), wasmScratchGPR);
-                m_jit.store64(wasmScratchGPR, slot.asAddress());
+            case TypeKind::Func:
+                m_jit.transfer64(Address(bufferGPR, JSWebAssemblyException::Payload::Storage::offsetOfData() + offset * sizeof(uint64_t)), slot.asAddress());
                 break;
-            }
             case TypeKind::F32:
-                m_jit.loadFloat(Address(bufferGPR, JSWebAssemblyException::Payload::Storage::offsetOfData() + i * sizeof(uint64_t)), wasmScratchFPR);
-                m_jit.storeFloat(wasmScratchFPR, slot.asAddress());
+                m_jit.transfer32(Address(bufferGPR, JSWebAssemblyException::Payload::Storage::offsetOfData() + offset * sizeof(uint64_t)), slot.asAddress());
                 break;
             case TypeKind::F64:
-                m_jit.loadDouble(Address(bufferGPR, JSWebAssemblyException::Payload::Storage::offsetOfData() + i * sizeof(uint64_t)), wasmScratchFPR);
-                m_jit.storeDouble(wasmScratchFPR, slot.asAddress());
+                m_jit.transfer64(Address(bufferGPR, JSWebAssemblyException::Payload::Storage::offsetOfData() + offset * sizeof(uint64_t)), slot.asAddress());
                 break;
             case TypeKind::V128:
-                materializeVectorConstant(v128_t { }, Location::fromFPR(wasmScratchFPR));
-                m_jit.storeVector(wasmScratchFPR, slot.asAddress());
+                m_jit.transferVector(Address(bufferGPR, JSWebAssemblyException::Payload::Storage::offsetOfData() + offset * sizeof(uint64_t)), slot.asAddress());
                 break;
             case TypeKind::Void:
                 RELEASE_ASSERT_NOT_REACHED();
@@ -3023,6 +3018,7 @@ void BBQJIT::emitCatchImpl(ControlData& dataCatch, const TypeDefinition& excepti
             }
             bind(result, slot);
             results.append(result);
+            offset += type.kind == TypeKind::V128 ? 2 : 1;
         }
     }
 }
@@ -3104,9 +3100,9 @@ PartialResult WARN_UNUSED_RETURN BBQJIT::addBranchCast(ControlData& data, Expres
     return { };
 }
 
-int BBQJIT::alignedFrameSize(int frameSize)
+int BBQJIT::alignedFrameSize(int frameSize) const
 {
-    return WTF::roundUpToMultipleOf(stackAlignmentBytes(), frameSize);
+    return WTF::roundUpToMultipleOf<stackAlignmentBytes()>(frameSize);
 }
 
 void BBQJIT::restoreWebAssemblyGlobalState()
@@ -3977,7 +3973,7 @@ PartialResult WARN_UNUSED_RETURN BBQJIT::addSIMDV_V(SIMDLaneOperation op, SIMDIn
             m_jit.vectorXor(SIMDInfo { SIMDLane::v128, SIMDSignMode::None }, valueLocation.asFPR(), wasmScratchFPR, resultLocation.asFPR());
             break;
         case SIMDLane::f64x2:
-            m_jit.move64ToDouble(TrustedImm64(-0x8000000000000000ll), wasmScratchFPR);
+            m_jit.move64ToDouble(TrustedImm64(-0x8000000000000000), wasmScratchFPR);
             m_jit.vectorSplatFloat64(wasmScratchFPR, wasmScratchFPR);
             m_jit.vectorXor(SIMDInfo { SIMDLane::v128, SIMDSignMode::None }, valueLocation.asFPR(), wasmScratchFPR, resultLocation.asFPR());
             break;
@@ -4447,11 +4443,8 @@ void BBQJIT::emitMoveMemory(TypeKind type, Location src, Location dst)
         m_jit.transfer32(src.asAddress(), dst.asAddress());
         break;
     case TypeKind::I64:
-        m_jit.transfer64(src.asAddress(), dst.asAddress());
-        break;
     case TypeKind::F64:
-        m_jit.loadDouble(src.asAddress(), wasmScratchFPR);
-        m_jit.storeDouble(wasmScratchFPR, dst.asAddress());
+        m_jit.transfer64(src.asAddress(), dst.asAddress());
         break;
     case TypeKind::Externref:
     case TypeKind::Ref:
@@ -4466,13 +4459,9 @@ void BBQJIT::emitMoveMemory(TypeKind type, Location src, Location dst)
     case TypeKind::Nullexternref:
         m_jit.transfer64(src.asAddress(), dst.asAddress());
         break;
-    case TypeKind::V128: {
-        Address srcAddress = src.asAddress();
-        Address dstAddress = dst.asAddress();
-        m_jit.loadVector(srcAddress, wasmScratchFPR);
-        m_jit.storeVector(wasmScratchFPR, dstAddress);
+    case TypeKind::V128:
+        m_jit.transferVector(src.asAddress(), dst.asAddress());
         break;
-    }
     default:
         RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("Unimplemented type kind move.");
     }
@@ -4567,7 +4556,7 @@ PartialResult WARN_UNUSED_RETURN BBQJIT::addCallRef(const TypeDefinition& origin
     ASSERT(signature.as<FunctionSignature>()->argumentCount() == args.size());
 
     CallInformation callInfo = wasmCallingConvention().callInformationFor(signature, CallRole::Caller);
-    Checked<int32_t> calleeStackSize = WTF::roundUpToMultipleOf(stackAlignmentBytes(), callInfo.headerAndArgumentStackSizeInBytes);
+    Checked<int32_t> calleeStackSize = WTF::roundUpToMultipleOf<stackAlignmentBytes()>(callInfo.headerAndArgumentStackSizeInBytes);
     m_maxCalleeStackSize = std::max<int>(calleeStackSize, m_maxCalleeStackSize);
 
     GPRReg calleePtr;

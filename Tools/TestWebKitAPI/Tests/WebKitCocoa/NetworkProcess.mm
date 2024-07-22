@@ -42,6 +42,7 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/UUID.h>
 #import <wtf/Vector.h>
+#import <wtf/text/MakeString.h>
 
 TEST(NetworkProcess, Entitlements)
 {
@@ -65,10 +66,10 @@ TEST(WebKit, HTTPReferer)
         HTTPServer server([&] (Connection connection) {
             connection.receiveHTTPRequest([connection, expectedReferer, &done] (Vector<char>&& request) {
                 if (expectedReferer) {
-                    auto expectedHeaderField = makeString("Referer: ", expectedReferer, "\r\n");
+                    auto expectedHeaderField = makeString("Referer: "_s, span(expectedReferer), "\r\n"_s);
                     EXPECT_TRUE(strnstr(request.data(), expectedHeaderField.utf8().data(), request.size()));
                 } else
-                    EXPECT_FALSE(strnstr(request.data(), "Referer:", request.size()));
+                    EXPECT_FALSE(strnstr(request.data(), "Referer:"_s, request.size()));
                 done = true;
             });
         });
@@ -272,8 +273,8 @@ static void waitUntilNetworkProcessIsResponsive(WKWebView *webView1, WKWebView *
     // we don't want the test to go on with the WebProcesses using stale NetworkProcessConnections, we use the following
     // trick to wait until both WebProcesses are able to communicate with the new NetworkProcess:
     // The first WebProcess tries setting a cookie until the second Webview is able to see it.
-    auto expectedCookieString = makeString("TEST=", createVersion4UUIDString());
-    auto setTestCookieString = makeString("setInterval(() => { document.cookie='", expectedCookieString, "'; }, 100);");
+    auto expectedCookieString = makeString("TEST="_s, createVersion4UUIDString());
+    auto setTestCookieString = makeString("setInterval(() => { document.cookie='"_s, expectedCookieString, "'; }, 100);"_s);
     [webView1 evaluateJavaScript:(NSString *)setTestCookieString completionHandler: [&] (id result, NSError *error) {
         EXPECT_TRUE(!error);
     }];

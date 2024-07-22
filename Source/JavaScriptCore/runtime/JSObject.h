@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
  *  Copyright (C) 2001 Peter Kelly (pmk@post.com)
- *  Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2024 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -1030,10 +1030,13 @@ public:
         if (isCopyOnWrite(indexingMode()))
             convertFromCopyOnWrite(vm);
     }
-        
-    static size_t offsetOfInlineStorage();
-        
-    static ptrdiff_t butterflyOffset()
+
+    static constexpr size_t offsetOfInlineStorage()
+    {
+        return sizeof(JSObject);
+    }
+
+    static constexpr ptrdiff_t butterflyOffset()
     {
         return OBJECT_OFFSETOF(JSObject, m_butterfly);
     }
@@ -1128,6 +1131,8 @@ protected:
     void convertFromCopyOnWrite(VM&);
 
     static Butterfly* createArrayStorageButterfly(VM&, JSObject* intendedOwner, Structure*, unsigned length, unsigned vectorLength, Butterfly* oldButterfly = nullptr);
+    static Butterfly* tryCreateArrayStorageButterfly(VM&, JSObject* intendedOwner, Structure*, unsigned length, unsigned vectorLength, Butterfly* oldButterfly = nullptr);
+
     ArrayStorage* createArrayStorage(VM&, unsigned length, unsigned vectorLength);
     ArrayStorage* createInitialArrayStorage(VM&);
         
@@ -1358,11 +1363,6 @@ inline JSFinalObject* JSFinalObject::createWithButterfly(VM& vm, Structure* stru
 inline JSFinalObject* JSFinalObject::create(VM& vm, Structure* structure)
 {
     return createWithButterfly(vm, structure, nullptr);
-}
-
-inline size_t JSObject::offsetOfInlineStorage()
-{
-    return sizeof(JSObject);
 }
 
 inline bool JSObject::isGlobalObject() const
@@ -1710,7 +1710,7 @@ inline int indexRelativeToBase(PropertyOffset offset)
 {
     if (isOutOfLineOffset(offset))
         return offsetInOutOfLineStorage(offset) + Butterfly::indexOfPropertyStorage();
-    ASSERT(!(JSObject::offsetOfInlineStorage() % sizeof(EncodedJSValue)));
+    static_assert(!(JSObject::offsetOfInlineStorage() % sizeof(EncodedJSValue)));
     return JSObject::offsetOfInlineStorage() / sizeof(EncodedJSValue) + offsetInInlineStorage(offset);
 }
 

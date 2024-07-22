@@ -88,7 +88,7 @@ protected:
     void setPIPStandbyElement(WebCore::HTMLVideoElement*);
 
     void setAnimatingFullScreen(bool);
-    void requestRestoreFullScreen();
+    void requestRestoreFullScreen(CompletionHandler<void(bool)>&&);
     void requestExitFullScreen();
     void setFullscreenInsets(const WebCore::FloatBoxExtent&);
     void setFullscreenAutoHideDuration(Seconds);
@@ -132,6 +132,10 @@ private:
     RunLoop::Timer m_mainVideoElementTextRecognitionTimer;
     bool m_isPerformingTextRecognitionInMainVideo { false };
 #endif // ENABLE(VIDEO)
+
+#if ENABLE(QUICKLOOK_FULLSCREEN)
+    bool m_willUseQuickLookForFullscreen { false };
+#endif
 
     bool m_closing { false };
     bool m_inWindowFullScreenMode { false };

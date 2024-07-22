@@ -41,13 +41,15 @@ public:
     WEBCORE_EXPORT void setTrackRepresentationContentsScale(float);
     WEBCORE_EXPORT void setTrackRepresentationHidden(bool);
 
-    WEBCORE_EXPORT CALayer* captionsLayer();
+    WEBCORE_EXPORT virtual CALayer* captionsLayer();
     WEBCORE_EXPORT void setCaptionsFrame(const CGRect&);
     WEBCORE_EXPORT virtual void setupCaptionsLayer(CALayer *parent, const FloatSize&);
     WEBCORE_EXPORT void removeCaptionsLayer();
 
-private:
+protected:
+    bool m_captionsLayerHidden  { false };
     RetainPtr<CALayer> m_captionsLayer;
+    RetainPtr<id> m_captionsLayerContents;
 };
 
 }

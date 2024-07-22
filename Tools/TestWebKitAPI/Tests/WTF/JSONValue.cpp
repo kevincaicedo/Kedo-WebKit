@@ -27,6 +27,7 @@
 
 #include "Test.h"
 #include <wtf/JSONValues.h>
+#include <wtf/text/MakeString.h>
 
 namespace TestWebKitAPI {
 
@@ -737,7 +738,7 @@ TEST(JSONValue, MemoryCost)
 
     {
         Ref<JSON::Value> valueA = JSON::Value::create(makeString("t"_s));
-        Ref<JSON::Value> valueB = JSON::Value::create(makeString("😀"));
+        Ref<JSON::Value> valueB = JSON::Value::create(makeString(span("😀")));
         EXPECT_LT(valueA->memoryCost(), valueB->memoryCost());
     }
 

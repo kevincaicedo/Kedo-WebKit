@@ -26,6 +26,7 @@
 #include "config.h"
 
 #include <wtf/UUID.h>
+#include <wtf/text/MakeString.h>
 
 TEST(WTF, BootSessionUUIDIdentity)
 {
@@ -91,7 +92,7 @@ TEST(WTF, TestUUIDVersion4MakeString)
     auto uuid = WTF::UUID::parseVersion4(testNormal);
     EXPECT_TRUE(!!uuid);
     EXPECT_EQ(makeString(uuid.value()), testNormal);
-    EXPECT_EQ(makeString("keyframe-", uuid.value()), String("keyframe-" + testNormal));
+    EXPECT_EQ(makeString("keyframe-"_s, uuid.value()), makeString("keyframe-"_s, testNormal));
 
     EXPECT_EQ(WTF::StringTypeAdapter<WTF::UUID>(uuid.value()).length(), 36U);
 }

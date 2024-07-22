@@ -32,6 +32,7 @@
 #include <gst/app/gstappsink.h>
 #include <gst/gst.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -67,7 +68,7 @@ CaptureSourceOrError GStreamerAudioCaptureSource::create(String&& deviceID, Medi
 {
     auto device = GStreamerAudioCaptureDeviceManager::singleton().gstreamerDeviceWithUID(deviceID);
     if (!device) {
-        auto errorMessage = makeString("GStreamerAudioCaptureSource::create(): GStreamer did not find the device: ", deviceID, '.');
+        auto errorMessage = makeString("GStreamerAudioCaptureSource::create(): GStreamer did not find the device: "_s, deviceID, '.');
         return CaptureSourceOrError({ WTFMove(errorMessage), MediaAccessDenialReason::PermissionDenied });
     }
 

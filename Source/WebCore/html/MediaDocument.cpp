@@ -44,6 +44,7 @@
 #include "KeyboardEvent.h"
 #include "LocalFrame.h"
 #include "LocalFrameLoaderClient.h"
+#include "MouseEvent.h"
 #include "NodeList.h"
 #include "Page.h"
 #include "RawDataDocumentParser.h"
@@ -88,7 +89,6 @@ void MediaDocumentParser::createDocumentStructure()
     Ref rootElement = HTMLHtmlElement::create(document);
     document->appendChild(rootElement);
     document->setCSSTarget(rootElement.ptr());
-    rootElement->insertedByParser();
 
     if (RefPtr frame = document->frame())
         frame->injectUserScripts(UserScriptInjectionTime::DocumentStart);
@@ -183,7 +183,7 @@ void MediaDocument::defaultEventHandler(Event& event)
         return;
 
     if (RefPtr video = ancestorVideoElement(targetNode)) {
-        if (event.type() == eventNames().clickEvent) {
+        if (isAnyClick(event)) {
             if (!video->canPlay()) {
                 video->pause();
                 event.setDefaultHandled();

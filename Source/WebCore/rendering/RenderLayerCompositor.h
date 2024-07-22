@@ -184,6 +184,7 @@ public:
     void notifyFlushRequired(const GraphicsLayer*) override;
     void notifySubsequentFlushRequired(const GraphicsLayer*) override;
     void flushPendingLayerChanges(bool isFlushRoot = true);
+    void setRenderingIsSuppressed(bool);
 
     // Called when the GraphicsLayer for the given RenderLayer has flushed changes inside of flushPendingLayerChanges().
     void didChangePlatformLayerForLayer(RenderLayer&, const GraphicsLayer*);
@@ -206,6 +207,7 @@ public:
         LayoutUpToDate layoutUpToDate { LayoutUpToDate::Yes };
         RenderLayer::ViewportConstrainedNotCompositedReason nonCompositedForPositionReason { RenderLayer::NoNotCompositedReason };
         bool reevaluateAfterLayout { false };
+        bool intrinsic { false };
     };
 
     // Whether layer's backing needs a graphics layer to do clipping by an ancestor (non-stacking-context parent with overflow).
@@ -243,6 +245,7 @@ public:
     void layerWillBeRemoved(RenderLayer& parent, RenderLayer& child);
 
     void layerStyleChanged(StyleDifference, RenderLayer&, const RenderStyle* oldStyle);
+    void layerGainedCompositedScrollableOverflow(RenderLayer&);
 
     void establishesTopLayerWillChangeForLayer(RenderLayer&);
 
@@ -352,6 +355,7 @@ public:
     GraphicsLayer* updateLayerForFooter(bool wantsLayer);
 
     void updateLayerForOverhangAreasBackgroundColor();
+    void updateSizeAndPositionForOverhangAreaLayer();
 #endif // HAVE(RUBBER_BANDING)
 
     // FIXME: make the coordinated/async terminology consistent.
@@ -436,12 +440,18 @@ private:
     void computeExtent(const LayerOverlapMap&, const RenderLayer&, OverlapExtent&) const;
     void computeClippingScopes(const RenderLayer&, OverlapExtent&) const;
     void addToOverlapMap(LayerOverlapMap&, const RenderLayer&, OverlapExtent&) const;
+    LayoutRect computeClippedOverlapBounds(LayerOverlapMap&, const RenderLayer&, OverlapExtent&) const;
     void addDescendantsToOverlapMapRecursive(LayerOverlapMap&, const RenderLayer&, const RenderLayer* ancestorLayer = nullptr) const;
     void updateOverlapMap(LayerOverlapMap&, const RenderLayer&, OverlapExtent&, bool didPushContainer, bool addLayerToOverlap, bool addDescendantsToOverlap = false) const;
     bool layerOverlaps(const LayerOverlapMap&, const RenderLayer&, OverlapExtent&) const;
 
-    void updateBackingSharingBeforeDescendantTraversal(BackingSharingState&, unsigned depth, const LayerOverlapMap&, RenderLayer&, OverlapExtent&, bool willBeComposited, RenderLayer* stackingContextAncestor);
-    void updateBackingSharingAfterDescendantTraversal(BackingSharingState&, unsigned depth, const LayerOverlapMap&, RenderLayer&, OverlapExtent&, const RenderLayer* preDescendantProviderStartLayer, RenderLayer* stackingContextAncestor);
+    struct BackingSharingSnapshot {
+        RenderLayer* backingSharingStackingContext;
+        size_t providerCount;
+    };
+
+    BackingSharingSnapshot updateBackingSharingBeforeDescendantTraversal(BackingSharingState&, unsigned depth, const LayerOverlapMap&, RenderLayer&, OverlapExtent&, bool willBeComposited, RenderLayer* stackingContextAncestor);
+    void updateBackingSharingAfterDescendantTraversal(BackingSharingState&, unsigned depth, const LayerOverlapMap&, RenderLayer&, OverlapExtent&, const RenderLayer* preDescendantProviderStartLayer, RenderLayer* stackingContextAncestor, const BackingSharingSnapshot&);
 
     void clearBackingProviderSequencesInStackingContextOfLayer(RenderLayer&);
 

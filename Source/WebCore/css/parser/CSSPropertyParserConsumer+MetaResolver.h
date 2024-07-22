@@ -47,14 +47,14 @@ struct MetaResolver : Base {
 
     static ResultType resolve(const typename MetaConsumeResult<Ts...>::type& consumeResult, const CSSCalcSymbolTable& symbolTable, CSSPropertyParserOptions options)
     {
-        return WTF::switchOn(consumeResult, [&](auto value) -> ResultType {
+        return WTF::switchOn(consumeResult, [&](auto& value) -> ResultType {
             return Base::resolve(value, symbolTable, options);
         });
     }
 
-    static ResultType consumeAndResolve(CSSParserTokenRange& range, const CSSCalcSymbolTable& symbolTable, CSSPropertyParserOptions options)
+    static ResultType consumeAndResolve(CSSParserTokenRange& range, CSSCalcSymbolsAllowed symbolsAllowed, const CSSCalcSymbolTable& symbolTable, CSSPropertyParserOptions options)
     {
-        auto result = MetaConsumer<Ts...>::consume(range, symbolTable, options);
+        auto result = MetaConsumer<Ts...>::consume(range, WTFMove(symbolsAllowed), options);
         if (!result)
             return { };
         return resolve(WTFMove(*result), symbolTable, options);

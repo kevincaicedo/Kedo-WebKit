@@ -38,6 +38,7 @@
 #include "JSObject.h"
 #include "JSStringInlines.h"
 #include "MathCommon.h"
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringImpl.h>
 
 namespace JSC {
@@ -733,6 +734,28 @@ inline int32_t JSValue::bigInt32AsInt32() const
 }
 #endif // USE(BIGINT32)
 
+inline bool JSValue::isZeroBigInt() const
+{
+    ASSERT(isBigInt());
+#if USE(BIGINT32)
+    if (isBigInt32())
+        return !bigInt32AsInt32();
+#endif
+    ASSERT(isHeapBigInt());
+    return asHeapBigInt()->isZero();
+}
+
+inline bool JSValue::isNegativeBigInt() const
+{
+    ASSERT(isBigInt());
+#if USE(BIGINT32)
+    if (isBigInt32())
+        return bigInt32AsInt32() < 0;
+#endif
+    ASSERT(isHeapBigInt());
+    return asHeapBigInt()->sign();
+}
+
 inline bool JSValue::isSymbol() const
 {
     return isCell() && asCell()->isSymbol();
@@ -842,7 +865,7 @@ inline PreferredPrimitiveType toPreferredPrimitiveType(JSGlobalObject* globalObj
         return NoPreference;
     }
 
-    String hintString = asString(value)->value(globalObject);
+    auto hintString = asString(value)->view(globalObject);
     RETURN_IF_EXCEPTION(scope, NoPreference);
 
     if (WTF::equal(hintString, "default"_s))
@@ -1264,7 +1287,7 @@ ALWAYS_INLINE bool JSValue::equalSlowCaseInline(JSGlobalObject* globalObject, JS
         if (s1 || s2) {
             // We are guaranteed that the string is v2 (thanks to the swap above)
             if (v1.isBigInt()) {
-                String v2String = asString(v2)->value(globalObject);
+                auto v2String = asString(v2)->value(globalObject);
                 RETURN_IF_EXCEPTION(scope, false);
                 v2 = JSBigInt::stringToBigInt(globalObject, v2String);
                 RETURN_IF_EXCEPTION(scope, false);

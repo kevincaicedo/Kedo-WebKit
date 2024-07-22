@@ -59,6 +59,7 @@
 #import "HTMLTextAreaElement.h"
 #import "LoaderNSURLExtras.h"
 #import "LocalFrame.h"
+#import "LocalizedStrings.h"
 #import "NodeName.h"
 #import "Quirks.h"
 #import "RenderImage.h"
@@ -67,16 +68,22 @@
 #import "StyledElement.h"
 #import "TextIterator.h"
 #import "VisibleSelection.h"
+#import "WebContentReader.h"
 #import "WebCoreTextAttachment.h"
 #import "markup.h"
 #import <objc/runtime.h>
 #import <pal/spi/cocoa/NSAttributedStringSPI.h>
 #import <wtf/ASCIICType.h>
+#import <wtf/text/MakeString.h>
 #import <wtf/text/StringBuilder.h>
 #import <wtf/text/StringToIntegerConversion.h>
 
 #if ENABLE(DATA_DETECTION)
 #import "DataDetection.h"
+#endif
+
+#if ENABLE(MULTI_REPRESENTATION_HEIC)
+#import "PlatformNSAdaptiveImageGlyph.h"
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -86,13 +93,12 @@
 #import <pal/spi/ios/UIKitSPI.h>
 #endif
 
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/WebMultiRepresentationHEICAttachmentAdditions.h>
-#include <WebKitAdditions/WebMultiRepresentationHEICAttachmentDeclarationsAdditions.h>
-#endif
-
 using namespace WebCore;
 using namespace HTMLNames;
+
+#if ENABLE(WRITING_TOOLS)
+NSAttributedStringKey const WTWritingToolsPreservedAttributeName = @"WTWritingToolsPreserved";
+#endif
 
 #if PLATFORM(IOS_FAMILY)
 
@@ -117,9 +123,6 @@ enum {
 #else
 static RetainPtr<NSFileWrapper> fileWrapperForURL(DocumentLoader *, NSURL *);
 #endif
-
-static RetainPtr<NSFileWrapper> fileWrapperForElement(HTMLImageElement&);
-static RetainPtr<NSAttributedString> attributedStringWithAttachmentForElement(HTMLImageElement&);
 
 // Additional control Unicode characters
 const unichar WebNextLineCharacter = 0x0085;
@@ -182,7 +185,6 @@ private:
 
     RetainPtr<NSMutableAttributedString> _attrStr;
     RetainPtr<NSMutableDictionary> _documentAttrs;
-    RetainPtr<NSURL> _baseURL;
     RetainPtr<NSPresentationIntent> _topPresentationIntent;
     NSInteger _topPresentationIntentIdentity;
     RetainPtr<NSMutableArray> _textLists;
@@ -259,7 +261,6 @@ HTMLConverter::HTMLConverter(const SimpleRange& range)
 {
     _attrStr = adoptNS([[NSMutableAttributedString alloc] init]);
     _documentAttrs = adoptNS([[NSMutableDictionary alloc] init]);
-    _baseURL = nil;
     _topPresentationIntent = nil;
     _topPresentationIntentIdentity = 0;
     _textLists = adoptNS([[NSMutableArray alloc] init]);
@@ -1217,7 +1218,7 @@ BOOL HTMLConverter::_addMultiRepresentationHEICAttachmentForImageElement(HTMLIma
     if (!image)
         return NO;
 
-    WebMultiRepresentationHEICAttachment *attachment = image->adapter().multiRepresentationHEIC();
+    NSAdaptiveImageGlyph *attachment = image->adapter().multiRepresentationHEIC();
     if (!attachment)
         return NO;
 
@@ -1231,7 +1232,7 @@ BOOL HTMLConverter::_addMultiRepresentationHEICAttachmentForImageElement(HTMLIma
     if (rangeToReplace.location < _domRangeStartIndex)
         _domRangeStartIndex += rangeToReplace.length;
 
-    [_attrStr addAttribute:WebMultiRepresentationHEICAttachmentAttributeName value:attachment range:rangeToReplace];
+    [_attrStr addAttribute:NSAdaptiveImageGlyphAttributeName value:attachment range:rangeToReplace];
 
     _flags.isSoft = NO;
     return YES;
@@ -1303,9 +1304,9 @@ BOOL HTMLConverter::_addAttachmentForElement(Element& element, NSURL *url, BOOL 
         if (RetainPtr data = [fileWrapper regularFileContents]) {
             RefPtr imageElement = dynamicDowncast<HTMLImageElement>(element);
             if (imageElement && imageElement->isMultiRepresentationHEIC())
-                attachment = adoptNS([[PlatformWebMultiRepresentationHEICAttachment alloc] initWithImageContent:data.get()]);
+                attachment = adoptNS([[PlatformNSAdaptiveImageGlyph alloc] initWithImageContent:data.get()]);
             if (attachment)
-                attributeName = WebMultiRepresentationHEICAttachmentAttributeName;
+                attributeName = NSAdaptiveImageGlyphAttributeName;
         }
 #endif
 
@@ -1646,7 +1647,7 @@ void HTMLConverter::_addLinkForElement(Element& element, NSRange range)
         if (!url)
             url = element.document().completeURL(strippedString);
         if (!url)
-            url = [NSURL _web_URLWithString:strippedString relativeToURL:_baseURL.get()];
+            url = [NSURL _web_URLWithString:strippedString relativeToURL:nil];
         [_attrStr addAttribute:NSLinkAttributeName value:url ? (id)url : (id)urlString range:range];
     }
 }
@@ -1806,7 +1807,7 @@ BOOL HTMLConverter::_processElement(Element& element, NSInteger depth)
         if (retval && urlString && [urlString length] > 0) {
             NSURL *url = element.document().completeURL(urlString);
             if (!url)
-                url = [NSURL _web_URLWithString:[urlString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] relativeToURL:_baseURL.get()];
+                url = [NSURL _web_URLWithString:[urlString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] relativeToURL:nil];
 #if PLATFORM(IOS_FAMILY)
             BOOL usePlaceholderImage = NO;
 #else
@@ -1826,14 +1827,14 @@ BOOL HTMLConverter::_processElement(Element& element, NSInteger depth)
             if (baseString && [baseString length] > 0) {
                 baseURL = element.document().completeURL(baseString);
                 if (!baseURL)
-                    baseURL = [NSURL _web_URLWithString:[baseString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] relativeToURL:_baseURL.get()];
+                    baseURL = [NSURL _web_URLWithString:[baseString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] relativeToURL:nil];
             }
             if (baseURL)
                 url = [NSURL _web_URLWithString:[urlString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] relativeToURL:baseURL];
             if (!url)
                 url = element.document().completeURL(urlString);
             if (!url)
-                url = [NSURL _web_URLWithString:[urlString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] relativeToURL:_baseURL.get()];
+                url = [NSURL _web_URLWithString:[urlString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] relativeToURL:nil];
             if (url)
                 retval = !_addAttachmentForElement(element, url, isBlockLevel, NO);
         }
@@ -1861,14 +1862,14 @@ BOOL HTMLConverter::_processElement(Element& element, NSInteger depth)
         String listStyleType = _caches->propertyValueForNode(element, CSSPropertyListStyleType);
         if (!listStyleType.length())
             listStyleType = @"disc";
-        list = adoptNS([[PlatformNSTextList alloc] initWithMarkerFormat:String("{" + listStyleType + "}") options:0]);
+        list = adoptNS([[PlatformNSTextList alloc] initWithMarkerFormat:makeString("{"_s, listStyleType, "}"_s) options:0]);
         [_textLists addObject:list.get()];
     } else if (element.hasTagName(olTag)) {
         RetainPtr<NSTextList> list;
         String listStyleType = _caches->propertyValueForNode(element, CSSPropertyListStyleType);
         if (!listStyleType.length())
             listStyleType = "decimal"_s;
-        list = adoptNS([[PlatformNSTextList alloc] initWithMarkerFormat:String("{" + listStyleType + "}") options:0]);
+        list = adoptNS([[PlatformNSTextList alloc] initWithMarkerFormat:makeString('{', listStyleType, '}') options:0]);
         if (RefPtr olElement = dynamicDowncast<HTMLOListElement>(element)) {
             auto startingItemNumber = olElement->start();
             [list setStartingItemNumber:startingItemNumber];
@@ -2338,11 +2339,47 @@ static RetainPtr<NSFileWrapper> fileWrapperForURL(DocumentLoader* dataSource, NS
 
 #endif
 
-static RetainPtr<NSFileWrapper> fileWrapperForElement(HTMLImageElement& element)
+
+static String preferredFilenameForElement(const HTMLImageElement& element)
+{
+    if (RefPtr attachmentElement = element.attachmentElement())
+        return attachmentElement->attachmentTitle();
+
+    auto altText = element.altText();
+
+    auto urlString = element.imageSourceURL();
+
+    NSURL *url = element.document().completeURL(urlString);
+    if (!url)
+        url = [NSURL _web_URLWithString:[urlString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] relativeToURL:nil];
+
+    RefPtr frame = element.document().frame();
+    if (frame->loader().frameHasLoaded()) {
+        RefPtr dataSource = frame->loader().documentLoader();
+        if (auto resource = dataSource->subresource(url)) {
+            auto& mimeType = resource->mimeType();
+
+            if (!altText.isEmpty())
+                return suggestedFilenameWithMIMEType(url, mimeType, altText);
+
+            return suggestedFilenameWithMIMEType(url, mimeType);
+        }
+    }
+
+    if (!altText.isEmpty())
+        return altText;
+
+    return copyImageUnknownFileLabel();
+}
+
+static RetainPtr<NSFileWrapper> fileWrapperForElement(const HTMLImageElement& element)
 {
     if (CachedImage* cachedImage = element.cachedImage()) {
-        if (FragmentedSharedBuffer* sharedBuffer = cachedImage->resourceBuffer())
-            return adoptNS([[NSFileWrapper alloc] initRegularFileWithContents:sharedBuffer->makeContiguous()->createNSData().get()]);
+        if (RefPtr sharedBuffer = cachedImage->resourceBuffer()) {
+            RetainPtr wrapper = adoptNS([[NSFileWrapper alloc] initRegularFileWithContents:sharedBuffer->makeContiguous()->createNSData().get()]);
+            [wrapper setPreferredFilename:preferredFilenameForElement(element)];
+            return wrapper;
+        }
     }
 
     auto* renderer = element.renderer();
@@ -2358,15 +2395,40 @@ static RetainPtr<NSFileWrapper> fileWrapperForElement(HTMLImageElement& element)
     return nil;
 }
 
-static RetainPtr<NSAttributedString> attributedStringWithAttachmentForElement(HTMLImageElement& element)
+static RetainPtr<NSFileWrapper> fileWrapperForElement(const HTMLAttachmentElement& element)
+{
+    auto identifier = element.uniqueIdentifier();
+
+    RetainPtr data = [(NSString *)identifier dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data)
+        return nil;
+
+    // Use a filename prefixed with a sentinel value to indicate that the data is corresponding
+    // to an existing HTMLAttachmentElement.
+
+    RetainPtr wrapper = adoptNS([[NSFileWrapper alloc] initRegularFileWithContents:data.get()]);
+    [wrapper setPreferredFilename:makeString(WebContentReader::placeholderAttachmentFilenamePrefix, identifier)];
+    return wrapper;
+}
+
+static RetainPtr<NSAttributedString> attributedStringWithAttachmentForFileWrapper(NSFileWrapper *fileWrapper)
+{
+    if (!fileWrapper)
+        return adoptNS([[NSAttributedString alloc] initWithString:@" "]).autorelease();
+
+    RetainPtr attachment = adoptNS([[PlatformNSTextAttachment alloc] initWithFileWrapper:fileWrapper]);
+    return [NSAttributedString attributedStringWithAttachment:attachment.get()];
+}
+
+static RetainPtr<NSAttributedString> attributedStringWithAttachmentForElement(const HTMLImageElement& element)
 {
 #if ENABLE(MULTI_REPRESENTATION_HEIC)
     if (element.isMultiRepresentationHEIC()) {
         if (RefPtr image = element.image()) {
-            if (WebMultiRepresentationHEICAttachment *attachment = image->adapter().multiRepresentationHEIC()) {
+            if (NSAdaptiveImageGlyph *attachment = image->adapter().multiRepresentationHEIC()) {
                 RetainPtr attachmentString = adoptNS([[NSString alloc] initWithFormat:@"%C", static_cast<unichar>(NSAttachmentCharacter)]);
                 RetainPtr attributedString = adoptNS([[NSMutableAttributedString alloc] initWithString:attachmentString.get()]);
-                [attributedString addAttribute:WebMultiRepresentationHEICAttachmentAttributeName value:attachment range:NSMakeRange(0, 1)];
+                [attributedString addAttribute:NSAdaptiveImageGlyphAttributeName value:attachment range:NSMakeRange(0, 1)];
                 return attributedString;
             }
         }
@@ -2374,9 +2436,39 @@ static RetainPtr<NSAttributedString> attributedStringWithAttachmentForElement(HT
 #endif
 
     RetainPtr fileWrapper = fileWrapperForElement(element);
-    RetainPtr attachment = adoptNS([[PlatformNSTextAttachment alloc] initWithFileWrapper:fileWrapper.get()]);
-    return [NSAttributedString attributedStringWithAttachment:attachment.get()];
+    return attributedStringWithAttachmentForFileWrapper(fileWrapper.get());
 }
+
+static RetainPtr<NSAttributedString> attributedStringWithAttachmentForElement(const HTMLAttachmentElement& element)
+{
+    RetainPtr fileWrapper = fileWrapperForElement(element);
+    return attributedStringWithAttachmentForFileWrapper(fileWrapper.get());
+}
+
+#if ENABLE(WRITING_TOOLS)
+static bool hasAncestorQualifyingForWritingToolsPreservation(Element* ancestor, WeakHashMap<Element, bool, WeakPtrImplWithEventTargetData>& cache)
+{
+    if (!ancestor)
+        return false;
+
+    if (!cache.contains(*ancestor)) {
+        auto result = [&] {
+            if (isMailBlockquote(*ancestor))
+                return true;
+
+            if (auto renderer = ancestor->renderer(); renderer && renderer->style().whiteSpace() == WhiteSpace::Pre)
+                return true;
+
+            return hasAncestorQualifyingForWritingToolsPreservation(ancestor->parentElement(), cache);
+        }();
+
+        cache.set(*ancestor, result);
+        return result;
+    }
+
+    return cache.get(*ancestor);
+}
+#endif
 
 namespace WebCore {
 
@@ -2387,11 +2479,13 @@ AttributedString attributedString(const SimpleRange& range)
 }
 
 // This function uses TextIterator, which makes offsets in its result compatible with HTML editing.
-AttributedString editingAttributedString(const SimpleRange& range, IncludeImages includeImages)
+AttributedString editingAttributedString(const SimpleRange& range, OptionSet<IncludedElement> includedElements)
 {
 #if PLATFORM(MAC)
     auto fontManager = [NSFontManager sharedFontManager];
 #endif
+
+    WeakHashMap<Element, bool, WeakPtrImplWithEventTargetData> elementQualifiesForWritingToolsPreservationCache;
 
     auto string = adoptNS([[NSMutableAttributedString alloc] init]);
     auto attrs = adoptNS([[NSMutableDictionary alloc] init]);
@@ -2399,8 +2493,17 @@ AttributedString editingAttributedString(const SimpleRange& range, IncludeImages
     for (TextIterator it(range); !it.atEnd(); it.advance()) {
         auto node = it.node();
 
-        if (RefPtr imageElement = dynamicDowncast<HTMLImageElement>(node); imageElement && includeImages == IncludeImages::Yes)
-            [string appendAttributedString:attributedStringWithAttachmentForElement(*imageElement).get()];
+        if (RefPtr imageElement = dynamicDowncast<HTMLImageElement>(node); imageElement && includedElements.contains(IncludedElement::Images)) {
+            RetainPtr attachmentAttributedString = attributedStringWithAttachmentForElement(*imageElement);
+            [string appendAttributedString:attachmentAttributedString.get()];
+            stringLength += [attachmentAttributedString length];
+        }
+
+        if (RefPtr attachmentElement = dynamicDowncast<HTMLAttachmentElement>(node); attachmentElement && includedElements.contains(IncludedElement::Attachments)) {
+            RetainPtr attachmentAttributedString = attributedStringWithAttachmentForElement(*attachmentElement);
+            [string appendAttributedString:attachmentAttributedString.get()];
+            stringLength += [attachmentAttributedString length];
+        }
 
         auto currentTextLength = it.text().length();
         if (!currentTextLength)
@@ -2415,10 +2518,26 @@ AttributedString editingAttributedString(const SimpleRange& range, IncludeImages
         if (!renderer)
             continue;
         auto& style = renderer->style();
+
+#if ENABLE(WRITING_TOOLS)
+        if (includedElements.contains(IncludedElement::PreservedContent)) {
+            if (hasAncestorQualifyingForWritingToolsPreservation(node->parentElement(), elementQualifiesForWritingToolsPreservationCache))
+                [attrs setObject:@(1) forKey:WTWritingToolsPreservedAttributeName];
+            else
+                [attrs removeObjectForKey:WTWritingToolsPreservedAttributeName];
+        }
+#endif
+
         if (style.textDecorationsInEffect() & TextDecorationLine::Underline)
             [attrs setObject:[NSNumber numberWithInteger:NSUnderlineStyleSingle] forKey:NSUnderlineStyleAttributeName];
+        else
+            [attrs removeObjectForKey:NSUnderlineStyleAttributeName];
+
         if (style.textDecorationsInEffect() & TextDecorationLine::LineThrough)
             [attrs setObject:[NSNumber numberWithInteger:NSUnderlineStyleSingle] forKey:NSStrikethroughStyleAttributeName];
+        else
+            [attrs removeObjectForKey:NSStrikethroughStyleAttributeName];
+
         if (auto ctFont = style.fontCascade().primaryFont().getCTFont())
             [attrs setObject:(__bridge PlatformFont *)ctFont forKey:NSFontAttributeName];
         else {

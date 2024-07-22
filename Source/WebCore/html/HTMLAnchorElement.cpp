@@ -61,8 +61,8 @@
 #include "UserGestureIndicator.h"
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/WeakHashMap.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
-#include <wtf/text/StringConcatenateNumbers.h>
 
 #if PLATFORM(COCOA)
 #include "DataDetection.h"
@@ -259,7 +259,7 @@ void HTMLAnchorElement::attributeChanged(const QualifiedName& name, const AtomSt
         if (relValue.contains(opener))
             m_linkRelations.add(Relation::Opener);
         if (m_relList)
-            m_relList->associatedAttributeValueChanged(newValue);
+            m_relList->associatedAttributeValueChanged();
     }
 }
 
@@ -374,8 +374,8 @@ void HTMLAnchorElement::sendPings(const URL& destinationURL)
         return;
 
     SpaceSplitString pingURLs(pingValue, SpaceSplitString::ShouldFoldCase::No);
-    for (unsigned i = 0; i < pingURLs.size(); i++)
-        PingLoader::sendPing(*document().frame(), document().completeURL(pingURLs[i]), destinationURL);
+    for (auto& pingURL : pingURLs)
+        PingLoader::sendPing(*document().frame(), document().completeURL(pingURL), destinationURL);
 }
 
 #if USE(SYSTEM_PREVIEW)
@@ -413,16 +413,9 @@ std::optional<URL> HTMLAnchorElement::attributionDestinationURLForPCM() const
 
 std::optional<RegistrableDomain> HTMLAnchorElement::mainDocumentRegistrableDomainForPCM() const
 {
-    if (auto frame = document().frame()) {
-
-        auto* localFrame = dynamicDowncast<LocalFrame>(frame->mainFrame());
-        if (!localFrame)
-            return std::nullopt;
-
-        if (auto mainDocument = localFrame->document()) {
-            if (auto mainDocumentRegistrableDomain = RegistrableDomain { mainDocument->url() }; !mainDocumentRegistrableDomain.isEmpty())
-                return mainDocumentRegistrableDomain;
-        }
+    if (auto* page = document().page()) {
+        if (auto mainFrameURL = page->mainFrameURL(); !mainFrameURL.isEmpty())
+            return RegistrableDomain(mainFrameURL);
     }
 
     protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, "Could not find a main document to use as source site for Private Click Measurement."_s);
@@ -522,7 +515,7 @@ std::optional<PrivateClickMeasurement> HTMLAnchorElement::parsePrivateClickMeasu
     }
     
     if (attributionSourceID.value() > std::numeric_limits<uint8_t>::max()) {
-        protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, makeString("attributionsourceid must have a non-negative value less than or equal to ", std::numeric_limits<uint8_t>::max(), " for Private Click Measurement."));
+        protectedDocument()->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, makeString("attributionsourceid must have a non-negative value less than or equal to "_s, std::numeric_limits<uint8_t>::max(), " for Private Click Measurement."_s));
         return std::nullopt;
     }
 

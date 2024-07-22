@@ -104,6 +104,7 @@
 #include <wtf/UniqueRef.h>
 #include <wtf/WTFProcess.h>
 #include <wtf/text/AtomString.h>
+#include <wtf/text/MakeString.h>
 
 #if ENABLE(SEC_ITEM_SHIM)
 #include "SecItemShim.h"
@@ -336,7 +337,7 @@ void NetworkProcess::initializeNetworkProcess(NetworkProcessCreationParameters&&
 
     setPrivateClickMeasurementEnabled(parameters.enablePrivateClickMeasurement);
     m_ftpEnabled = parameters.ftpEnabled;
-#if ENABLE(BUILT_IN_NOTIFICATIONS)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
     m_builtInNotificationsEnabled = parameters.builtInNotificationsEnabled;
 #endif
 
@@ -569,7 +570,7 @@ std::unique_ptr<WebCore::NetworkStorageSession> NetworkProcess::newTestingSessio
 {
 #if PLATFORM(COCOA)
     // Session name should be short enough for shared memory region name to be under the limit, otherwise sandbox rules won't work (see <rdar://problem/13642852>).
-    auto session = WebCore::createPrivateStorageSession(makeString("WebKit Test-", getCurrentProcessID()).createCFString().get(), std::nullopt, NetworkStorageSession::ShouldDisableCFURLCache::Yes);
+    auto session = WebCore::createPrivateStorageSession(makeString("WebKit Test-"_s, getCurrentProcessID()).createCFString().get(), std::nullopt, NetworkStorageSession::ShouldDisableCFURLCache::Yes);
     RetainPtr<CFHTTPCookieStorageRef> cookieStorage;
     if (WebCore::NetworkStorageSession::processMayUseCookieAPI()) {
         ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
@@ -1690,7 +1691,7 @@ void NetworkProcess::deleteWebsiteData(PAL::SessionID sessionID, OptionSet<Websi
     if (clearServiceWorkers && !sessionID.isEphemeral() && session) {
         session->ensureSWServer().clearAll([clearTasksHandler] { });
 
-#if ENABLE(BUILT_IN_NOTIFICATIONS)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
         session->notificationManager().removeAllPushSubscriptions([clearTasksHandler](auto&&) { });
 #endif
     }
@@ -1806,7 +1807,7 @@ void NetworkProcess::deleteWebsiteDataForOrigins(PAL::SessionID sessionID, Optio
         for (auto& originData : originDatas) {
             server.clear(originData, [clearTasksHandler] { });
 
-#if ENABLE(BUILT_IN_NOTIFICATIONS)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
             session->notificationManager().removePushSubscriptionsForOrigin(SecurityOriginData { originData }, [clearTasksHandler](auto&&) { });
 #endif
         }
@@ -1987,7 +1988,7 @@ void NetworkProcess::deleteAndRestrictWebsiteDataForRegistrableDomains(PAL::Sess
                 if (session) {
                     session->ensureSWServer().clear(securityOrigin, [callbackAggregator] { });
 
-#if ENABLE(BUILT_IN_NOTIFICATIONS)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
                     session->notificationManager().removePushSubscriptionsForOrigin(SecurityOriginData { securityOrigin }, [callbackAggregator](auto&&) { });
 #endif
                 }
@@ -2148,10 +2149,17 @@ void NetworkProcess::cancelDownload(DownloadID downloadID, CompletionHandler<voi
 }
 
 #if PLATFORM(COCOA)
+#if HAVE(MODERN_DOWNLOADPROGRESS)
+void NetworkProcess::publishDownloadProgress(DownloadID downloadID, const URL& url, std::span<const uint8_t> bookmarkData)
+{
+    downloadManager().publishDownloadProgress(downloadID, url, bookmarkData);
+}
+#else
 void NetworkProcess::publishDownloadProgress(DownloadID downloadID, const URL& url, SandboxExtension::Handle&& sandboxExtensionHandle)
 {
     downloadManager().publishDownloadProgress(downloadID, url, WTFMove(sandboxExtensionHandle));
 }
+#endif
 #endif
 
 void NetworkProcess::findPendingDownloadLocation(NetworkDataTask& networkDataTask, ResponseCompletionHandler&& completionHandler, const ResourceResponse& response)
@@ -2314,9 +2322,6 @@ void NetworkProcess::processDidResume(bool forForegroundActivity)
     RELEASE_LOG(ProcessSuspension, "%p - NetworkProcess::processDidResume() forForegroundActivity=%d", this, forForegroundActivity);
 
     m_isSuspended = false;
-
-    for (auto& connection : m_webProcessConnections.values())
-        connection->endSuspension();
 
     WebResourceLoadStatisticsStore::resume();
     PCM::PersistentStore::processDidResume();
@@ -2509,7 +2514,7 @@ void NetworkProcess::clickBackgroundFetch(PAL::SessionID sessionID, const String
 
     session->clickBackgroundFetch(identifier, WTFMove(callback));
 }
-#if ENABLE(BUILT_IN_NOTIFICATIONS)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
 
 void NetworkProcess::getPendingPushMessages(PAL::SessionID sessionID, CompletionHandler<void(const Vector<WebPushMessage>&)>&& callback)
 {
@@ -2576,11 +2581,11 @@ void NetworkProcess::processPushMessage(PAL::SessionID, WebPushMessage&&, PushPe
     callback(false, std::nullopt);
 }
 
-#endif // ENABLE(BUILT_IN_NOTIFICATIONS)
+#endif // ENABLE(WEB_PUSH_NOTIFICATIONS)
 
 void NetworkProcess::setPushAndNotificationsEnabledForOrigin(PAL::SessionID sessionID, const SecurityOriginData& origin, bool enabled, CompletionHandler<void()>&& callback)
 {
-#if ENABLE(BUILT_IN_NOTIFICATIONS)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
     if (auto* session = networkSession(sessionID)) {
         session->notificationManager().setPushAndNotificationsEnabledForOrigin(origin, enabled, WTFMove(callback));
         return;
@@ -2589,20 +2594,20 @@ void NetworkProcess::setPushAndNotificationsEnabledForOrigin(PAL::SessionID sess
     callback();
 }
 
-void NetworkProcess::deletePushAndNotificationRegistration(PAL::SessionID sessionID, const SecurityOriginData& origin, CompletionHandler<void(const String&)>&& callback)
+void NetworkProcess::removePushSubscriptionsForOrigin(PAL::SessionID sessionID, const SecurityOriginData& origin, CompletionHandler<void(unsigned)>&& callback)
 {
-#if ENABLE(BUILT_IN_NOTIFICATIONS)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
     if (auto* session = networkSession(sessionID)) {
-        session->notificationManager().deletePushAndNotificationRegistration(origin, WTFMove(callback));
+        session->notificationManager().removePushSubscriptionsForOrigin(SecurityOriginData { origin }, WTFMove(callback));
         return;
     }
 #endif
-    callback("Cannot find network session"_s);
+    callback(0);
 }
 
 void NetworkProcess::hasPushSubscriptionForTesting(PAL::SessionID sessionID, URL&& scopeURL, CompletionHandler<void(bool)>&& callback)
 {
-#if ENABLE(BUILT_IN_NOTIFICATIONS)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
     if (auto* session = networkSession(sessionID)) {
         session->notificationManager().getPushSubscription(WTFMove(scopeURL), [callback = WTFMove(callback)](auto &&result) mutable {
             callback(result && result->has_value());

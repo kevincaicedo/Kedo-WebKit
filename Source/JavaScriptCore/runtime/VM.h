@@ -243,10 +243,6 @@ private:
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(VM);
 
-#if COMPILER(MSVC)
-#pragma warning(push)
-#pragma warning(disable: 4200) // Disable "zero-sized array in struct/union" warning
-#endif
 struct ScratchBuffer {
     ScratchBuffer()
     {
@@ -276,9 +272,6 @@ struct ScratchBuffer {
     } u;
     void* m_buffer[0];
 };
-#if COMPILER(MSVC)
-#pragma warning(pop)
-#endif
 
 class ActiveScratchBufferScope {
 public:
@@ -562,8 +555,8 @@ public:
 
     WriteBarrier<JSPropertyNameEnumerator> m_emptyPropertyNameEnumerator;
 
-    WriteBarrier<JSCell> m_sentinelSetBucket;
-    WriteBarrier<JSCell> m_sentinelMapBucket;
+    WriteBarrier<JSCell> m_orderedHashTableDeletedValue;
+    WriteBarrier<JSCell> m_orderedHashTableSentinel;
 
     WriteBarrier<NativeExecutable> m_fastCanConstructBoundExecutable;
     WriteBarrier<NativeExecutable> m_slowCanConstructBoundExecutable;
@@ -603,18 +596,18 @@ public:
 
     WriteBarrier<JSBigInt> heapBigIntConstantOne;
 
-    JSCell* sentinelSetBucket()
+    JSCell* orderedHashTableDeletedValue()
     {
-        if (LIKELY(m_sentinelSetBucket))
-            return m_sentinelSetBucket.get();
-        return sentinelSetBucketSlow();
+        if (LIKELY(m_orderedHashTableDeletedValue))
+            return m_orderedHashTableDeletedValue.get();
+        return orderedHashTableDeletedValueSlow();
     }
 
-    JSCell* sentinelMapBucket()
+    JSCell* orderedHashTableSentinel()
     {
-        if (LIKELY(m_sentinelMapBucket))
-            return m_sentinelMapBucket.get();
-        return sentinelMapBucketSlow();
+        if (LIKELY(m_orderedHashTableSentinel))
+            return m_orderedHashTableSentinel.get();
+        return orderedHashTableSentinelSlow();
     }
 
     JSPropertyNameEnumerator* emptyPropertyNameEnumerator()
@@ -696,37 +689,42 @@ public:
     MacroAssemblerCodeRef<JSEntryPtrTag> getCTIThrowExceptionFromCallSlowPath();
     MacroAssemblerCodeRef<JITStubRoutinePtrTag> getCTIVirtualCall(CallMode);
 
-    static ptrdiff_t exceptionOffset()
+    static constexpr ptrdiff_t exceptionOffset()
     {
         return OBJECT_OFFSETOF(VM, m_exception);
     }
 
-    static ptrdiff_t callFrameForCatchOffset()
+    static constexpr ptrdiff_t callFrameForCatchOffset()
     {
         return OBJECT_OFFSETOF(VM, callFrameForCatch);
     }
 
-    static ptrdiff_t topEntryFrameOffset()
+    static constexpr ptrdiff_t topEntryFrameOffset()
     {
         return OBJECT_OFFSETOF(VM, topEntryFrame);
     }
 
-    static ptrdiff_t offsetOfEncodedHostCallReturnValue()
+    static constexpr ptrdiff_t offsetOfEncodedHostCallReturnValue()
     {
         return OBJECT_OFFSETOF(VM, encodedHostCallReturnValue);
     }
 
-    static ptrdiff_t offsetOfHeapBarrierThreshold()
+    static constexpr ptrdiff_t offsetOfHeapBarrierThreshold()
     {
         return OBJECT_OFFSETOF(VM, heap) + OBJECT_OFFSETOF(Heap, m_barrierThreshold);
     }
 
-    static ptrdiff_t offsetOfHeapMutatorShouldBeFenced()
+    static constexpr ptrdiff_t offsetOfHeapMutatorShouldBeFenced()
     {
         return OBJECT_OFFSETOF(VM, heap) + OBJECT_OFFSETOF(Heap, m_mutatorShouldBeFenced);
     }
 
-    static ptrdiff_t offsetOfSoftStackLimit()
+    static constexpr ptrdiff_t offsetOfTrapsBits()
+    {
+        return OBJECT_OFFSETOF(VM, m_traps) + VMTraps::offsetOfTrapsBits();
+    }
+
+    static constexpr ptrdiff_t offsetOfSoftStackLimit()
     {
         return OBJECT_OFFSETOF(VM, m_softStackLimit);
     }
@@ -1028,8 +1026,8 @@ private:
     static VM*& sharedInstanceInternal();
     void createNativeThunk();
 
-    JS_EXPORT_PRIVATE JSCell* sentinelSetBucketSlow();
-    JS_EXPORT_PRIVATE JSCell* sentinelMapBucketSlow();
+    JS_EXPORT_PRIVATE JSCell* orderedHashTableDeletedValueSlow();
+    JS_EXPORT_PRIVATE JSCell* orderedHashTableSentinelSlow();
     JSPropertyNameEnumerator* emptyPropertyNameEnumeratorSlow();
 
     void updateStackLimits();
@@ -1189,7 +1187,7 @@ inline Heap* WeakSet::heap() const
 }
 
 #if !ENABLE(C_LOOP)
-extern "C" void sanitizeStackForVMImpl(VM*);
+extern "C" void SYSV_ABI sanitizeStackForVMImpl(VM*);
 #endif
 
 JS_EXPORT_PRIVATE void sanitizeStackForVM(VM&);

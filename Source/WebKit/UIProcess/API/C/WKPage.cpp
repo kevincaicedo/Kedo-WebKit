@@ -87,6 +87,7 @@
 #include "WebPageGroup.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
+#include "WebPageProxyTesting.h"
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
 #include "WebProtectionSpace.h"
@@ -183,7 +184,7 @@ WKTypeID WKPageGetTypeID()
 
 WKContextRef WKPageGetContext(WKPageRef pageRef)
 {
-    return toAPI(&toImpl(pageRef)->process().processPool());
+    return toAPI(&toImpl(pageRef)->configuration().processPool());
 }
 
 WKPageGroupRef WKPageGetPageGroup(WKPageRef pageRef)
@@ -529,14 +530,14 @@ void WKPageSetCustomTextEncodingName(WKPageRef pageRef, WKStringRef encodingName
 void WKPageTerminate(WKPageRef pageRef)
 {
     CRASH_IF_SUSPENDED;
-    Ref<WebProcessProxy> protectedProcessProxy(toImpl(pageRef)->process());
+    Ref<WebProcessProxy> protectedProcessProxy(toImpl(pageRef)->legacyMainFrameProcess());
     protectedProcessProxy->requestTermination(ProcessTerminationReason::RequestedByClient);
 }
 
 void WKPageResetProcessState(WKPageRef pageRef)
 {
     CRASH_IF_SUSPENDED;
-    Ref<WebProcessProxy> protectedProcessProxy(toImpl(pageRef)->process());
+    Ref<WebProcessProxy> protectedProcessProxy(toImpl(pageRef)->legacyMainFrameProcess());
     protectedProcessProxy->resetState();
 }
 
@@ -1315,7 +1316,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         milestones.add(WebCore::LayoutMilestone::DidFirstVisuallyNonEmptyLayout);
 
     if (milestones)
-        webPageProxy->send(Messages::WebPage::ListenForLayoutMilestones(milestones));
+        webPageProxy->legacyMainFrameProcess().send(Messages::WebPage::ListenForLayoutMilestones(milestones), webPageProxy->webPageIDInMainFrameProcess());
 
     webPageProxy->setLoaderClient(WTFMove(loaderClient));
 }
@@ -2265,7 +2266,7 @@ void WKPageSetPageNavigationClient(WKPageRef pageRef, const WKPageNavigationClie
             m_client.didReceiveServerRedirectForProvisionalNavigation(toAPI(&page), toAPI(navigation), toAPI(userData), m_client.base.clientInfo);
         }
 
-        void didFailProvisionalNavigationWithError(WebPageProxy& page, FrameInfoData&& frameInfo, API::Navigation* navigation, const WebCore::ResourceError& error, API::Object* userData) override
+        void didFailProvisionalNavigationWithError(WebPageProxy& page, FrameInfoData&& frameInfo, API::Navigation* navigation, const URL&, const WebCore::ResourceError& error, API::Object* userData) override
         {
             if (frameInfo.isMainFrame) {
                 if (m_client.didFailProvisionalNavigation)
@@ -2288,7 +2289,7 @@ void WKPageSetPageNavigationClient(WKPageRef pageRef, const WKPageNavigationClie
                 m_client.didFinishNavigation(toAPI(&page), toAPI(navigation), toAPI(userData), m_client.base.clientInfo);
         }
 
-        void didFailNavigationWithError(WebPageProxy& page, const FrameInfoData&, API::Navigation* navigation, const WebCore::ResourceError& error, API::Object* userData) override
+        void didFailNavigationWithError(WebPageProxy& page, const FrameInfoData&, API::Navigation* navigation, const URL&, const WebCore::ResourceError& error, API::Object* userData) override
         {
             if (m_client.didFailNavigation)
                 m_client.didFailNavigation(toAPI(&page), toAPI(navigation), toAPI(error), toAPI(userData), m_client.base.clientInfo);
@@ -2339,15 +2340,13 @@ void WKPageSetPageNavigationClient(WKPageRef pageRef, const WKPageNavigationClie
             return false;
         }
 
-        RefPtr<API::Data> webCryptoMasterKey(WebPageProxy& page) override
+        void legacyWebCryptoMasterKey(WebKit::WebPageProxy& page, CompletionHandler<void(std::optional<Vector<uint8_t>>&&)>&& completionHandler) override
         {
-            if (m_client.copyWebCryptoMasterKey)
-                return adoptRef(toImpl(m_client.copyWebCryptoMasterKey(toAPI(&page), m_client.base.clientInfo)));
-
-            auto masterKey = defaultWebCryptoMasterKey();
-            if (!masterKey)
-                return nullptr;
-            return API::Data::create(WTFMove(*masterKey));
+            if (m_client.copyWebCryptoMasterKey) {
+                if (auto data = adoptRef(toImpl(m_client.copyWebCryptoMasterKey(toAPI(&page), m_client.base.clientInfo))))
+                    return completionHandler(Vector(data->span()));
+            }
+            return completionHandler(defaultWebCryptoMasterKey());
         }
 
         void navigationActionDidBecomeDownload(WebKit::WebPageProxy& page, API::NavigationAction& action, WebKit::DownloadProxy& download) override
@@ -2760,7 +2759,7 @@ void WKPageComputePagesForPrinting(WKPageRef pageRef, WKFrameRef frame, WKPrintI
 void WKPageDrawPagesToPDF(WKPageRef pageRef, WKFrameRef frame, WKPrintInfo printInfo, uint32_t first, uint32_t count, WKPageDrawToPDFFunction callback, void* context)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->drawPagesToPDF(toImpl(frame), printInfoFromWKPrintInfo(printInfo), first, count, [context, callback] (API::Data* data) {
+    toImpl(pageRef)->drawPagesToPDF(*toImpl(frame), printInfoFromWKPrintInfo(printInfo), first, count, [context, callback] (API::Data* data) {
         callback(toAPI(data), nullptr, context);
     });
 }
@@ -2881,7 +2880,7 @@ WKArrayRef WKPageCopyRelatedPages(WKPageRef pageRef)
 {
     Vector<RefPtr<API::Object>> relatedPages;
 
-    for (Ref page : toImpl(pageRef)->process().pages()) {
+    for (Ref page : toImpl(pageRef)->legacyMainFrameProcess().pages()) {
         if (page.ptr() != toImpl(pageRef))
             relatedPages.append(WTFMove(page));
     }
@@ -3004,7 +3003,8 @@ WKMediaState WKPageGetMediaState(WKPageRef page)
 void WKPageClearWheelEventTestMonitor(WKPageRef pageRef)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->clearWheelEventTestMonitor();
+    if (auto* pageForTesting = toImpl(pageRef)->pageForTesting())
+        pageForTesting->clearWheelEventTestMonitor();
 }
 
 void WKPageCallAfterNextPresentationUpdate(WKPageRef pageRef, void* context, WKPagePostPresentationUpdateFunction callback)
@@ -3025,13 +3025,13 @@ void WKPageSetIgnoresViewportScaleLimits(WKPageRef pageRef, bool ignoresViewport
 
 ProcessID WKPageGetProcessIdentifier(WKPageRef page)
 {
-    return toImpl(page)->processID();
+    return toImpl(page)->legacyMainFrameProcessID();
 }
 
 ProcessID WKPageGetGPUProcessIdentifier(WKPageRef page)
 {
 #if ENABLE(GPU_PROCESS)
-    auto* gpuProcess = toImpl(page)->process().processPool().gpuProcess();
+    auto* gpuProcess = toImpl(page)->configuration().processPool().gpuProcess();
     if (!gpuProcess)
         return 0;
     return gpuProcess->processID();
@@ -3056,7 +3056,11 @@ void WKPageGetApplicationManifest(WKPageRef pageRef, void* context, WKPageGetApp
 void WKPageDumpPrivateClickMeasurement(WKPageRef pageRef, WKPageDumpPrivateClickMeasurementFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->dumpPrivateClickMeasurement([callbackContext, callback] (const String& privateClickMeasurement) {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(nullptr, callbackContext);
+
+    pageForTesting->dumpPrivateClickMeasurement([callbackContext, callback] (const String& privateClickMeasurement) {
         callback(WebKit::toAPI(privateClickMeasurement.impl()), callbackContext);
     });
 }
@@ -3064,7 +3068,11 @@ void WKPageDumpPrivateClickMeasurement(WKPageRef pageRef, WKPageDumpPrivateClick
 void WKPageClearPrivateClickMeasurement(WKPageRef pageRef, WKPageClearPrivateClickMeasurementFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->clearPrivateClickMeasurement([callbackContext, callback] () {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(callbackContext);
+
+    pageForTesting->clearPrivateClickMeasurement([callbackContext, callback] {
         callback(callbackContext);
     });
 }
@@ -3072,7 +3080,11 @@ void WKPageClearPrivateClickMeasurement(WKPageRef pageRef, WKPageClearPrivateCli
 void WKPageSetPrivateClickMeasurementOverrideTimerForTesting(WKPageRef pageRef, bool value, WKPageSetPrivateClickMeasurementOverrideTimerForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->setPrivateClickMeasurementOverrideTimerForTesting(value, [callbackContext, callback] () {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(callbackContext);
+
+    pageForTesting->setPrivateClickMeasurementOverrideTimer(value, [callbackContext, callback] {
         callback(callbackContext);
     });
 }
@@ -3080,7 +3092,11 @@ void WKPageSetPrivateClickMeasurementOverrideTimerForTesting(WKPageRef pageRef, 
 void WKPageMarkAttributedPrivateClickMeasurementsAsExpiredForTesting(WKPageRef pageRef, WKPageMarkAttributedPrivateClickMeasurementsAsExpiredForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->markAttributedPrivateClickMeasurementsAsExpiredForTesting([callbackContext, callback] () {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(callbackContext);
+
+    pageForTesting->markAttributedPrivateClickMeasurementsAsExpired([callbackContext, callback] {
         callback(callbackContext);
     });
 }
@@ -3088,7 +3104,11 @@ void WKPageMarkAttributedPrivateClickMeasurementsAsExpiredForTesting(WKPageRef p
 void WKPageSetPrivateClickMeasurementEphemeralMeasurementForTesting(WKPageRef pageRef, bool value, WKPageSetPrivateClickMeasurementEphemeralMeasurementForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->setPrivateClickMeasurementEphemeralMeasurementForTesting(value, [callbackContext, callback] () {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(callbackContext);
+
+    pageForTesting->setPrivateClickMeasurementEphemeralMeasurement(value, [callbackContext, callback] {
         callback(callbackContext);
     });
 }
@@ -3096,7 +3116,11 @@ void WKPageSetPrivateClickMeasurementEphemeralMeasurementForTesting(WKPageRef pa
 void WKPageSimulatePrivateClickMeasurementSessionRestart(WKPageRef pageRef, WKPageSimulatePrivateClickMeasurementSessionRestartFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->simulatePrivateClickMeasurementSessionRestart([callbackContext, callback] () {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(callbackContext);
+
+    pageForTesting->simulatePrivateClickMeasurementSessionRestart([callbackContext, callback] {
         callback(callbackContext);
     });
 }
@@ -3104,7 +3128,11 @@ void WKPageSimulatePrivateClickMeasurementSessionRestart(WKPageRef pageRef, WKPa
 void WKPageSetPrivateClickMeasurementTokenPublicKeyURLForTesting(WKPageRef pageRef, WKURLRef URLRef, WKPageSetPrivateClickMeasurementTokenPublicKeyURLForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->setPrivateClickMeasurementTokenPublicKeyURLForTesting(URL { toWTFString(URLRef) }, [callbackContext, callback] () {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(callbackContext);
+
+    pageForTesting->setPrivateClickMeasurementTokenPublicKeyURL(URL { toWTFString(URLRef) }, [callbackContext, callback] {
         callback(callbackContext);
     });
 }
@@ -3112,7 +3140,11 @@ void WKPageSetPrivateClickMeasurementTokenPublicKeyURLForTesting(WKPageRef pageR
 void WKPageSetPrivateClickMeasurementTokenSignatureURLForTesting(WKPageRef pageRef, WKURLRef URLRef, WKPageSetPrivateClickMeasurementTokenSignatureURLForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->setPrivateClickMeasurementTokenSignatureURLForTesting(URL { toWTFString(URLRef) }, [callbackContext, callback] () {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(callbackContext);
+
+    pageForTesting->setPrivateClickMeasurementTokenSignatureURL(URL { toWTFString(URLRef) }, [callbackContext, callback] {
         callback(callbackContext);
     });
 }
@@ -3120,7 +3152,11 @@ void WKPageSetPrivateClickMeasurementTokenSignatureURLForTesting(WKPageRef pageR
 void WKPageSetPrivateClickMeasurementAttributionReportURLsForTesting(WKPageRef pageRef, WKURLRef sourceURL, WKURLRef destinationURL, WKPageSetPrivateClickMeasurementAttributionReportURLsForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->setPrivateClickMeasurementAttributionReportURLsForTesting(URL { toWTFString(sourceURL) }, URL { toWTFString(destinationURL) }, [callbackContext, callback] () {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(callbackContext);
+
+    pageForTesting->setPrivateClickMeasurementAttributionReportURLs(URL { toWTFString(sourceURL) }, URL { toWTFString(destinationURL) }, [callbackContext, callback] {
         callback(callbackContext);
     });
 }
@@ -3128,7 +3164,11 @@ void WKPageSetPrivateClickMeasurementAttributionReportURLsForTesting(WKPageRef p
 void WKPageMarkPrivateClickMeasurementsAsExpiredForTesting(WKPageRef pageRef, WKPageMarkPrivateClickMeasurementsAsExpiredForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->markPrivateClickMeasurementsAsExpiredForTesting([callbackContext, callback] () {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(callbackContext);
+
+    pageForTesting->markPrivateClickMeasurementsAsExpired([callbackContext, callback] {
         callback(callbackContext);
     });
 }
@@ -3136,7 +3176,11 @@ void WKPageMarkPrivateClickMeasurementsAsExpiredForTesting(WKPageRef pageRef, WK
 void WKPageSetPCMFraudPreventionValuesForTesting(WKPageRef pageRef, WKStringRef unlinkableToken, WKStringRef secretToken, WKStringRef signature, WKStringRef keyID, WKPageSetPCMFraudPreventionValuesForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->setPCMFraudPreventionValuesForTesting(toWTFString(unlinkableToken), toWTFString(secretToken), toWTFString(signature), toWTFString(keyID), [callbackContext, callback] () {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(callbackContext);
+
+    pageForTesting->setPCMFraudPreventionValues(toWTFString(unlinkableToken), toWTFString(secretToken), toWTFString(signature), toWTFString(keyID), [callbackContext, callback] {
         callback(callbackContext);
     });
 }
@@ -3144,7 +3188,11 @@ void WKPageSetPCMFraudPreventionValuesForTesting(WKPageRef pageRef, WKStringRef 
 void WKPageSetPrivateClickMeasurementAppBundleIDForTesting(WKPageRef pageRef, WKStringRef appBundleIDForTesting, WKPageSetPrivateClickMeasurementAppBundleIDForTestingFunction callback, void* callbackContext)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->setPrivateClickMeasurementAppBundleIDForTesting(toWTFString(appBundleIDForTesting), [callbackContext, callback] () {
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return callback(callbackContext);
+
+    pageForTesting->setPrivateClickMeasurementAppBundleID(toWTFString(appBundleIDForTesting), [callbackContext, callback] {
         callback(callbackContext);
     });
 }
@@ -3168,7 +3216,7 @@ void WKPageSetMockCaptureDevicesInterrupted(WKPageRef pageRef, bool isCameraInte
 {
     CRASH_IF_SUSPENDED;
 #if ENABLE(MEDIA_STREAM) && ENABLE(GPU_PROCESS)
-    auto& gpuProcess = toImpl(pageRef)->process().processPool().ensureGPUProcess();
+    auto& gpuProcess = toImpl(pageRef)->configuration().processPool().ensureGPUProcess();
     gpuProcess.setMockCaptureDevicesInterrupted(isCameraInterrupted, isMicrophoneInterrupted);
 #endif
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
@@ -3183,7 +3231,7 @@ void WKPageTriggerMockCaptureConfigurationChange(WKPageRef pageRef, bool forMicr
     MockRealtimeMediaSourceCenter::singleton().triggerMockCaptureConfigurationChange(forMicrophone, forDisplay);
 
 #if ENABLE(GPU_PROCESS)
-    auto& gpuProcess = toImpl(pageRef)->process().processPool().ensureGPUProcess();
+    auto& gpuProcess = toImpl(pageRef)->configuration().processPool().ensureGPUProcess();
     gpuProcess.triggerMockCaptureConfigurationChange(forMicrophone, forDisplay);
 #endif // ENABLE(GPU_PROCESS)
 
@@ -3216,7 +3264,8 @@ void WKPageSetMediaCaptureReportingDelayForTesting(WKPageRef pageRef, double del
 void WKPageDispatchActivityStateUpdateForTesting(WKPageRef pageRef)
 {
     CRASH_IF_SUSPENDED;
-    toImpl(pageRef)->dispatchActivityStateUpdateForTesting();
+    if (auto* pageForTesting = toImpl(pageRef)->pageForTesting())
+        pageForTesting->dispatchActivityStateUpdate();
 }
 
 void WKPageClearNotificationPermissionState(WKPageRef pageRef)
@@ -3224,4 +3273,24 @@ void WKPageClearNotificationPermissionState(WKPageRef pageRef)
 #if ENABLE(NOTIFICATIONS)
     toImpl(pageRef)->clearNotificationPermissionState();
 #endif
+}
+
+void WKPageExecuteCommandForTesting(WKPageRef pageRef, WKStringRef command, WKStringRef value)
+{
+    toImpl(pageRef)->executeEditCommand(toImpl(command)->string(), toImpl(value)->string());
+}
+
+bool WKPageIsEditingCommandEnabledForTesting(WKPageRef pageRef, WKStringRef command)
+{
+    auto* pageForTesting = toImpl(pageRef)->pageForTesting();
+    if (!pageForTesting)
+        return false;
+
+    return pageForTesting->isEditingCommandEnabled(toImpl(command)->string());
+}
+
+void WKPageSetPermissionLevelForTesting(WKPageRef pageRef, WKStringRef origin, bool allowed)
+{
+    if (auto* pageForTesting = toImpl(pageRef)->pageForTesting())
+        pageForTesting->setPermissionLevel(toImpl(origin)->string(), allowed);
 }

@@ -1,4 +1,3 @@
 
-
-FAIL navigation.currentEntry/entries()/canGoBack/canGoForward after iframe removal assert_true: canGoForward expected true got false
+PASS navigation.currentEntry/entries()/canGoBack/canGoForward after iframe removal
 

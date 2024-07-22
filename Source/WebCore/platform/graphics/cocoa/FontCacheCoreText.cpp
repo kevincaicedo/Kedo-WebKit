@@ -57,24 +57,19 @@ bool fontNameIsSystemFont(CFStringRef fontName)
     return CFStringGetLength(fontName) > 0 && CFStringGetCharacterAtIndex(fontName, 0) == '.';
 }
 
-static RetainPtr<CFArrayRef> variationAxes(CTFontRef font, ShouldLocalizeAxisNames shouldLocalizeAxisNames)
+static RetainPtr<CFArrayRef> variationAxesWithNonLocalizedAxesNames(CTFontDescriptorRef fontDescriptor)
 {
-#if defined(HAVE_CTFontCopyVariationAxesInternal) // This macro is defined inside CoreText, not WebKit.
-    if (shouldLocalizeAxisNames == ShouldLocalizeAxisNames::Yes)
-        return adoptCF(CTFontCopyVariationAxes(font));
-    return adoptCF(CTFontCopyVariationAxesInternal(font));
-#else
-    UNUSED_PARAM(shouldLocalizeAxisNames);
-    return adoptCF(CTFontCopyVariationAxes(font));
-#endif
-}
-
-#if USE(KCTFONTVARIATIONAXESATTRIBUTE)
-static RetainPtr<CFArrayRef> variationAxes(CTFontDescriptorRef fontDescriptor)
-{
+    // Reading kCTFontVariationAxesAttribute returns non localized axes names
     return adoptCF(static_cast<CFArrayRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontVariationAxesAttribute)));
 }
-#endif
+
+static RetainPtr<CFArrayRef> variationAxes(CTFontRef font, ShouldLocalizeAxisNames shouldLocalizeAxisNames)
+{
+    if (shouldLocalizeAxisNames == ShouldLocalizeAxisNames::Yes)
+        return adoptCF(CTFontCopyVariationAxes(font));
+    RetainPtr fontDescriptor = adoptCF(CTFontCopyFontDescriptor(font));
+    return variationAxesWithNonLocalizedAxesNames(fontDescriptor.get());
+}
 
 VariationDefaultsMap defaultVariationValues(CTFontRef font, ShouldLocalizeAxisNames shouldLocalizeAxisNames)
 {
@@ -103,11 +98,11 @@ VariationDefaultsMap defaultVariationValues(CTFontRef font, ShouldLocalizeAxisNa
         if (rawMinimumValue > rawMaximumValue)
             std::swap(rawMinimumValue, rawMaximumValue);
 
-        auto b1 = rawAxisIdentifier >> 24;
-        auto b2 = (rawAxisIdentifier & 0xFF0000) >> 16;
-        auto b3 = (rawAxisIdentifier & 0xFF00) >> 8;
-        auto b4 = rawAxisIdentifier & 0xFF;
-        FontTag resultKey = {{ static_cast<char>(b1), static_cast<char>(b2), static_cast<char>(b3), static_cast<char>(b4) }};
+        char b1 = rawAxisIdentifier >> 24;
+        char b2 = (rawAxisIdentifier & 0xFF0000) >> 16;
+        char b3 = (rawAxisIdentifier & 0xFF00) >> 8;
+        char b4 = rawAxisIdentifier & 0xFF;
+        FontTag resultKey = { { b1, b2, b3, b4 } };
         VariationDefaults resultValues = { axisName, rawDefaultValue, rawMinimumValue, rawMaximumValue };
         result.set(resultKey, resultValues);
     }
@@ -331,12 +326,7 @@ static VariationCapabilities variationCapabilitiesForFontDescriptor(CTFontDescri
     if (!adoptCF(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontVariationAttribute)))
         return result;
 
-#if USE(KCTFONTVARIATIONAXESATTRIBUTE)
-    auto variations = variationAxes(fontDescriptor);
-#else
-    auto font = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor, 0, nullptr));
-    auto variations = variationAxes(font.get(), ShouldLocalizeAxisNames::No);
-#endif
+    auto variations = variationAxesWithNonLocalizedAxesNames(fontDescriptor);
     if (!variations)
         return result;
 
@@ -360,15 +350,11 @@ static VariationCapabilities variationCapabilitiesForFontDescriptor(CTFontDescri
 
     bool optOutFromGXNormalization = CTFontDescriptorIsSystemUIFont(fontDescriptor);
 
-#if USE(KCTFONTVARIATIONAXESATTRIBUTE)
     auto variationType = [&] {
         // FIXME: https://bugs.webkit.org/show_bug.cgi?id=247987 Stop creating a whole CTFont here. Ideally we'd be able to do all the inspection we need to do without one.
         auto font = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor, 0, nullptr));
         return FontInterrogation(font.get()).variationType;
     }();
-#else
-    auto variationType = FontInterrogation(font.get()).variationType;
-#endif
     if (variationType == FontInterrogation::VariationType::TrueTypeGX && !optOutFromGXNormalization) {
         if (result.weight)
             result.weight = { { normalizeGXWeight(result.weight.value().minimum), normalizeGXWeight(result.weight.value().maximum) } };
@@ -774,11 +760,11 @@ RefPtr<Font> FontCache::systemFallbackForCharacterCluster(const FontDescription&
 {
     const FontPlatformData& platformData = originalFontData.platformData();
 
-    auto fullName = String(adoptCF(CTFontCopyFullName(platformData.font())).get());
+    auto fullName = String(adoptCF(CTFontCopyFullName(platformData.ctFont())).get());
     if (!fullName.isEmpty())
         m_fontNamesRequiringSystemFallbackForPrewarming.add(fullName);
 
-    auto result = lookupFallbackFont(platformData.font(), description.weight(), description.computedLocale(), description.shouldAllowUserInstalledFonts(), characterCluster);
+    auto result = lookupFallbackFont(platformData.ctFont(), description.weight(), description.computedLocale(), description.shouldAllowUserInstalledFonts(), characterCluster);
     result = preparePlatformFont(UnrealizedCoreTextFont { WTFMove(result) }, description, { });
 
     if (!result)
@@ -792,7 +778,7 @@ RefPtr<Font> FontCache::systemFallbackForCharacterCluster(const FontDescription&
     auto [syntheticBold, syntheticOblique] = computeNecessarySynthesis(substituteFont, description, ShouldComputePhysicalTraits::No, isForPlatformFont == IsForPlatformFont::Yes).boldObliquePair();
 
     const FontCustomPlatformData* customPlatformData = nullptr;
-    if (safeCFEqual(platformData.font(), substituteFont))
+    if (safeCFEqual(platformData.ctFont(), substituteFont))
         customPlatformData = platformData.customPlatformData();
     FontPlatformData alternateFont(substituteFont, platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), customPlatformData);
 

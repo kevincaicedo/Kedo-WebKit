@@ -26,11 +26,13 @@
 #pragma once
 
 #import <wtf/FastMalloc.h>
+#import <wtf/Function.h>
 #import <wtf/HashMap.h>
 #import <wtf/HashSet.h>
 #import <wtf/Ref.h>
 #import <wtf/RefCounted.h>
 #import <wtf/Vector.h>
+#import <wtf/WeakHashSet.h>
 #import <wtf/WeakPtr.h>
 
 struct WGPUTextureImpl {
@@ -122,7 +124,7 @@ public:
     void setCommandEncoder(CommandEncoder&) const;
     static ASCIILiteral formatToString(WGPUTextureFormat);
     bool isCanvasBacking() const;
-    void waitForCommandBufferCompletion();
+    void onCommandBufferCompletion(Function<void()>&&);
 
 private:
     Texture(id<MTLTexture>, const WGPUTextureDescriptor&, Vector<WGPUTextureFormat>&& viewFormats, Device&);
@@ -152,7 +154,7 @@ private:
     Vector<WeakPtr<TextureView>> m_textureViews;
     bool m_destroyed { false };
     bool m_canvasBacking { false };
-    mutable WeakPtr<CommandEncoder> m_commandEncoder;
+    mutable WeakHashSet<CommandEncoder> m_commandEncoders;
 };
 
 } // namespace WebGPU

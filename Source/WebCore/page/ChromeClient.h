@@ -157,6 +157,10 @@ enum class RouteSharingPolicy : uint8_t;
 
 enum class DidFilterLinkDecoration : bool { No, Yes };
 
+namespace WritingTools {
+using SessionID = WTF::UUID;
+}
+
 class ChromeClient {
 public:
     virtual void chromeDestroyed() = 0;
@@ -351,10 +355,6 @@ public:
     virtual std::unique_ptr<DateTimeChooser> createDateTimeChooser(DateTimeChooserClient&) = 0;
 #endif
 
-#if ENABLE(APP_HIGHLIGHTS)
-    virtual void storeAppHighlight(WebCore::AppHighlight&&) const = 0;
-#endif
-
     virtual void setTextIndicator(const TextIndicatorData&) const = 0;
 
     virtual void runOpenPanel(LocalFrame&, FileChooser&) = 0;
@@ -379,7 +379,7 @@ public:
     
     virtual DisplayRefreshMonitorFactory* displayRefreshMonitorFactory() const { return nullptr; }
 
-    virtual RefPtr<ImageBuffer> createImageBuffer(const FloatSize&, RenderingPurpose, float, const DestinationColorSpace&, PixelFormat, OptionSet<ImageBufferOptions>) const { return nullptr; }
+    virtual RefPtr<ImageBuffer> createImageBuffer(const FloatSize&, RenderingPurpose, float, const DestinationColorSpace&, ImageBufferPixelFormat, OptionSet<ImageBufferOptions>) const { return nullptr; }
     WEBCORE_EXPORT virtual RefPtr<WebCore::ImageBuffer> sinkIntoImageBuffer(std::unique_ptr<WebCore::SerializedImageBuffer>);
 
 #if ENABLE(WEBGL)
@@ -447,7 +447,7 @@ public:
     virtual void enterVideoFullscreenForVideoElement(HTMLVideoElement&, HTMLMediaElementEnums::VideoFullscreenMode, bool standby) { UNUSED_PARAM(standby); }
     virtual void setUpPlaybackControlsManager(HTMLMediaElement&) { }
     virtual void clearPlaybackControlsManager() { }
-    virtual void playbackControlsMediaEngineChanged() { }
+    virtual void mediaEngineChanged(HTMLMediaElement&) { }
 #endif
 
 #if ENABLE(MEDIA_USAGE)
@@ -647,6 +647,8 @@ public:
     virtual void beginSystemPreview(const URL&, const SecurityOriginData&, const SystemPreviewInfo&, CompletionHandler<void()>&&) { }
 #endif
 
+    virtual void didAddOrRemoveViewportConstrainedObjects() { }
+
     virtual void requestCookieConsent(CompletionHandler<void(CookieConsentDecisionResult)>&&) = 0;
 
     virtual bool isUsingUISideCompositing() const { return false; }
@@ -656,6 +658,34 @@ public:
     virtual FloatSize screenSizeForFingerprintingProtections(const LocalFrame&, FloatSize defaultSize) const { return defaultSize; }
 
     virtual void didAdjustVisibilityWithSelectors(Vector<String>&&) { }
+
+#if ENABLE(GAMEPAD)
+    virtual void gamepadsRecentlyAccessed() { }
+#endif
+
+    virtual double baseViewportLayoutSizeScaleFactor() const { return 1; }
+
+#if ENABLE(WRITING_TOOLS)
+    virtual void proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WritingTools::SessionID&, const WritingTools::TextSuggestionID&, IntRect) { }
+
+    virtual void proofreadingSessionUpdateStateForSuggestionWithID(const WritingTools::SessionID&, WritingTools::TextSuggestionState, const WritingTools::TextSuggestionID&) { }
+
+    virtual void removeTextAnimationForAnimationID(const WTF::UUID&) { }
+
+    virtual void removeTransparentMarkersForSessionID(const WritingTools::SessionID&) { }
+
+    virtual void removeInitialTextAnimation(const WritingTools::SessionID&) { }
+
+    virtual void addInitialTextAnimation(const WritingTools::SessionID&) { }
+
+    virtual void addSourceTextAnimation(const WritingTools::SessionID&, const CharacterRange&, const String, WTF::CompletionHandler<void(void)>&&) { }
+
+    virtual void addDestinationTextAnimation(const WritingTools::SessionID&, const CharacterRange&, const String) { }
+
+    virtual void clearAnimationsForSessionID(const WritingTools::SessionID&) { };
+#endif
+
+    virtual void hasActiveNowPlayingSessionChanged(bool) { }
 
     WEBCORE_EXPORT virtual ~ChromeClient();
 

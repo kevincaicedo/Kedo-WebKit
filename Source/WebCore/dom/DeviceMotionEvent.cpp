@@ -30,6 +30,7 @@
 #include "DeviceOrientationAndMotionAccessController.h"
 #include "JSDOMPromiseDeferred.h"
 #include <wtf/IsoMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -142,7 +143,7 @@ void DeviceMotionEvent::requestPermission(Document& document, PermissionPromise&
 
     String errorMessage;
     if (!window->isAllowedToUseDeviceMotion(errorMessage)) {
-        document.addConsoleMessage(MessageSource::JS, MessageLevel::Warning, makeString("Call to requestPermission() failed, reason: ", errorMessage, "."));
+        document.addConsoleMessage(MessageSource::JS, MessageLevel::Warning, makeString("Call to requestPermission() failed, reason: "_s, errorMessage, '.'));
         return promise.resolve(PermissionState::Denied);
     }
 

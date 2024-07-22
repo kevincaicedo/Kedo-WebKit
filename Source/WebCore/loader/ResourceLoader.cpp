@@ -33,6 +33,7 @@
 #include "ApplicationCacheHost.h"
 #include "AuthenticationChallenge.h"
 #include "ContentRuleListResults.h"
+#include "DNS.h"
 #include "DataURLDecoder.h"
 #include "DiagnosticLoggingClient.h"
 #include "DiagnosticLoggingKeys.h"
@@ -60,6 +61,7 @@
 #include "SubresourceLoader.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/Ref.h>
+#include <wtf/text/MakeString.h>
 
 #if ENABLE(CONTENT_EXTENSIONS)
 #include "UserContentController.h"
@@ -161,6 +163,13 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
 
     if (!portAllowed(clientRequest.url())) {
         RESOURCELOADER_RELEASE_LOG("init: Cancelling load to a blocked port.");
+        FrameLoader::reportBlockedLoadFailed(*protectedFrame(), clientRequest.url());
+        releaseResources();
+        return completionHandler(false);
+    }
+
+    if (isIPAddressDisallowed(clientRequest.url())) {
+        RESOURCELOADER_RELEASE_LOG("init: Cancelling load to disallowed IP address.");
         FrameLoader::reportBlockedLoadFailed(*protectedFrame(), clientRequest.url());
         releaseResources();
         return completionHandler(false);
@@ -451,7 +460,7 @@ void ResourceLoader::willSendRequestInternal(ResourceRequest&& request, const Re
 
     if (m_options.sendLoadCallbacks == SendCallbackPolicy::SendCallbacks) {
         if (createdResourceIdentifier)
-            checkedFrameLoader()->notifier().assignIdentifierToInitialRequest(m_identifier, documentLoader(), request);
+            checkedFrameLoader()->notifier().assignIdentifierToInitialRequest(m_identifier, protectedDocumentLoader().get(), request);
 
 #if PLATFORM(IOS_FAMILY)
         // If this ResourceLoader was stopped as a result of assignIdentifierToInitialRequest, bail out
@@ -556,7 +565,7 @@ void ResourceLoader::didBlockAuthenticationChallenge()
     if (m_options.clientCredentialPolicy == ClientCredentialPolicy::CannotAskClientForCredentials)
         return;
     if (m_frame && !shouldAllowResourceToAskForCredentials())
-        m_frame->protectedDocument()->addConsoleMessage(MessageSource::Security, MessageLevel::Error, makeString("Blocked ", m_request.url().stringCenterEllipsizedToLength(), " from asking for credentials because it is a cross-origin request."));
+        m_frame->protectedDocument()->addConsoleMessage(MessageSource::Security, MessageLevel::Error, makeString("Blocked "_s, m_request.url().stringCenterEllipsizedToLength(), " from asking for credentials because it is a cross-origin request."_s));
 }
 
 void ResourceLoader::didReceiveResponse(const ResourceResponse& r, CompletionHandler<void()>&& policyCompletionHandler)
@@ -573,7 +582,7 @@ void ResourceLoader::didReceiveResponse(const ResourceResponse& r, CompletionHan
             if (!document->usedLegacyTLS()) {
                 if (RefPtr page = document->page()) {
                     RESOURCELOADER_RELEASE_LOG("usedLegacyTLS:");
-                    page->console().addMessage(MessageSource::Network, MessageLevel::Warning, makeString("Loaded resource from ", r.url().host(), " using TLS 1.0 or 1.1, which are deprecated protocols that will be removed. Please use TLS 1.2 or newer instead."), 0, document.get());
+                    page->console().addMessage(MessageSource::Network, MessageLevel::Warning, makeString("Loaded resource from "_s, r.url().host(), " using TLS 1.0 or 1.1, which are deprecated protocols that will be removed. Please use TLS 1.2 or newer instead."_s), 0, document.get());
                 }
                 document->setUsedLegacyTLS(true);
             }
@@ -681,7 +690,7 @@ void ResourceLoader::cancel()
     cancel(ResourceError());
 }
 
-void ResourceLoader::cancel(const ResourceError& error)
+void ResourceLoader::cancel(const ResourceError& error, LoadWillContinueInAnotherProcess loadWillContinueInAnotherProcess)
 {
     // If the load has already completed - succeeded, failed, or previously cancelled - do nothing.
     if (m_reachedTerminalState)
@@ -724,7 +733,7 @@ void ResourceLoader::cancel(const ResourceError& error)
     if (m_reachedTerminalState)
         return;
 
-    didCancel(nonNullError);
+    didCancel(loadWillContinueInAnotherProcess);
 
     if (m_cancellationStatus == FinishedCancel)
         return;

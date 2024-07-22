@@ -46,6 +46,7 @@
 #include "Text.h"
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/Ref.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -248,7 +249,7 @@ void HTMLOptionElement::setSelectedState(bool selected, AllowStyleInvalidation a
 
     m_isSelected = selected;
 
-    if (auto* cache = document().existingAXObjectCache())
+    if (CheckedPtr cache = document().existingAXObjectCache())
         cache->onSelectedChanged(*this);
 }
 
@@ -314,7 +315,7 @@ String HTMLOptionElement::textIndentedToRespectGroupLabel() const
 {
     RefPtr parent = parentNode();
     if (is<HTMLOptGroupElement>(parent))
-        return "    " + displayLabel();
+        return makeString("    "_s, displayLabel());
     return displayLabel();
 }
 

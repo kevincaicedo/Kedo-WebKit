@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #include "ArrayPrototype.h"
 #include "BuiltinNames.h"
 #include "CachedCall.h"
+#include "CharacterPropertyDataGenerator.h"
 #include "CodeBlock.h"
 #include "Completion.h"
 #include "ControlFlowProfiler.h"
@@ -97,7 +98,7 @@ using namespace JSC;
 
 IGNORE_WARNINGS_BEGIN("frame-address")
 
-extern "C" void ctiMasmProbeTrampoline();
+extern "C" void SYSV_ABI ctiMasmProbeTrampoline();
 
 namespace JSC {
 
@@ -1081,7 +1082,7 @@ public:
         return m_value;
     }
 
-    static ptrdiff_t offsetOfValue() { return OBJECT_OFFSETOF(DOMJITNode, m_value); }
+    static constexpr ptrdiff_t offsetOfValue() { return OBJECT_OFFSETOF(DOMJITNode, m_value); }
 
 private:
     int32_t m_value { 42 };
@@ -1342,8 +1343,8 @@ public:
         {
             DollarVMAssertScope assertScope;
             Ref<DOMJIT::CallDOMGetterSnippet> snippet = DOMJIT::CallDOMGetterSnippet::create();
-            static_assert(GPRInfo::numberOfRegisters >= 4, "Number of registers should be larger or equal to 4.");
-            unsigned numGPScratchRegisters = GPRInfo::numberOfRegisters - 4;
+            static_assert(GPRInfo::numberOfRegisters >= 5, "Number of registers should be larger or equal to 4.");
+            unsigned numGPScratchRegisters = GPRInfo::numberOfRegisters - 5;
             snippet->numGPScratchRegisters = numGPScratchRegisters;
             snippet->numFPScratchRegisters = 3;
             snippet->requireGlobalObject = true;
@@ -2226,6 +2227,7 @@ static JSC_DECLARE_HOST_FUNCTION(functionHasOwnLengthProperty);
 static JSC_DECLARE_HOST_FUNCTION(functionRejectPromiseAsHandled);
 static JSC_DECLARE_HOST_FUNCTION(functionSetUserPreferredLanguages);
 static JSC_DECLARE_HOST_FUNCTION(functionICUVersion);
+static JSC_DECLARE_HOST_FUNCTION(functionICUMinorVersion);
 static JSC_DECLARE_HOST_FUNCTION(functionICUHeaderVersion);
 static JSC_DECLARE_HOST_FUNCTION(functionAssertEnabled);
 static JSC_DECLARE_HOST_FUNCTION(functionSecurityAssertEnabled);
@@ -2258,6 +2260,7 @@ static JSC_DECLARE_HOST_FUNCTION(functionAssertFrameAligned);
 static JSC_DECLARE_HOST_FUNCTION(functionCallFromCPPAsFirstEntry);
 static JSC_DECLARE_HOST_FUNCTION(functionCallFromCPP);
 static JSC_DECLARE_HOST_FUNCTION(functionCachedCallFromCPP);
+static JSC_DECLARE_HOST_FUNCTION(functionDumpLineBreakData);
 
 const ClassInfo JSDollarVM::s_info = { "DollarVM"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSDollarVM) };
 
@@ -3275,11 +3278,11 @@ JSC_DEFINE_HOST_FUNCTION(functionCreateBuiltin, (JSGlobalObject* globalObject, C
     if (callFrame->argumentCount() < 1 || !callFrame->argument(0).isString())
         return JSValue::encode(jsUndefined());
 
-    String functionText = asString(callFrame->argument(0))->value(globalObject);
+    auto functionText = asString(callFrame->argument(0))->value(globalObject);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
 
     SourceCode source = makeSource(WTFMove(functionText), { }, SourceTaintedOrigin::Untainted);
-    JSFunction* func = JSFunction::create(vm, createBuiltinExecutable(vm, source, Identifier::fromString(vm, "foo"_s), ImplementationVisibility::Public, ConstructorKind::None, ConstructAbility::CannotConstruct, InlineAttribute::None)->link(vm, nullptr, source), globalObject);
+    JSFunction* func = JSFunction::create(vm, globalObject, createBuiltinExecutable(vm, source, Identifier::fromString(vm, "foo"_s), ImplementationVisibility::Public, ConstructorKind::None, ConstructAbility::CannotConstruct, InlineAttribute::None)->link(vm, nullptr, source), globalObject);
 
     return JSValue::encode(func);
 }
@@ -3293,7 +3296,7 @@ JSC_DEFINE_HOST_FUNCTION(functionRunTaintedString, (JSGlobalObject* globalObject
     if (callFrame->argumentCount() < 1 || !callFrame->argument(0).isString())
         return JSValue::encode(jsUndefined());
 
-    String functionText = asString(callFrame->argument(0))->value(globalObject);
+    auto functionText = asString(callFrame->argument(0))->value(globalObject);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
 
     SourceCode source = makeSource(functionText, { }, SourceTaintedOrigin::KnownTainted);
@@ -3315,7 +3318,7 @@ JSC_DEFINE_HOST_FUNCTION(functionGetPrivateProperty, (JSGlobalObject* globalObje
     if (callFrame->argumentCount() < 2 || !callFrame->argument(1).isString())
         return encodedJSUndefined();
 
-    String str = asString(callFrame->argument(1))->value(globalObject);
+    auto str = asString(callFrame->argument(1))->value(globalObject);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
 
     SymbolImpl* symbol = vm.propertyNames->builtinNames().lookUpPrivateName(str);
@@ -3445,7 +3448,7 @@ JSC_DEFINE_HOST_FUNCTION(functionFindTypeForExpression, (JSGlobalObject* globalO
     FunctionExecutable* executable = (jsDynamicCast<JSFunction*>(functionValue.asCell()->getObject()))->jsExecutable();
 
     RELEASE_ASSERT(callFrame->argument(1).isString());
-    String substring = asString(callFrame->argument(1))->value(globalObject);
+    auto substring = asString(callFrame->argument(1))->value(globalObject);
     String sourceCodeText = executable->source().view().toString();
     unsigned offset = static_cast<unsigned>(sourceCodeText.find(substring) + executable->source().startOffset());
     
@@ -3499,7 +3502,7 @@ JSC_DEFINE_HOST_FUNCTION(functionHasBasicBlockExecuted, (JSGlobalObject* globalO
     FunctionExecutable* executable = (jsDynamicCast<JSFunction*>(functionValue.asCell()->getObject()))->jsExecutable();
 
     RELEASE_ASSERT(callFrame->argument(1).isString());
-    String substring = asString(callFrame->argument(1))->value(globalObject);
+    auto substring = asString(callFrame->argument(1))->value(globalObject);
     String sourceCodeText = executable->source().view().toString();
     RELEASE_ASSERT(sourceCodeText.contains(substring));
     int offset = sourceCodeText.find(substring) + executable->source().startOffset();
@@ -3519,7 +3522,7 @@ JSC_DEFINE_HOST_FUNCTION(functionBasicBlockExecutionCount, (JSGlobalObject* glob
     FunctionExecutable* executable = (jsDynamicCast<JSFunction*>(functionValue.asCell()->getObject()))->jsExecutable();
 
     RELEASE_ASSERT(callFrame->argument(1).isString());
-    String substring = asString(callFrame->argument(1))->value(globalObject);
+    auto substring = asString(callFrame->argument(1))->value(globalObject);
     String sourceCodeText = executable->source().view().toString();
     RELEASE_ASSERT(sourceCodeText.contains(substring));
     int offset = sourceCodeText.find(substring) + executable->source().startOffset();
@@ -3816,24 +3819,37 @@ JSC_DEFINE_HOST_FUNCTION(functionSetUserPreferredLanguages, (JSGlobalObject* glo
     return JSValue::encode(jsUndefined());
 }
 
+// Usage: $vm.icuVersion()
 JSC_DEFINE_HOST_FUNCTION(functionICUVersion, (JSGlobalObject*, CallFrame*))
 {
     DollarVMAssertScope assertScope;
     return JSValue::encode(jsNumber(WTF::ICU::majorVersion()));
 }
 
+// Usage: $vm.icuMinorVersion()
+JSC_DEFINE_HOST_FUNCTION(functionICUMinorVersion, (JSGlobalObject*, CallFrame*))
+{
+    DollarVMAssertScope assertScope;
+    return JSValue::encode(jsNumber(WTF::ICU::minorVersion()));
+}
+
+// Usage: $vm.icuHeaderVersion()
 JSC_DEFINE_HOST_FUNCTION(functionICUHeaderVersion, (JSGlobalObject*, CallFrame*))
 {
     DollarVMAssertScope assertScope;
     return JSValue::encode(jsNumber(U_ICU_VERSION_MAJOR_NUM));
 }
 
+// Returns true if Debug ASSERTs are enabled.
+// Usage: $vm.assertEnabled()
 JSC_DEFINE_HOST_FUNCTION(functionAssertEnabled, (JSGlobalObject*, CallFrame*))
 {
     DollarVMAssertScope assertScope;
     return JSValue::encode(jsBoolean(ASSERT_ENABLED));
 }
 
+// Returns true if Security ASSERTs are enabled.
+// Usage: $vm.securityAssertEnabled()
 JSC_DEFINE_HOST_FUNCTION(functionSecurityAssertEnabled, (JSGlobalObject*, CallFrame*))
 {
     DollarVMAssertScope assertScope;
@@ -3844,12 +3860,16 @@ JSC_DEFINE_HOST_FUNCTION(functionSecurityAssertEnabled, (JSGlobalObject*, CallFr
 #endif
 }
 
+// Returns true if ASAN ASSERTs are enabled.
+// Usage: $vm.assertEnabled()
 JSC_DEFINE_HOST_FUNCTION(functionAsanEnabled, (JSGlobalObject*, CallFrame*))
 {
     DollarVMAssertScope assertScope;
     return JSValue::encode(jsBoolean(ASAN_ENABLED));
 }
 
+// Returns true if this platform is memory limited.
+// Usage: $vm.isMemoryLimited()
 JSC_DEFINE_HOST_FUNCTION(functionIsMemoryLimited, (JSGlobalObject*, CallFrame*))
 {
     DollarVMAssertScope assertScope;
@@ -3860,24 +3880,32 @@ JSC_DEFINE_HOST_FUNCTION(functionIsMemoryLimited, (JSGlobalObject*, CallFrame*))
 #endif
 }
 
+// Returns true if JIT is enabled.
+// Usage: $vm.useJIT()
 JSC_DEFINE_HOST_FUNCTION(functionUseJIT, (JSGlobalObject*, CallFrame*))
 {
     DollarVMAssertScope assertScope;
     return JSValue::encode(jsBoolean(Options::useJIT()));
 }
 
+// Returns true if DFG JIT is enabled.
+// Usage: $vm.useDFGJIT()
 JSC_DEFINE_HOST_FUNCTION(functionUseDFGJIT, (JSGlobalObject*, CallFrame*))
 {
     DollarVMAssertScope assertScope;
     return JSValue::encode(jsBoolean(Options::useDFGJIT()));
 }
 
+// Returns true if FTL JIT is enabled.
+// Usage: $vm.useFTLJIT()
 JSC_DEFINE_HOST_FUNCTION(functionUseFTLJIT, (JSGlobalObject*, CallFrame*))
 {
     DollarVMAssertScope assertScope;
     return JSValue::encode(jsBoolean(Options::useFTLJIT()));
 }
 
+// Returns true if Gigacage is enabled.
+// Usage: $vm.isGigacageEnabled()
 JSC_DEFINE_HOST_FUNCTION(functionIsGigacageEnabled, (JSGlobalObject*, CallFrame*))
 {
     DollarVMAssertScope assertScope;
@@ -4129,6 +4157,13 @@ JSC_DEFINE_HOST_FUNCTION(functionCachedCallFromCPP, (JSGlobalObject* globalObjec
     return JSValue::encode(jsUndefined());
 }
 
+JSC_DEFINE_HOST_FUNCTION(functionDumpLineBreakData, (JSGlobalObject*, CallFrame*))
+{
+    DollarVMAssertScope assertScope;
+    dumpLineBreakData();
+    return JSValue::encode(jsUndefined());
+}
+
 constexpr unsigned jsDollarVMPropertyAttributes = PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum | PropertyAttribute::DontDelete;
 
 void JSDollarVM::finishCreation(VM& vm)
@@ -4278,6 +4313,7 @@ void JSDollarVM::finishCreation(VM& vm)
 
     addFunction(vm, "setUserPreferredLanguages"_s, functionSetUserPreferredLanguages, 1);
     addFunction(vm, "icuVersion"_s, functionICUVersion, 0);
+    addFunction(vm, "icuMinorVersion"_s, functionICUMinorVersion, 0);
     addFunction(vm, "icuHeaderVersion"_s, functionICUHeaderVersion, 0);
 
     addFunction(vm, "assertEnabled"_s, functionAssertEnabled, 0);
@@ -4320,6 +4356,7 @@ void JSDollarVM::finishCreation(VM& vm)
     addFunction(vm, "callFromCPPAsFirstEntry"_s, functionCallFromCPPAsFirstEntry, 2);
     addFunction(vm, "callFromCPP"_s, functionCallFromCPP, 2);
     addFunction(vm, "cachedCallFromCPP"_s, functionCachedCallFromCPP, 2);
+    addFunction(vm, "dumpLineBreakData"_s, functionDumpLineBreakData, 0);
 
     m_objectDoingSideEffectPutWithoutCorrectSlotStatusStructureID.set(vm, this, ObjectDoingSideEffectPutWithoutCorrectSlotStatus::createStructure(vm, globalObject, jsNull()));
 }

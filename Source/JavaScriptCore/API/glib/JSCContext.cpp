@@ -37,6 +37,7 @@
 #include "Parser.h"
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/glib/WTFGType.h>
+#include <wtf/text/MakeString.h>
 
 /**
  * JSCContext:
@@ -257,18 +258,18 @@ JSCClass* jscContextGetRegisteredClass(JSCContext* context, JSClassRef jsClass)
 
 CallbackData jscContextPushCallback(JSCContext* context, JSValueRef calleeValue, JSValueRef thisValue, size_t argumentCount, const JSValueRef* arguments)
 {
-    Thread& thread = Thread::current();
-    auto* previousStack = static_cast<CallbackData*>(thread.m_apiData);
+    Ref thread = Thread::current();
+    auto* previousStack = static_cast<CallbackData*>(thread->m_apiData);
     CallbackData data = { context, WTFMove(context->priv->exception), calleeValue, thisValue, argumentCount, arguments, previousStack };
-    thread.m_apiData = &data;
+    thread->m_apiData = &data;
     return data;
 }
 
 void jscContextPopCallback(JSCContext* context, CallbackData&& data)
 {
-    Thread& thread = Thread::current();
+    Ref thread = Thread::current();
     context->priv->exception = WTFMove(data.preservedException);
-    thread.m_apiData = data.next;
+    thread->m_apiData = data.next;
 }
 
 JSValueRef jscContextGArrayToJSArray(JSCContext* context, GPtrArray* gArray, JSValueRef* exception)
@@ -460,7 +461,7 @@ JSValueRef jscContextGValueToJSValue(JSCContext* context, const GValue* value, J
         break;
     }
 
-    *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type "_s, g_type_name(G_VALUE_TYPE(value)))));
+    *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type "_s, span(g_type_name(G_VALUE_TYPE(value))))));
     return JSValueMakeUndefined(priv->jsContext.get());
 }
 
@@ -580,7 +581,7 @@ void jscContextJSValueToGValue(JSCContext* context, JSValueRef jsValue, GType ty
     case G_TYPE_INTERFACE:
     case G_TYPE_VARIANT:
     default:
-        *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type "_s, g_type_name(G_VALUE_TYPE(value)))));
+        *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type "_s, span(g_type_name(G_VALUE_TYPE(value))))));
         break;
     }
 }
@@ -589,13 +590,13 @@ void jscContextGarbageCollect(JSCContext* context, bool sanitizeStack)
 {
     auto* jsContext = context->priv->jsContext.get();
     JSC::JSGlobalObject* globalObject = toJS(jsContext);
-    JSC::VM& vm = globalObject->vm();
+    Ref vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
 
     if (sanitizeStack)
         sanitizeStackForVM(vm);
 
-    vm.heap.collectNow(JSC::Sync, JSC::CollectionScope::Full);
+    vm->heap.collectNow(JSC::Sync, JSC::CollectionScope::Full);
 }
 
 /**
@@ -909,7 +910,7 @@ JSCValue* jsc_context_evaluate_in_object(JSCContext* context, const char* code, 
     JSRetainPtr<JSGlobalContextRef> objectContext(Adopt,
         instance ? jscClassCreateContextWithJSWrapper(objectClass, context, instance) : JSGlobalContextCreateInGroup(jscVirtualMachineGetContextGroup(context->priv->vm.get()), nullptr));
     JSC::JSGlobalObject* globalObject = toJS(objectContext.get());
-    JSC::VM& vm = globalObject->vm();
+    Ref vm = globalObject->vm();
     JSC::JSLockHolder locker(globalObject);
     globalObject->setGlobalScopeExtension(JSC::JSWithScope::create(vm, globalObject, globalObject->globalScope(), toJS(JSContextGetGlobalObject(context->priv->jsContext.get()))));
     JSValueRef exception = nullptr;
@@ -969,7 +970,7 @@ JSCCheckSyntaxResult jsc_context_check_syntax(JSCContext* context, const char* c
 
     auto* jsContext = context->priv->jsContext.get();
     JSC::JSGlobalObject* globalObject = toJS(jsContext);
-    JSC::VM& vm = globalObject->vm();
+    Ref vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
 
     URL sourceURL = uri ? URL(String::fromLatin1(uri)) : URL();

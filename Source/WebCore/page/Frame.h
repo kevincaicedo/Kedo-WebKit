@@ -27,6 +27,7 @@
 
 #include "FrameIdentifier.h"
 #include "FrameTree.h"
+#include "OwnerPermissionsPolicyData.h"
 #include "PageIdentifier.h"
 #include <wtf/CheckedRef.h>
 #include <wtf/Ref.h>
@@ -49,6 +50,8 @@ class RenderWidget;
 class Settings;
 class WeakPtrImplWithEventTargetData;
 class WindowProxy;
+
+enum class AdvancedPrivacyProtections : uint16_t;
 
 class Frame : public ThreadSafeRefCounted<Frame, WTF::DestructionThread::Main>, public CanMakeWeakPtr<Frame> {
 public:
@@ -78,7 +81,7 @@ public:
     WEBCORE_EXPORT void detachFromAllOpenedFrames();
     virtual bool isRootFrame() const = 0;
 #if ASSERT_ENABLED
-    static bool isRootFrameIdentifier(FrameIdentifier);
+    WEBCORE_EXPORT static bool isRootFrameIdentifier(FrameIdentifier);
 #endif
 
     WEBCORE_EXPORT void detachFromPage();
@@ -108,8 +111,13 @@ public:
 
     virtual String customUserAgent() const = 0;
     virtual String customUserAgentAsSiteSpecificQuirks() const = 0;
+    virtual String customNavigatorPlatform() const = 0;
+    virtual OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const = 0;
 
     WEBCORE_EXPORT RenderWidget* ownerRenderer() const; // Renderer for the element that contains this frame.
+
+    WEBCORE_EXPORT void setOwnerPermissionsPolicy(OwnerPermissionsPolicyData&&);
+    WEBCORE_EXPORT std::optional<OwnerPermissionsPolicyData> ownerPermissionsPolicy() const;
 
 protected:
     Frame(Page&, FrameIdentifier, FrameType, HTMLFrameOwnerElement*, Frame* parent, Frame* opener);
@@ -133,6 +141,7 @@ private:
     WeakPtr<Frame> m_opener;
     WeakHashSet<Frame> m_openedFrames;
     mutable UniqueRef<HistoryController> m_history;
+    std::optional<OwnerPermissionsPolicyData> m_ownerPermisssionsPolicyOverride;
 };
 
 } // namespace WebCore

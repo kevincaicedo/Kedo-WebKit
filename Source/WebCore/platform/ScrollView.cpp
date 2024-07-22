@@ -40,6 +40,7 @@
 #include <wtf/HexNumber.h>
 #include <wtf/SetForScope.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
@@ -830,11 +831,14 @@ IntRect ScrollView::rectToCopyOnScroll() const
 {
     IntRect scrollViewRect = convertToRootView(IntRect(0, 0, visibleWidth(), visibleHeight()));
     if (hasOverlayScrollbars()) {
-        int verticalScrollbarWidth = (verticalScrollbar() && !hasLayerForVerticalScrollbar()) ? verticalScrollbar()->width() : 0;
-        int horizontalScrollbarHeight = (horizontalScrollbar() && !hasLayerForHorizontalScrollbar()) ? horizontalScrollbar()->height() : 0;
-        
-        scrollViewRect.setWidth(scrollViewRect.width() - verticalScrollbarWidth);
-        scrollViewRect.setHeight(scrollViewRect.height() - horizontalScrollbarHeight);
+        if (verticalScrollbar() && !hasLayerForVerticalScrollbar()) {
+            if (shouldPlaceVerticalScrollbarOnLeft())
+                scrollViewRect.shiftXEdgeBy(verticalScrollbar()->width());
+            else
+                scrollViewRect.shiftMaxXEdgeBy(-verticalScrollbar()->width());
+        }
+        if (horizontalScrollbar() && !hasLayerForHorizontalScrollbar())
+            scrollViewRect.shiftMaxYEdgeBy(-horizontalScrollbar()->height());
     }
     return scrollViewRect;
 }
@@ -1637,7 +1641,7 @@ ScrollView::ProhibitScrollingWhenChangingContentSizeForScope::~ProhibitScrolling
 
 String ScrollView::debugDescription() const
 {
-    return makeString("ScrollView 0x", hex(reinterpret_cast<uintptr_t>(this), Lowercase));
+    return makeString("ScrollView 0x"_s, hex(reinterpret_cast<uintptr_t>(this), Lowercase));
 }
 
 #if !PLATFORM(COCOA)

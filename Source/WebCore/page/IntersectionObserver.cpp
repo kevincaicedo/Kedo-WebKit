@@ -168,7 +168,7 @@ String IntersectionObserver::rootMargin() const
     StringBuilder stringBuilder;
     for (auto side : allBoxSides) {
         auto& length = m_rootMargin.at(side);
-        stringBuilder.append(length.intValue(), length.isPercent() ? "%" : "px", side != BoxSide::Left ? " " : "");
+        stringBuilder.append(length.intValue(), length.isPercent() ? "%"_s : "px"_s, side != BoxSide::Left ? " "_s : ""_s);
     }
     return stringBuilder.toString();
 }
@@ -473,7 +473,7 @@ auto IntersectionObserver::updateObservations(Document& hostDocument) -> NeedNot
         ASSERT(index != notFound);
         auto& registration = targetRegistrations[index];
 
-        bool isSameOriginObservation = &target->document() == &hostDocument || target->document().securityOrigin().isSameOriginDomain(hostDocument.securityOrigin());
+        bool isSameOriginObservation = &target->document() == &hostDocument || target->document().protectedSecurityOrigin()->isSameOriginDomain(hostDocument.securityOrigin());
         auto intersectionState = computeIntersectionState(registration, *frameView, *target, isSameOriginObservation);
 
         if (intersectionState.observationChanged) {

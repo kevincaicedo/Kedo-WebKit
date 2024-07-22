@@ -68,10 +68,12 @@ namespace Wasm {
     macro(NullStructGet, "struct.get to a null reference"_s) \
     macro(NullStructSet, "struct.set to a null reference"_s) \
     macro(TypeErrorInvalidV128Use, "an exported wasm function cannot contain a v128 parameter or return value"_s) \
+    macro(TypeErrorV128TagAccessInJS, "a v128 parameter of a tag may not be accessed from JS"_s) \
     macro(NullRefAsNonNull, "ref.as_non_null to a null reference"_s) \
     macro(CastFailure, "ref.cast failed to cast reference to target heap type"_s) \
     macro(OutOfBoundsDataSegmentAccess, "Offset + array length would exceed the size of a data segment"_s) \
-    macro(OutOfBoundsElementSegmentAccess, "Offset + array length would exceed the length of an element segment"_s)
+    macro(OutOfBoundsElementSegmentAccess, "Offset + array length would exceed the length of an element segment"_s) \
+    macro(OutOfMemory,  "Out of memory"_s)
 
 enum class ExceptionType : uint32_t {
 #define MAKE_ENUM(enumName, error) enumName,
@@ -134,10 +136,12 @@ ALWAYS_INLINE bool isTypeErrorExceptionType(ExceptionType type)
     case ExceptionType::NullStructSet:
     case ExceptionType::NullRefAsNonNull:
     case ExceptionType::CastFailure:
+    case ExceptionType::OutOfMemory:
         return false;
     case ExceptionType::FuncrefNotWasm:
     case ExceptionType::InvalidGCTypeUse:
     case ExceptionType::TypeErrorInvalidV128Use:
+    case ExceptionType::TypeErrorV128TagAccessInJS:
         return true;
     }
     return false;

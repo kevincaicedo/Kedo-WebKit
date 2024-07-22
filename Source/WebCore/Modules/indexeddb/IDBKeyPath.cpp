@@ -29,6 +29,7 @@
 
 #include <wtf/ASCIICType.h>
 #include <wtf/dtoa.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -210,7 +211,7 @@ bool isIDBKeyPathValid(const IDBKeyPath& keyPath)
 String loggingString(const IDBKeyPath& path)
 {
     auto visitor = WTF::makeVisitor([](const String& string) {
-        return makeString("< ", string, " >");
+        return makeString("< "_s, string, " >"_s);
     }, [](const Vector<String>& strings) {
         if (strings.isEmpty())
             return "< >"_str;

@@ -41,17 +41,13 @@ class PlaybackSessionModel;
 class PlaybackSessionModelClient;
 }
 
-namespace WTF {
-template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
-template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::PlaybackSessionModel> : std::true_type { };
-template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::PlaybackSessionModelClient> : std::true_type { };
-}
-
 namespace WebCore {
 
 class TimeRanges;
 class PlaybackSessionModelClient;
 struct MediaSelectionOption;
+
+enum class AudioSessionSoundStageSize : uint8_t;
 
 enum class PlaybackSessionModelExternalPlaybackTargetType : uint8_t {
     TargetTypeNone,
@@ -69,6 +65,12 @@ public:
     virtual ~PlaybackSessionModel() { };
     virtual void addClient(PlaybackSessionModelClient&) = 0;
     virtual void removeClient(PlaybackSessionModelClient&) = 0;
+
+    // CheckedPtr interface
+    virtual uint32_t ptrCount() const = 0;
+    virtual uint32_t ptrCountWithoutThreadCheck() const = 0;
+    virtual void incrementPtrCount() const = 0;
+    virtual void decrementPtrCount() const = 0;
 
     virtual void play() = 0;
     virtual void pause() = 0;
@@ -134,6 +136,11 @@ public:
     virtual bool isPictureInPictureSupported() const = 0;
     virtual bool isPictureInPictureActive() const = 0;
     virtual bool isInWindowFullscreenActive() const { return false; }
+    virtual AudioSessionSoundStageSize soundStageSize() const = 0;
+    virtual void setSoundStageSize(AudioSessionSoundStageSize) = 0;
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    virtual bool supportsLinearMediaPlayer() const { return false; }
+#endif
 
 #if !RELEASE_LOG_DISABLED
     virtual const void* logIdentifier() const { return nullptr; }
@@ -169,6 +176,9 @@ public:
     virtual void isPictureInPictureSupportedChanged(bool) { }
     virtual void pictureInPictureActiveChanged(bool) { }
     virtual void isInWindowFullscreenActiveChanged(bool) { }
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    virtual void supportsLinearMediaPlayerChanged(bool) { }
+#endif
     virtual void ensureControlsManager() { }
     virtual void modelDestroyed() { }
 };

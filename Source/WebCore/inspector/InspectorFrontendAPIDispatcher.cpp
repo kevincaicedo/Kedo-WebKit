@@ -37,6 +37,7 @@
 #include <JavaScriptCore/FrameTracers.h>
 #include <JavaScriptCore/JSPromise.h>
 #include <wtf/RunLoop.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -142,7 +143,7 @@ void InspectorFrontendAPIDispatcher::dispatchCommandWithResultAsync(const String
 
 void InspectorFrontendAPIDispatcher::dispatchMessageAsync(const String& message)
 {
-    evaluateOrQueueExpression(makeString("InspectorFrontendAPI.dispatchMessageAsync(", message, ")"));
+    evaluateOrQueueExpression(makeString("InspectorFrontendAPI.dispatchMessageAsync("_s, message, ')'));
 }
 
 void InspectorFrontendAPIDispatcher::evaluateOrQueueExpression(const String& expression, EvaluationResultHandler&& optionalResultHandler)

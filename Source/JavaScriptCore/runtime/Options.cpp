@@ -46,6 +46,7 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/TranslatedProcess.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/threads/Signals.h>
 
@@ -60,6 +61,11 @@
 #if ENABLE(JIT_CAGE)
 #include <machine/cpu_capabilities.h>
 #include <wtf/cocoa/Entitlements.h>
+#endif
+
+#if OS(LINUX)
+#include <unistd.h>
+extern "C" char **environ;
 #endif
 
 namespace JSC {
@@ -193,9 +199,10 @@ std::optional<T> parse(const char* string);
 template<>
 std::optional<OptionsStorage::Bool> parse(const char* string)
 {
-    if (equalLettersIgnoringASCIICase(string, "true"_s) || equalLettersIgnoringASCIICase(string, "yes"_s) || !strcmp(string, "1"))
+    auto span = WTF::span(string);
+    if (equalLettersIgnoringASCIICase(span, "true"_s) || equalLettersIgnoringASCIICase(span, "yes"_s) || !strcmp(string, "1"))
         return true;
-    if (equalLettersIgnoringASCIICase(string, "false"_s) || equalLettersIgnoringASCIICase(string, "no"_s) || !strcmp(string, "0"))
+    if (equalLettersIgnoringASCIICase(span, "false"_s) || equalLettersIgnoringASCIICase(span, "no"_s) || !strcmp(string, "0"))
         return false;
     return std::nullopt;
 }
@@ -263,13 +270,14 @@ std::optional<OptionsStorage::OptionString> parse(const char* string)
 template<>
 std::optional<OptionsStorage::GCLogLevel> parse(const char* string)
 {
-    if (equalLettersIgnoringASCIICase(string, "none"_s) || equalLettersIgnoringASCIICase(string, "no"_s) || equalLettersIgnoringASCIICase(string, "false"_s) || !strcmp(string, "0"))
+    auto span = WTF::span(string);
+    if (equalLettersIgnoringASCIICase(span, "none"_s) || equalLettersIgnoringASCIICase(span, "no"_s) || equalLettersIgnoringASCIICase(span, "false"_s) || !strcmp(string, "0"))
         return GCLogging::None;
 
-    if (equalLettersIgnoringASCIICase(string, "basic"_s) || equalLettersIgnoringASCIICase(string, "yes"_s) || equalLettersIgnoringASCIICase(string, "true"_s) || !strcmp(string, "1"))
+    if (equalLettersIgnoringASCIICase(span, "basic"_s) || equalLettersIgnoringASCIICase(span, "yes"_s) || equalLettersIgnoringASCIICase(span, "true"_s) || !strcmp(string, "1"))
         return GCLogging::Basic;
 
-    if (equalLettersIgnoringASCIICase(string, "verbose"_s) || !strcmp(string, "2"))
+    if (equalLettersIgnoringASCIICase(span, "verbose"_s) || !strcmp(string, "2"))
         return GCLogging::Verbose;
 
     return std::nullopt;
@@ -280,19 +288,20 @@ std::optional<OptionsStorage::OSLogType> parse(const char* string)
 {
     std::optional<OptionsStorage::OSLogType> result;
 
-    if (equalLettersIgnoringASCIICase(string, "none"_s) || equalLettersIgnoringASCIICase(string, "false"_s) || !strcmp(string, "0"))
+    auto span = WTF::span(string);
+    if (equalLettersIgnoringASCIICase(span, "none"_s) || equalLettersIgnoringASCIICase(span, "false"_s) || !strcmp(string, "0"))
         result = OSLogType::None;
-    else if (equalLettersIgnoringASCIICase(string, "true"_s) || !strcmp(string, "1"))
+    else if (equalLettersIgnoringASCIICase(span, "true"_s) || !strcmp(string, "1"))
         result = OSLogType::Error;
-    else if (equalLettersIgnoringASCIICase(string, "default"_s))
+    else if (equalLettersIgnoringASCIICase(span, "default"_s))
         result = OSLogType::Default;
-    else if (equalLettersIgnoringASCIICase(string, "info"_s))
+    else if (equalLettersIgnoringASCIICase(span, "info"_s))
         result = OSLogType::Info;
-    else if (equalLettersIgnoringASCIICase(string, "debug"_s))
+    else if (equalLettersIgnoringASCIICase(span, "debug"_s))
         result = OSLogType::Debug;
-    else if (equalLettersIgnoringASCIICase(string, "error"_s))
+    else if (equalLettersIgnoringASCIICase(span, "error"_s))
         result = OSLogType::Error;
-    else if (equalLettersIgnoringASCIICase(string, "fault"_s))
+    else if (equalLettersIgnoringASCIICase(span, "fault"_s))
         result = OSLogType::Fault;
 
     if (result && result.value() != Options::useOSLog())
@@ -404,7 +413,7 @@ bool Options::overrideAliasedOptionWithHeuristic(const char* name)
     if (!stringValue)
         return false;
 
-    auto aliasedOption = makeString(&name[4], '=', stringValue);
+    auto aliasedOption = makeString(span(&name[4]), '=', span(stringValue));
     if (Options::setOption(aliasedOption.utf8().data()))
         return true;
 
@@ -576,14 +585,14 @@ static void overrideDefaults()
 
 #if !ENABLE(WEBASSEMBLY)
     Options::useWebAssemblyFastMemory() = false;
-    Options::useWasmFaultSignalHandler() = false;
+    Options::useWebAssemblyFaultSignalHandler() = false;
 #endif
 
 #if !HAVE(MACH_EXCEPTIONS)
     Options::useMachForExceptions() = false;
 #endif
 
-    if (Options::useWasmLLInt() && !Options::wasmLLIntTiersUpToBBQ()) {
+    if (Options::useWebAssemblyLLInt() && !Options::webAssemblyLLIntTiersUpToBBQ()) {
         Options::thresholdForOMGOptimizeAfterWarmUp() = 1500;
         Options::thresholdForOMGOptimizeSoon() = 100;
     }
@@ -637,7 +646,7 @@ static inline void disableAllJITOptions()
     Options::dumpDFGDisassembly() = false;
     Options::dumpFTLDisassembly() = false;
     Options::dumpRegExpDisassembly() = false;
-    Options::dumpWasmDisassembly() = false;
+    Options::dumpWebAssemblyDisassembly() = false;
     Options::dumpBBQDisassembly() = false;
     Options::dumpOMGDisassembly() = false;
     Options::needDisassemblySupport() = false;
@@ -709,7 +718,7 @@ void Options::notifyOptionsChanged()
     Options::useConcurrentGC() = false;
     Options::forceUnlinkedDFG() = false;
     Options::useWebAssemblySIMD() = false;
-    Options::useIPIntWrappers() = false;
+    Options::useInterpretedJSEntryWrappers() = false;
 #if !CPU(ARM_THUMB2)
     Options::useBBQJIT() = false;
 #endif
@@ -719,7 +728,7 @@ void Options::notifyOptionsChanged()
 #endif
 
 #if ENABLE(C_LOOP) || !CPU(ADDRESS64) || !(CPU(ARM64) || (CPU(X86_64) && !OS(WINDOWS)))
-    Options::useIPIntWrappers() = false;
+    Options::useInterpretedJSEntryWrappers() = false;
 #endif
 
 #if !CPU(ARM64)
@@ -744,13 +753,20 @@ void Options::notifyOptionsChanged()
             Options::useFTLJIT() = false;
         }
 
+        // Windows: Building with WEBASSEMBLY_BBQJIT and disabling at runtime
+        // Windows: Building with WEBASSEMBLY_OMGJIT and disabling at runtime
+#if OS(WINDOWS)
+        Options::useBBQJIT() = false;
+        Options::useOMGJIT() = false;
+#endif
+
         if (Options::dumpDisassembly()
             || Options::asyncDisassembly()
             || Options::dumpBaselineDisassembly()
             || Options::dumpDFGDisassembly()
             || Options::dumpFTLDisassembly()
             || Options::dumpRegExpDisassembly()
-            || Options::dumpWasmDisassembly()
+            || Options::dumpWebAssemblyDisassembly()
             || Options::dumpBBQDisassembly()
             || Options::dumpOMGDisassembly())
             Options::needDisassemblySupport() = true;
@@ -808,7 +824,7 @@ void Options::notifyOptionsChanged()
         ASSERT((static_cast<int64_t>(Options::thresholdForOptimizeAfterLongWarmUp()) << Options::reoptimizationRetryCounterMax()) <= static_cast<int64_t>(std::numeric_limits<int32_t>::max()));
 
         if (!Options::useBBQJIT() && Options::useOMGJIT())
-            Options::wasmLLIntTiersUpToBBQ() = false;
+            Options::webAssemblyLLIntTiersUpToBBQ() = false;
 
 #if CPU(X86_64) && ENABLE(JIT)
         if (!MacroAssembler::supportsAVX())
@@ -818,18 +834,20 @@ void Options::notifyOptionsChanged()
         if (Options::forceAllFunctionsToUseSIMD() && !Options::useWebAssemblySIMD())
             Options::forceAllFunctionsToUseSIMD() = false;
 
-        if (Options::useWebAssemblySIMD() && !(Options::useWasmLLInt() || Options::useWasmIPInt())) {
-            // The LLInt is responsible for discovering if functions use SIMD.
-            // If we can't run using it, then we should be conservative.
-            Options::forceAllFunctionsToUseSIMD() = true;
-        }
-
         if (Options::useWebAssemblyTailCalls()) {
             // The single-pass BBQ JIT doesn't support these features currently, so we should use a different
             // BBQ backend if any of them are enabled. We should remove these limitations as support for each
             // is added.
             // FIXME: Add WASM tail calls support to single-pass BBQ JIT. https://bugs.webkit.org/show_bug.cgi?id=253192
             Options::useBBQJIT() = false;
+            Options::useWebAssemblyLLInt() = true;
+            Options::webAssemblyLLIntTiersUpToBBQ() = false;
+        }
+
+        if (Options::useWebAssemblySIMD() && !(Options::useWebAssemblyLLInt() || Options::useWebAssemblyIPInt())) {
+            // The LLInt is responsible for discovering if functions use SIMD.
+            // If we can't run using it, then we should be conservative.
+            Options::forceAllFunctionsToUseSIMD() = true;
         }
     }
 
@@ -894,18 +912,23 @@ void Options::notifyOptionsChanged()
         Options::verifyGC() = true;
 
 #if ASAN_ENABLED && OS(LINUX)
-    if (Options::useWasmFaultSignalHandler()) {
+    if (Options::useWebAssemblyFaultSignalHandler()) {
         const char* asanOptions = getenv("ASAN_OPTIONS");
         bool okToUseWebAssemblyFastMemory = asanOptions
             && (strstr(asanOptions, "allow_user_segv_handler=1") || strstr(asanOptions, "handle_segv=0"));
         if (!okToUseWebAssemblyFastMemory) {
             dataLogLn("WARNING: ASAN interferes with JSC signal handlers; useWebAssemblyFastMemory and useWasmFaultSignalHandler will be disabled.");
-            Options::useWasmFaultSignalHandler() = false;
+            Options::useWebAssemblyFaultSignalHandler() = false;
         }
     }
 #endif
 
-    if (!Options::useWasmFaultSignalHandler())
+    // We can't use our pacibsp system while using posix signals because the signal handler could trash our stack during reifyInlinedCallFrames.
+    // If we have JITCage we don't need to restrict ourselves to pacibsp.
+    if (!Options::useMachForExceptions() || Options::useJITCage())
+        Options::allowNonSPTagging() = true;
+
+    if (!Options::useWebAssemblyFaultSignalHandler())
         Options::useWebAssemblyFastMemory() = false;
 
 #if CPU(ADDRESS32)
@@ -959,11 +982,17 @@ void Options::initialize()
             overrideDefaults();
 
             // Allow environment vars to override options if applicable.
-            // The evn var should be the name of the option prefixed with
+            // The env var should be the name of the option prefixed with
             // "JSC_".
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) || OS(LINUX)
             bool hasBadOptions = false;
-            for (char** envp = *_NSGetEnviron(); *envp; envp++) {
+#if PLATFORM(COCOA)
+            char** envp = *_NSGetEnviron();
+#else
+            char** envp = environ;
+#endif
+
+            for (; *envp; envp++) {
                 const char* env = *envp;
                 if (!strncmp("JSC_", env, 4)) {
                     if (!Options::setOption(&env[4])) {
@@ -974,7 +1003,9 @@ void Options::initialize()
             }
             if (hasBadOptions && Options::validateOptions())
                 CRASH();
-#else // PLATFORM(COCOA)
+#endif // PLATFORM(COCOA) || OS(LINUX)
+
+#if !PLATFORM(COCOA)
 #define OVERRIDE_OPTION_WITH_HEURISTICS(type_, name_, defaultValue_, availability_, description_) \
             overrideOptionWithHeuristic(name_(), name_##ID, "JSC_" #name_, Availability::availability_);
             FOR_EACH_JSC_OPTION(OVERRIDE_OPTION_WITH_HEURISTICS)
@@ -985,7 +1016,7 @@ void Options::initialize()
             FOR_EACH_JSC_ALIASED_OPTION(OVERRIDE_ALIASED_OPTION_WITH_HEURISTICS)
 #undef OVERRIDE_ALIASED_OPTION_WITH_HEURISTICS
 
-#endif // PLATFORM(COCOA)
+#endif // !PLATFORM(COCOA)
 
 #if 0
                 ; // Deconfuse editors that do auto indentation
@@ -1168,7 +1199,7 @@ bool Options::setAliasedOption(const char* arg, bool verify)
         && !strncasecmp(arg, #aliasedName_, equalStr - arg)) {          \
         auto unaliasedOption = String::fromLatin1(#unaliasedName_);     \
         if (equivalence == SameOption)                                  \
-            unaliasedOption = unaliasedOption + span(equalStr);         \
+            unaliasedOption = makeString(unaliasedOption, span(equalStr)); \
         else {                                                          \
             ASSERT(equivalence == InvertedOption);                      \
             auto invertedValueStr = invertBoolOptionValue(equalStr + 1); \
@@ -1267,14 +1298,19 @@ void Options::assertOptionsAreCoherent()
         coherent = false;
         dataLog("INCOHERENT OPTIONS: at least one of useLLInt or useJIT must be true\n");
     }
-    if (useWebAssembly() && !(useWasmLLInt() || useBBQJIT())) {
+    if (useWebAssembly() && !(useWebAssemblyLLInt() || useBBQJIT())) {
         coherent = false;
-        dataLog("INCOHERENT OPTIONS: at least one of useWasmLLInt or useBBQJIT must be true\n");
+        dataLog("INCOHERENT OPTIONS: at least one of useWebAssemblyLLInt or useBBQJIT must be true\n");
     }
     if (useProfiler() && useConcurrentJIT()) {
         coherent = false;
         dataLogLn("Bytecode profiler is not concurrent JIT safe.");
     }
+    if (!allowNonSPTagging() && !useMachForExceptions()) {
+        coherent = false;
+        dataLog("INCOHERENT OPTIONS: can't restrict pointer tagging to pacibsp and use posix signals");
+    }
+
     if (!coherent)
         CRASH();
 }
@@ -1382,7 +1418,7 @@ SUPPRESS_ASAN bool canUseJITCage()
 {
     if (JSC_FORCE_USE_JIT_CAGE)
         return true;
-    return JSC_JIT_CAGE_VERSION() && WTF::processHasEntitlement("com.apple.private.verified-jit"_s);
+    return JSC_JIT_CAGE_VERSION() && !ASAN_ENABLED && WTF::processHasEntitlement("com.apple.private.verified-jit"_s);
 }
 #else
 bool canUseJITCage() { return false; }
@@ -1391,11 +1427,7 @@ bool canUseJITCage() { return false; }
 bool canUseHandlerIC()
 {
 #if CPU(X86_64)
-#if OS(WINDOWS)
-    return false;
-#else
     return true;
-#endif
 #elif CPU(ARM64)
     return !isIOS();
 #elif CPU(RISCV64)

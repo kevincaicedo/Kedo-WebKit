@@ -26,15 +26,14 @@
 #import "config.h"
 #import "WKObjCTypeWrapperRef.h"
 
-#import "ObjCObjectGraph.h"
+#import "WKData.h"
+#import "WKNSData.h"
 #import "WKSharedAPICast.h"
-
-WKTypeID WKObjCTypeWrapperGetTypeID()
-{
-    return WebKit::toAPI(WebKit::ObjCObjectGraph::APIType);
-}
+#import "WKType.h"
 
 id WKObjCTypeWrapperGetObject(WKObjCTypeWrapperRef wrapperRef)
 {
-    return WebKit::toImpl(wrapperRef)->rootObject();
+    if (wrapperRef && WKGetTypeID(wrapperRef) == WKDataGetTypeID())
+        return WebKit::wrapper(WebKit::toImpl((WKDataRef)wrapperRef));
+    return nil;
 }

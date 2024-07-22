@@ -28,6 +28,7 @@
 #include "JSGlobalObjectInlines.h"
 #include "JSString.h"
 #include "KeyAtomStringCacheInlines.h"
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
@@ -61,9 +62,9 @@ ALWAYS_INLINE bool JSString::equalInline(JSGlobalObject* globalObject, JSString*
     if (length != other->length())
         return false;
 
-    auto str1 = unsafeView(globalObject);
+    auto str1 = view(globalObject);
     RETURN_IF_EXCEPTION(scope, false);
-    auto str2 = other->unsafeView(globalObject);
+    auto str2 = other->view(globalObject);
     RETURN_IF_EXCEPTION(scope, false);
 
     ensureStillAliveHere(this);

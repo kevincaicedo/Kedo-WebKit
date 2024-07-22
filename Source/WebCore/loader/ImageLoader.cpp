@@ -52,6 +52,7 @@
 #include "Settings.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Scope.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextStream.h>
 
 #if ENABLE(VIDEO)
@@ -395,7 +396,7 @@ inline void ImageLoader::rejectDecodePromises(ASCIILiteral message)
     rejectPromises(m_decodingPromises, message);
 }
 
-void ImageLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetrics&)
+void ImageLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess)
 {
     LOG_WITH_STREAM(LazyLoading, stream << "ImageLoader " << this << " notifyFinished - hasPendingLoadEvent " << m_hasPendingLoadEvent);
 
@@ -425,7 +426,7 @@ void ImageLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetr
         m_hasPendingErrorEvent = true;
         loadEventSender().dispatchEventSoon(*this, eventNames().errorEvent);
 
-        auto message = makeString("Cannot load image ", imageURL.string(), " due to access control checks.");
+        auto message = makeString("Cannot load image "_s, imageURL.string(), " due to access control checks."_s);
         element().protectedDocument()->addConsoleMessage(MessageSource::Security, MessageLevel::Error, message);
 
         if (hasPendingDecodePromises())

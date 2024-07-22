@@ -111,7 +111,7 @@ void RenderReplaced::layout()
     StackStats::LayoutCheckPoint layoutCheckPoint;
     ASSERT(needsLayout());
     
-    LayoutRepainter repainter(*this, checkForRepaintDuringLayout());
+    LayoutRepainter repainter(*this);
 
     LayoutRect oldContentRect = replacedContentRect();
     
@@ -148,8 +148,13 @@ bool RenderReplaced::shouldDrawSelectionTint() const
 inline static bool contentContainsReplacedElement(const Vector<WeakPtr<RenderedDocumentMarker>>& markers, const Element& element)
 {
     for (auto& marker : markers) {
-        if (std::get<RefPtr<Node>>(marker->data()) == &element)
-            return true;
+        if (marker->type() == DocumentMarker::Type::DraggedContent) {
+            if (std::get<RefPtr<Node>>(marker->data()) == &element)
+                return true;
+        } else if (marker->type() == DocumentMarker::Type::TransparentContent) {
+            if (std::get<DocumentMarker::TransparentContentData>(marker->data()).node == &element)
+                return true;
+        }
     }
     return false;
 }
@@ -297,8 +302,7 @@ void RenderReplaced::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
         if (!completelyClippedOut) {
             // Push a clip if we have a border radius, since we want to round the foreground content that gets painted.
             paintInfo.context().save();
-            auto pixelSnappedRoundedRect = style().getRoundedInnerBorderFor(paintRect,
-                paddingTop() + borderTop(), paddingBottom() + borderBottom(), paddingLeft() + borderLeft(), paddingRight() + borderRight(), true, true).pixelSnappedRoundedRectForPainting(document().deviceScaleFactor());
+            auto pixelSnappedRoundedRect = roundedContentBoxRect(paintRect).pixelSnappedRoundedRectForPainting(document().deviceScaleFactor());
             BackgroundPainter::clipRoundedInnerRect(paintInfo.context(), paintRect, pixelSnappedRoundedRect);
         }
     }
@@ -329,6 +333,9 @@ void RenderReplaced::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 bool RenderReplaced::shouldPaint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
     if ((paintInfo.paintBehavior.contains(PaintBehavior::ExcludeSelection)) && isSelected())
+        return false;
+
+    if (paintInfo.paintBehavior.contains(PaintBehavior::ExcludeReplacedContent))
         return false;
 
     if (paintInfo.phase != PaintPhase::Foreground
@@ -519,13 +526,6 @@ double RenderReplaced::computeIntrinsicAspectRatio() const
     return intrinsicRatio.aspectRatioDouble();
 }
 
-RoundedRect RenderReplaced::roundedContentBoxRect() const
-{
-    return style().getRoundedInnerBorderFor(borderBoxRect(),
-        borderTop() + paddingTop(), borderBottom() + paddingBottom(),
-        borderLeft() + paddingLeft(), borderRight() + paddingRight());
-}
-
 void RenderReplaced::computeIntrinsicRatioInformation(FloatSize& intrinsicSize, FloatSize& intrinsicRatio) const
 {
     // If there's an embeddedContentBox() of a remote, referenced document available, this code-path should never be used.
@@ -548,11 +548,8 @@ void RenderReplaced::computeIntrinsicRatioInformation(FloatSize& intrinsicSize, 
     intrinsicRatio = { intrinsicSize.width(), intrinsicSize.height() };
 }
 
-LayoutUnit RenderReplaced::computeConstrainedLogicalWidth(ShouldComputePreferred shouldComputePreferred) const
+LayoutUnit RenderReplaced::computeConstrainedLogicalWidth() const
 {
-    if (shouldComputePreferred == ComputePreferred)
-        return computeReplacedLogicalWidthRespectingMinMaxWidth(0_lu, ComputePreferred);
-
     // The aforementioned 'constraint equation' used for block-level, non-replaced
     // elements in normal flow:
     // 'margin-left' + 'border-left-width' + 'padding-left' + 'width' +
@@ -566,7 +563,7 @@ LayoutUnit RenderReplaced::computeConstrainedLogicalWidth(ShouldComputePreferred
     LayoutUnit marginEnd = minimumValueForLength(style().marginEnd(), logicalWidth); 
 
     logicalWidth = std::max(0_lu, (logicalWidth - (marginStart + marginEnd + borderLeft() + borderRight() + paddingLeft() + paddingRight())));
-    return computeReplacedLogicalWidthRespectingMinMaxWidth(logicalWidth, shouldComputePreferred);
+    return computeReplacedLogicalWidthRespectingMinMaxWidth(logicalWidth, ShouldComputePreferred::ComputeActual);
 }
 
 static inline LayoutUnit resolveWidthForRatio(LayoutUnit borderAndPaddingLogicalHeight, LayoutUnit borderAndPaddingLogicalWidth, LayoutUnit logicalHeight, double aspectRatio, BoxSizing boxSizing)
@@ -619,7 +616,7 @@ LayoutUnit RenderReplaced::computeReplacedLogicalWidth(ShouldComputePreferred sh
             // or if 'width' has a computed value of 'auto', 'height' has some other computed value, and the element does have an intrinsic ratio; then the used value
             // of 'width' is: (used height) * (intrinsic ratio)
             if (!computedHeightIsAuto || (!hasIntrinsicWidth && hasIntrinsicHeight)) {
-                LayoutUnit estimatedUsedWidth = hasIntrinsicWidth ? LayoutUnit(constrainedSize.width()) : computeConstrainedLogicalWidth(shouldComputePreferred);
+                LayoutUnit estimatedUsedWidth = hasIntrinsicWidth ? LayoutUnit(constrainedSize.width()) : shouldComputePreferred == ShouldComputePreferred::ComputePreferred ? computeReplacedLogicalWidthRespectingMinMaxWidth(0_lu, shouldComputePreferred) : computeConstrainedLogicalWidth();
                 LayoutUnit logicalHeight = computeReplacedLogicalHeight(std::optional<LayoutUnit>(estimatedUsedWidth));
                 BoxSizing boxSizing = style().hasAspectRatio() ? style().boxSizingForAspectRatio() : BoxSizing::ContentBox;
                 return computeReplacedLogicalWidthRespectingMinMaxWidth(resolveWidthForRatio(borderAndPaddingLogicalHeight(), borderAndPaddingLogicalWidth(), logicalHeight, intrinsicRatio.aspectRatioDouble(), boxSizing), shouldComputePreferred);
@@ -632,8 +629,11 @@ LayoutUnit RenderReplaced::computeReplacedLogicalWidth(ShouldComputePreferred sh
             // on the replaced element's width, then the used value of 'width' is
             // calculated from the constraint equation used for block-level,
             // non-replaced elements in normal flow.
-            if (computedHeightIsAuto && !hasIntrinsicWidth && !hasIntrinsicHeight)
-                return computeConstrainedLogicalWidth(shouldComputePreferred);
+            if (computedHeightIsAuto && !hasIntrinsicWidth && !hasIntrinsicHeight) {
+                if (shouldComputePreferred == ShouldComputePreferred::ComputePreferred && (isFlexItem() || isGridItem()))
+                    return computeConstrainedLogicalWidth();
+                return shouldComputePreferred == ShouldComputePreferred::ComputePreferred ? computeReplacedLogicalWidthRespectingMinMaxWidth(0_lu, shouldComputePreferred) : computeConstrainedLogicalWidth();
+            }
         }
 
         // Otherwise, if 'width' has a computed value of 'auto', and the element has an intrinsic width, then that intrinsic width is the used value of 'width'.
@@ -675,8 +675,8 @@ LayoutUnit RenderReplaced::computeReplacedLogicalHeight(std::optional<LayoutUnit
     bool hasIntrinsicWidth = constrainedSize.width() > 0 || shouldApplySizeOrInlineSizeContainment();
 
     // See computeReplacedLogicalHeight() for a similar check for heights.
-    if (!intrinsicRatio.isEmpty() && (isFlexItem() || isGridItem()) && hasOverridingLogicalWidth() && hasIntrinsicSize(contentRenderer, hasIntrinsicWidth, hasIntrinsicHeight))
-        return computeReplacedLogicalHeightRespectingMinMaxHeight(overridingContentLogicalWidth() * intrinsicRatio.transposedSize().aspectRatioDouble());
+    if (auto overridinglogicalWidth = (!intrinsicRatio.isEmpty() && (isFlexItem() || isGridItem()) && hasIntrinsicSize(contentRenderer, hasIntrinsicWidth, hasIntrinsicHeight) ? overridingLogicalWidth() : std::nullopt))
+        return computeReplacedLogicalHeightRespectingMinMaxHeight(overridingContentLogicalWidth(*overridinglogicalWidth) * intrinsicRatio.transposedSize().aspectRatioDouble());
 
     // If 'height' and 'width' both have computed values of 'auto' and the element also has an intrinsic height, then that intrinsic height is the used value of 'height'.
     if (widthIsAuto && hasIntrinsicHeight)

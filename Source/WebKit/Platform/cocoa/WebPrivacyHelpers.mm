@@ -42,6 +42,7 @@
 #import <wtf/RunLoop.h>
 #import <wtf/WeakRandom.h>
 #import <wtf/cocoa/VectorCocoa.h>
+#import <wtf/text/MakeString.h>
 
 #import <pal/cocoa/WebPrivacySoftLink.h>
 
@@ -218,7 +219,7 @@ void LinkDecorationFilteringController::updateStrings(CompletionHandler<void()>&
         else {
             auto rules = [data rules];
             for (WPLinkFilteringRule *rule : rules) {
-                auto domain = WebCore::RegistrableDomain { URL { makeString("http://", String { rule.domain }) } };
+                auto domain = WebCore::RegistrableDomain { URL { makeString("http://"_s, String { rule.domain }) } };
                 // FIXME: This should be removed with rdar://127137181
                 if ([rule.domain hasPrefix:@"http://"])
                     domain = WebCore::RegistrableDomain { URL { String { rule.domain } } };
@@ -265,7 +266,7 @@ void requestLinkDecorationFilteringData(LinkFilteringRulesCallback&& callback)
         else {
             auto rules = [data rules];
             for (WPLinkFilteringRule *rule : rules) {
-                auto domain = WebCore::RegistrableDomain { URL { makeString("http://", String { rule.domain }) } };
+                auto domain = WebCore::RegistrableDomain { URL { makeString("http://"_s, String { rule.domain }) } };
                 // FIXME: This should be removed with rdar://127137181
                 if ([rule.domain hasPrefix:@"http://"])
                     domain = WebCore::RegistrableDomain { URL { String { rule.domain } } };
@@ -827,7 +828,7 @@ void configureForAdvancedPrivacyProtections(NSURLSession *session)
         }
 
         if (auto host = hostname(endpoint)) {
-            auto domain = WebCore::RegistrableDomain { URL { makeString("http://", String::fromLatin1(*host)) } };
+            auto domain = WebCore::RegistrableDomain { URL { makeString("http://"_s, String::fromLatin1(*host)) } };
             if (auto info = TrackerDomainLookupInfo::find(domain.string()); info.owner().length()) {
                 *owner = info.owner().data();
                 *hostName = *host;

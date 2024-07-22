@@ -44,6 +44,7 @@
 #include "WebCodecsVideoFrame.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <wtf/IsoMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -112,6 +113,32 @@ static ExceptionOr<VideoEncoder::Config> createVideoEncoderConfig(const WebCodec
     return VideoEncoder::Config { config.width, config.height, useAnnexB, config.bitrate.value_or(0), config.framerate.value_or(0), config.latencyMode == LatencyMode::Realtime, scalabilityMode };
 }
 
+bool WebCodecsVideoEncoder::updateRates(const WebCodecsVideoEncoderConfig& config)
+{
+    auto bitrate = config.bitrate.value_or(0);
+    auto framerate = config.framerate.value_or(0);
+
+    m_isMessageQueueBlocked = true;
+    bool isChangingRatesSupported = m_internalEncoder->setRates(bitrate, framerate, [this, weakThis = WeakPtr { *this }, bitrate, framerate]() mutable {
+        auto protectedThis = weakThis.get();
+        if (!protectedThis)
+            return;
+
+        if (m_state == WebCodecsCodecState::Closed || !scriptExecutionContext())
+            return;
+
+        if (bitrate)
+            m_baseConfiguration.bitrate = bitrate;
+        if (framerate)
+            m_baseConfiguration.framerate = framerate;
+        m_isMessageQueueBlocked = false;
+        processControlMessageQueue();
+    });
+    if (!isChangingRatesSupported)
+        m_isMessageQueueBlocked = false;
+    return isChangingRatesSupported;
+}
+
 ExceptionOr<void> WebCodecsVideoEncoder::configure(ScriptExecutionContext& context, WebCodecsVideoEncoderConfig&& config)
 {
     if (!isValidEncoderConfig(config))
@@ -125,6 +152,9 @@ ExceptionOr<void> WebCodecsVideoEncoder::configure(ScriptExecutionContext& conte
 
     if (m_internalEncoder) {
         queueControlMessageAndProcess([this, config]() mutable {
+            if (isSameConfigurationExceptBitrateAndFramerate(m_baseConfiguration, config) && updateRates(config))
+                return;
+
             m_isMessageQueueBlocked = true;
             m_internalEncoder->flush([weakThis = ThreadSafeWeakPtr { *this }, config = WTFMove(config)]() mutable {
                 RefPtr protectedThis = weakThis.get();
@@ -142,6 +172,9 @@ ExceptionOr<void> WebCodecsVideoEncoder::configure(ScriptExecutionContext& conte
 
     bool isSupportedCodec = isSupportedEncoderCodec(config.codec, context.settingsValues());
     queueControlMessageAndProcess([this, config = WTFMove(config), isSupportedCodec, identifier = scriptExecutionContext()->identifier()]() mutable {
+        if (isSupportedCodec && isSameConfigurationExceptBitrateAndFramerate(m_baseConfiguration, config) && updateRates(config))
+            return;
+
         m_isMessageQueueBlocked = true;
         VideoEncoder::PostTaskCallback postTaskCallback = [weakThis = ThreadSafeWeakPtr { *this }, identifier](auto&& task) {
             ScriptExecutionContext::postTaskTo(identifier, [weakThis, task = WTFMove(task)](auto&) mutable {
@@ -185,7 +218,7 @@ ExceptionOr<void> WebCodecsVideoEncoder::configure(ScriptExecutionContext& conte
             if (m_state != WebCodecsCodecState::Configured)
                 return;
 
-            RefPtr<JSC::ArrayBuffer> buffer = JSC::ArrayBuffer::create(result.data.data(), result.data.size());
+            RefPtr<JSC::ArrayBuffer> buffer = JSC::ArrayBuffer::create(result.data);
             auto chunk = WebCodecsEncodedVideoChunk::create(WebCodecsEncodedVideoChunk::Init {
                 result.isKeyFrame ? WebCodecsEncodedVideoChunkType::Key : WebCodecsEncodedVideoChunkType::Delta,
                 result.timestamp,
@@ -259,7 +292,7 @@ ExceptionOr<void> WebCodecsVideoEncoder::encode(Ref<WebCodecsVideoFrame>&& frame
             --(protectedThis->m_beingEncodedQueueSize);
             if (!result.isNull()) {
                 if (RefPtr context = protectedThis->scriptExecutionContext())
-                    context->addConsoleMessage(MessageSource::JS, MessageLevel::Error, makeString("VideoEncoder encode failed: ", result));
+                    context->addConsoleMessage(MessageSource::JS, MessageLevel::Error, makeString("VideoEncoder encode failed: "_s, result));
                 protectedThis->closeEncoder(Exception { ExceptionCode::EncodingError, WTFMove(result) });
                 return;
             }

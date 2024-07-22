@@ -116,7 +116,7 @@ public:
     virtual HashSet<WebCore::SecurityOriginData> originsWithCredentials() { return { }; }
     virtual void removeCredentialsForOrigins(const Vector<WebCore::SecurityOriginData>&) { }
     virtual void clearCredentials(WallTime) { }
-    virtual void loadImageForDecoding(WebCore::ResourceRequest&&, WebPageProxyIdentifier, CompletionHandler<void(std::variant<WebCore::ResourceError, Ref<WebCore::SharedBuffer>>&&)>&&) { ASSERT_NOT_REACHED(); }
+    virtual void loadImageForDecoding(WebCore::ResourceRequest&&, WebPageProxyIdentifier, size_t, CompletionHandler<void(std::variant<WebCore::ResourceError, Ref<WebCore::FragmentedSharedBuffer>>&&)>&&) { ASSERT_NOT_REACHED(); }
 
     PAL::SessionID sessionID() const { return m_sessionID; }
     NetworkProcess& networkProcess() { return m_networkProcess; }
@@ -254,7 +254,7 @@ public:
     void reportNetworkIssue(WebPageProxyIdentifier, const URL&);
 #endif
 
-#if ENABLE(BUILT_IN_NOTIFICATIONS)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
     NetworkNotificationManager& notificationManager() { return m_notificationManager; }
 #endif
 
@@ -360,7 +360,7 @@ protected:
 
     HashMap<WebPageProxyIdentifier, String> m_attributedBundleIdentifierFromPageIdentifiers;
 
-#if ENABLE(BUILT_IN_NOTIFICATIONS)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
     NetworkNotificationManager m_notificationManager;
 #endif
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)

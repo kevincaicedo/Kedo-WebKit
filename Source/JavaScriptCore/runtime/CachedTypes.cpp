@@ -180,7 +180,7 @@ private:
         }
 
         for (const auto& page : m_pages) {
-            int bytesWritten = FileSystem::writeToFile(m_fd, page.buffer(), page.size());
+            int bytesWritten = FileSystem::writeToFile(m_fd, page.span());
             if (bytesWritten == -1) {
                 error = BytecodeCacheError::StandardError(errno);
                 return nullptr;
@@ -225,6 +225,9 @@ private:
 
         uint8_t* buffer() const { return m_buffer.get(); }
         size_t size() const { return static_cast<size_t>(m_offset); }
+
+        std::span<uint8_t> mutableSpan() { return { m_buffer.get(), size() }; }
+        std::span<const uint8_t> span() const { return { m_buffer.get(), size() }; }
 
         bool getOffset(const void* address, ptrdiff_t& result) const
         {
@@ -301,8 +304,9 @@ size_t Decoder::size() const
 ptrdiff_t Decoder::offsetOf(const void* ptr)
 {
     const uint8_t* addr = static_cast<const uint8_t*>(ptr);
-    ASSERT(addr >= m_cachedBytecode->data() && addr < m_cachedBytecode->data() + m_cachedBytecode->size());
-    return addr - m_cachedBytecode->data();
+    auto cachedBytecodeSpan = m_cachedBytecode->span();
+    ASSERT(addr >= cachedBytecodeSpan.data() && addr < (cachedBytecodeSpan.data() + cachedBytecodeSpan.size()));
+    return addr - cachedBytecodeSpan.data();
 }
 
 void Decoder::cacheOffset(ptrdiff_t offset, void* ptr)
@@ -321,7 +325,7 @@ std::optional<void*> Decoder::cachedPtrForOffset(ptrdiff_t offset)
 const void* Decoder::ptrForOffsetFromBase(ptrdiff_t offset)
 {
     ASSERT(offset > 0 && static_cast<size_t>(offset) < m_cachedBytecode->size());
-    return m_cachedBytecode->data() + offset;
+    return m_cachedBytecode->span().subspan(offset).data();
 }
 
 CompactTDZEnvironmentMap::Handle Decoder::handleForTDZEnvironment(CompactTDZEnvironment* environment) const
@@ -539,7 +543,7 @@ private:
     }
 };
 
-ptrdiff_t CachedPtrOffsets::offsetOffset()
+constexpr ptrdiff_t CachedPtrOffsets::offsetOffset()
 {
     return OBJECT_OFFSETOF(CachedPtr<void>, m_offset);
 }
@@ -605,7 +609,7 @@ private:
     CachedPtr<T, Source> m_ptr;
 };
 
-ptrdiff_t CachedWriteBarrierOffsets::ptrOffset()
+constexpr ptrdiff_t CachedWriteBarrierOffsets::ptrOffset()
 {
     return OBJECT_OFFSETOF(CachedWriteBarrier<void>, m_ptr);
 }
@@ -1368,8 +1372,9 @@ public:
 
         if (auto* string = jsDynamicCast<JSString*>(cell)) {
             m_type = EncodedType::String;
-            StringImpl* impl = string->tryGetValue().impl();
-            this->allocate<CachedUniquedStringImpl>(encoder)->encode(encoder, *impl);
+            // TODO: This seems wrong? What if this fails.
+            auto str = string->tryGetValue();
+            this->allocate<CachedUniquedStringImpl>(encoder)->encode(encoder, *str.data.impl());
             return;
         }
 
@@ -1863,7 +1868,7 @@ public:
     unsigned parameterCount() const { return m_parameterCount; }
 
     CodeFeatures features() const { return m_mutableMetadata.m_features; }
-    LexicalScopeFeatures lexicalScopeFeatures() const { return m_mutableMetadata.m_lexicalScopeFeatures; }
+    LexicallyScopedFeatures lexicallyScopedFeatures() const { return m_mutableMetadata.m_lexicallyScopedFeatures; }
     SourceParseMode sourceParseMode() const { return m_sourceParseMode; }
 
     unsigned hasCapturedVariables() const { return m_mutableMetadata.m_hasCapturedVariables; }
@@ -1924,17 +1929,17 @@ private:
     CachedWriteBarrier<CachedFunctionCodeBlock, UnlinkedFunctionCodeBlock> m_unlinkedCodeBlockForConstruct;
 };
 
-ptrdiff_t CachedFunctionExecutableOffsets::codeBlockForCallOffset()
+constexpr ptrdiff_t CachedFunctionExecutableOffsets::codeBlockForCallOffset()
 {
     return OBJECT_OFFSETOF(CachedFunctionExecutable, m_unlinkedCodeBlockForCall);
 }
 
-ptrdiff_t CachedFunctionExecutableOffsets::codeBlockForConstructOffset()
+constexpr ptrdiff_t CachedFunctionExecutableOffsets::codeBlockForConstructOffset()
 {
     return OBJECT_OFFSETOF(CachedFunctionExecutable, m_unlinkedCodeBlockForConstruct);
 }
 
-ptrdiff_t CachedFunctionExecutableOffsets::metadataOffset()
+constexpr ptrdiff_t CachedFunctionExecutableOffsets::metadataOffset()
 {
     return OBJECT_OFFSETOF(CachedFunctionExecutable, m_mutableMetadata);
 }
@@ -1967,7 +1972,6 @@ public:
     unsigned evalContextType() const { return m_evalContextType; }
     unsigned hasTailCalls() const { return m_hasTailCalls; }
     unsigned hasCheckpoints() const { return m_hasCheckpoints; }
-    unsigned lexicalScopeFeatures() const { return m_lexicalScopeFeatures; }
     unsigned lineCount() const { return m_lineCount; }
     unsigned endColumn() const { return m_endColumn; }
 
@@ -1976,6 +1980,7 @@ public:
     int numParameters() const { return m_numParameters; }
 
     CodeFeatures features() const { return m_features; }
+    LexicallyScopedFeatures lexicallyScopedFeatures() const { return m_lexicallyScopedFeatures; }
     SourceParseMode parseMode() const { return m_parseMode; }
     OptionSet<CodeGenerationMode> codeGenerationMode() const { return m_codeGenerationMode; }
     unsigned codeType() const { return m_codeType; }
@@ -2004,9 +2009,9 @@ private:
     unsigned m_hasTailCalls : 1;
     unsigned m_codeType : 2;
     unsigned m_hasCheckpoints : 1;
-    unsigned m_lexicalScopeFeatures : bitWidthOfLexicalScopeFeatures;
 
-    CodeFeatures m_features;
+    CodeFeatures m_features : bitWidthOfCodeFeatures;
+    LexicallyScopedFeatures m_lexicallyScopedFeatures : bitWidthOfLexicallyScopedFeatures;
     SourceParseMode m_parseMode;
     OptionSet<CodeGenerationMode> m_codeGenerationMode;
 
@@ -2211,7 +2216,7 @@ ALWAYS_INLINE UnlinkedCodeBlock::UnlinkedCodeBlock(Decoder& decoder, Structure* 
     , m_age(0)
     , m_hasCheckpoints(cachedCodeBlock.hasCheckpoints())
 
-    , m_lexicalScopeFeatures(cachedCodeBlock.lexicalScopeFeatures())
+    , m_lexicallyScopedFeatures(cachedCodeBlock.lexicallyScopedFeatures())
     , m_features(cachedCodeBlock.features())
     , m_parseMode(cachedCodeBlock.parseMode())
     , m_codeGenerationMode(cachedCodeBlock.codeGenerationMode())
@@ -2263,7 +2268,7 @@ ALWAYS_INLINE UnlinkedEvalCodeBlock::UnlinkedEvalCodeBlock(Decoder& decoder, con
 ALWAYS_INLINE void CachedFunctionExecutable::encode(Encoder& encoder, const UnlinkedFunctionExecutable& executable)
 {
     m_mutableMetadata.m_features = executable.m_features;
-    m_mutableMetadata.m_lexicalScopeFeatures = executable.m_lexicalScopeFeatures;
+    m_mutableMetadata.m_lexicallyScopedFeatures = executable.m_lexicallyScopedFeatures;
     m_mutableMetadata.m_hasCapturedVariables = executable.m_hasCapturedVariables;
 
     m_firstLineOffset = executable.m_firstLineOffset;
@@ -2337,7 +2342,7 @@ ALWAYS_INLINE UnlinkedFunctionExecutable::UnlinkedFunctionExecutable(Decoder& de
     , m_constructorKind(cachedExecutable.constructorKind())
     , m_sourceParseMode(cachedExecutable.sourceParseMode())
     , m_implementationVisibility(static_cast<unsigned>(cachedExecutable.implementationVisibility()))
-    , m_lexicalScopeFeatures(cachedExecutable.lexicalScopeFeatures())
+    , m_lexicallyScopedFeatures(cachedExecutable.lexicallyScopedFeatures())
     , m_functionMode(cachedExecutable.functionMode())
     , m_derivedContextType(cachedExecutable.derivedContextType())
     , m_inlineAttribute(cachedExecutable.inlineAttribute())
@@ -2400,7 +2405,7 @@ ALWAYS_INLINE void CachedCodeBlock<CodeBlockType>::encode(Encoder& encoder, cons
     m_numCalleeLocals = codeBlock.m_numCalleeLocals;
     m_numParameters = codeBlock.m_numParameters;
     m_features = codeBlock.m_features;
-    m_lexicalScopeFeatures = codeBlock.m_lexicalScopeFeatures;
+    m_lexicallyScopedFeatures = codeBlock.m_lexicallyScopedFeatures;
     m_parseMode = codeBlock.m_parseMode;
     m_codeGenerationMode = codeBlock.m_codeGenerationMode;
     m_codeType = codeBlock.m_codeType;
@@ -2543,10 +2548,7 @@ bool GenericCacheEntry::decode(Decoder& decoder, std::pair<SourceCodeKey, Unlink
         RELEASE_ASSERT_NOT_REACHED();
     }
     RELEASE_ASSERT_NOT_REACHED();
-#if COMPILER(MSVC)
-    // Without this, MSVC will complain that this path does not return a value.
     return false;
-#endif
 }
 
 bool GenericCacheEntry::isStillValid(Decoder& decoder, const SourceCodeKey& key, CachedCodeBlockTag tag) const
@@ -2604,7 +2606,7 @@ RefPtr<CachedBytecode> encodeFunctionCodeBlock(VM& vm, const UnlinkedFunctionCod
 
 UnlinkedCodeBlock* decodeCodeBlockImpl(VM& vm, const SourceCodeKey& key, Ref<CachedBytecode> cachedBytecode)
 {
-    const auto* cachedEntry = bitwise_cast<const GenericCacheEntry*>(cachedBytecode->data());
+    const auto* cachedEntry = bitwise_cast<const GenericCacheEntry*>(cachedBytecode->span().data());
     Ref<Decoder> decoder = Decoder::create(vm, WTFMove(cachedBytecode), &key.source().provider());
     std::pair<SourceCodeKey, UnlinkedCodeBlock*> entry;
     {
@@ -2620,11 +2622,9 @@ UnlinkedCodeBlock* decodeCodeBlockImpl(VM& vm, const SourceCodeKey& key, Ref<Cac
 
 bool isCachedBytecodeStillValid(VM& vm, Ref<CachedBytecode> cachedBytecode, const SourceCodeKey& key, SourceCodeType type)
 {
-    const void* buffer = cachedBytecode->data();
-    size_t size = cachedBytecode->size();
-    if (!size)
+    if (!cachedBytecode->size())
         return false;
-    const auto* cachedEntry = bitwise_cast<const GenericCacheEntry*>(buffer);
+    const auto* cachedEntry = bitwise_cast<const GenericCacheEntry*>(cachedBytecode->span().data());
     Ref<Decoder> decoder = Decoder::create(vm, WTFMove(cachedBytecode));
     return cachedEntry->isStillValid(decoder.get(), key, tagFromSourceCodeType(type));
 }

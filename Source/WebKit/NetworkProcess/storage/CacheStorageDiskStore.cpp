@@ -36,6 +36,7 @@
 #include <wtf/persistence/PersistentCoders.h>
 #include <wtf/persistence/PersistentDecoder.h>
 #include <wtf/persistence/PersistentEncoder.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebKit {
 
@@ -135,7 +136,7 @@ String CacheStorageDiskStore::recordFilePath(const NetworkCache::Key& key) const
 
 String CacheStorageDiskStore::recordBlobFilePath(const String& recordPath) const
 {
-    return recordPath + blobSuffix;
+    return makeString(recordPath, blobSuffix);
 }
 
 String CacheStorageDiskStore::blobsDirectoryPath() const
@@ -325,8 +326,7 @@ std::optional<CacheStorageRecord> CacheStorageDiskStore::readRecordFromFileData(
             return std::nullopt;
 
         auto sharedBuffer = WebCore::SharedBuffer::create(WTFMove(blobBuffer));
-        auto bodyData = std::span(sharedBuffer->data(), sharedBuffer->size());
-        if (storedInfo->metaData.bodyHash != computeSHA1(bodyData, m_salt))
+        if (storedInfo->metaData.bodyHash != computeSHA1(sharedBuffer->span(), m_salt))
             return std::nullopt;
 
         responseBody = sharedBuffer;

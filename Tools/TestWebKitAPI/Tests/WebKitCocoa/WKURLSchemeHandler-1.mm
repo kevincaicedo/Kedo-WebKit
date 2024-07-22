@@ -52,7 +52,7 @@
 #import <wtf/Threading.h>
 #import <wtf/Vector.h>
 #import <wtf/WeakObjCPtr.h>
-#import <wtf/text/StringConcatenateNumbers.h>
+#import <wtf/text/MakeString.h>
 #import <wtf/text/StringHash.h>
 #import <wtf/text/StringToIntegerConversion.h>
 #import <wtf/text/WTFString.h>
@@ -1312,7 +1312,7 @@ TEST(URLSchemeHandler, AllowedNetworkHostsRedirect)
     TestWebKitAPI::HTTPServer server127001({
         { "/"_s, { 301, {
             { "Access-Control-Allow-Origin"_s, "*"_s },
-            { "Location"_s, makeString("http://localhost:", serverLocalhost.port(), "/redirectTarget") }
+            { "Location"_s, makeString("http://localhost:"_s, serverLocalhost.port(), "/redirectTarget"_s) }
         }}},
     });
 

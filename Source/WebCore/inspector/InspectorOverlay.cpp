@@ -75,6 +75,7 @@
 #include "StyleResolver.h"
 #include "TextDirection.h"
 #include <wtf/MathExtras.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/unicode/CharacterNames.h>
 
@@ -840,11 +841,8 @@ void InspectorOverlay::drawPaintRects(GraphicsContext& context, const Deque<Time
 
 void InspectorOverlay::drawBounds(GraphicsContext& context, const InspectorOverlay::Highlight::Bounds& bounds)
 {
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame());
-    if (!localMainFrame)
-        return;
-
-    auto* pageView = localMainFrame->view();
+    Ref mainFrame = m_page.mainFrame();
+    RefPtr pageView = mainFrame->virtualView();
     FloatSize viewportSize = pageView->sizeForVisibleContent();
     FloatSize contentInset(0, pageView->topContentInset(ScrollView::TopContentInsetType::WebCoreOrPlatformContentInset));
 
@@ -1071,7 +1069,7 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
         font.update(nullptr);
 
         auto viewportRect = pageView->visualViewportRect();
-        TextRun viewportTextRun(makeString(viewportRect.width() / pageZoomFactor, "px", ' ', multiplicationSign, ' ', viewportRect.height() / pageZoomFactor, "px"));
+        TextRun viewportTextRun(makeString(viewportRect.width() / pageZoomFactor, "px"_s, ' ', multiplicationSign, ' ', viewportRect.height() / pageZoomFactor, "px"_s));
 
         const float margin = 4;
         const float padding = 2;
@@ -1242,12 +1240,8 @@ Path InspectorOverlay::drawElementTitle(GraphicsContext& context, Node& node, co
         }
     }
 
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame());
-    if (!localMainFrame)
-        return { };
-
-    auto* pageView = localMainFrame->view();
-
+    Ref mainFrame = m_page.mainFrame();
+    RefPtr pageView = mainFrame->virtualView();
     FloatSize viewportSize = pageView->sizeForVisibleContent();
     FloatSize contentInset(0, pageView->topContentInset(ScrollView::TopContentInsetType::WebCoreOrPlatformContentInset));
     if (m_showRulers || m_showRulersForNodeHighlight)

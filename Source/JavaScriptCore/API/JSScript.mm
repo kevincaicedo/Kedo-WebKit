@@ -47,6 +47,7 @@
 #import <wtf/Scope.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/spi/darwin/DataVaultSPI.h>
+#import <wtf/text/MakeString.h>
 
 #if JSC_OBJC_API_ENABLED
 
@@ -348,7 +349,7 @@ static bool validateBytecodeCachePath(NSURL* cachePath, NSError** error)
     SHA1 sha1;
     sha1.addBytes(m_cachedBytecode->span());
     sha1.computeHash(computedHash);
-    FileSystem::writeToFile(tempFD, computedHash.data(), sizeof(computedHash));
+    FileSystem::writeToFile(tempFD, computedHash);
 
     fsync(tempFD);
     rename(tempFileName, cacheFileName);

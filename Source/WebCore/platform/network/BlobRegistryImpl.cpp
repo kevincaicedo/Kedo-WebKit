@@ -50,6 +50,7 @@
 #include <wtf/Scope.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/WorkQueue.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -140,7 +141,7 @@ static FileSystem::MappedFileData storeInMappedFileData(const String& path, std:
         return { };
     FileSystem::deleteFile(path);
 
-    memcpy(const_cast<void*>(mappedFileData.data()), data.data(), data.size());
+    memcpySpan(mappedFileData.mutableSpan().first(data.size()), data);
 
     FileSystem::finalizeMappedFileData(mappedFileData, data.size());
     return mappedFileData;
@@ -156,7 +157,7 @@ Ref<DataSegment> BlobRegistryImpl::createDataSegment(Vector<uint8_t>&& movedData
 
     static uint64_t blobMappingFileCounter;
     static NeverDestroyed<Ref<WorkQueue>> workQueue(WorkQueue::create("BlobRegistryImpl Data Queue"_s));
-    auto filePath = FileSystem::pathByAppendingComponent(m_fileDirectory, makeString("mapping-file-", ++blobMappingFileCounter, ".blob"));
+    auto filePath = FileSystem::pathByAppendingComponent(m_fileDirectory, makeString("mapping-file-"_s, ++blobMappingFileCounter, ".blob"_s));
     workQueue.get()->dispatch([blobData = Ref { blobData }, data, filePath = WTFMove(filePath).isolatedCopy()]() mutable {
         auto mappedFileData = storeInMappedFileData(filePath, data->span());
         if (!mappedFileData)
@@ -325,8 +326,8 @@ unsigned long long BlobRegistryImpl::blobSize(const URL& url)
 
 static WorkQueue& blobUtilityQueue()
 {
-    static auto& queue = WorkQueue::create("org.webkit.BlobUtility"_s, WorkQueue::QOS::Utility).leakRef();
-    return queue;
+    static NeverDestroyed<Ref<WorkQueue>> queue(WorkQueue::create("org.webkit.BlobUtility"_s, WorkQueue::QOS::Utility));
+    return queue.get();
 }
 
 bool BlobRegistryImpl::populateBlobsForFileWriting(const Vector<String>& blobURLs, Vector<BlobForFileWriting>& blobsForWriting)
@@ -369,7 +370,7 @@ static bool writeFilePathsOrDataBuffersToFile(const Vector<std::pair<String, Ref
     for (auto& part : filePathsOrDataBuffers) {
         if (part.second) {
             int length = part.second->size();
-            if (FileSystem::writeToFile(file, part.second->data(), length) != length) {
+            if (FileSystem::writeToFile(file, part.second->span()) != length) {
                 LOG_ERROR("Failed writing a Blob to temporary file");
                 return false;
             }

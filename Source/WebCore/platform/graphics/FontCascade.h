@@ -151,7 +151,7 @@ public:
     }
 
     int offsetForPosition(const TextRun&, float position, bool includePartialGlyphs) const;
-    void adjustSelectionRectForText(const TextRun&, LayoutRect& selectionRect, unsigned from = 0, std::optional<unsigned> to = std::nullopt) const;
+    void adjustSelectionRectForText(bool canUseSimplifiedTextMeasuring, const TextRun&, LayoutRect& selectionRect, unsigned from = 0, std::optional<unsigned> to = std::nullopt) const;
 
     Vector<LayoutRect> characterSelectionRectsForText(const TextRun&, const LayoutRect& selectionRect, unsigned from, std::optional<unsigned> to) const;
 
@@ -218,7 +218,7 @@ public:
     enum class CodePath : uint8_t { Auto, Simple, Complex, SimpleWithGlyphOverflow };
     WEBCORE_EXPORT CodePath codePath(const TextRun&, std::optional<unsigned> from = std::nullopt, std::optional<unsigned> to = std::nullopt) const;
     static CodePath characterRangeCodePath(std::span<const LChar>) { return CodePath::Simple; }
-    static CodePath characterRangeCodePath(std::span<const UChar>);
+    WEBCORE_EXPORT static CodePath characterRangeCodePath(std::span<const UChar>);
 
     bool primaryFontIsSystemFont() const;
 
@@ -238,6 +238,7 @@ private:
     float widthForSimpleText(const TextRun&, SingleThreadWeakHashSet<const Font>* fallbackFonts = nullptr, GlyphOverflow* = nullptr) const;
     int offsetForPositionForSimpleText(const TextRun&, float position, bool includePartialGlyphs) const;
     void adjustSelectionRectForSimpleText(const TextRun&, LayoutRect& selectionRect, unsigned from, unsigned to) const;
+    void adjustSelectionRectForSimpleTextWithFixedPitch(const TextRun&, LayoutRect& selectionRect, unsigned from, unsigned to) const;
     WEBCORE_EXPORT float widthForSimpleTextSlow(StringView text, TextDirection, float*) const;
 
     std::optional<GlyphData> getEmphasisMarkGlyphData(const AtomString&) const;

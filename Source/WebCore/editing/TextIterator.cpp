@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2015-2018 Google Inc. All rights reserved.
  * Copyright (C) 2005 Alexey Proskuryakov.
  *
@@ -34,9 +34,11 @@
 #include "ElementInlines.h"
 #include "ElementRareData.h"
 #include "FontCascade.h"
+#include "HTMLAttachmentElement.h"
 #include "HTMLBodyElement.h"
 #include "HTMLElement.h"
 #include "HTMLFrameOwnerElement.h"
+#include "HTMLImageElement.h"
 #include "HTMLInputElement.h"
 #include "HTMLLegendElement.h"
 #include "HTMLMeterElement.h"
@@ -66,6 +68,7 @@
 #include <unicode/unorm2.h>
 #include <wtf/Function.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/TextBreakIterator.h>
 #include <wtf/unicode/CharacterNames.h>
@@ -350,6 +353,8 @@ static Node* firstNode(const BoundaryPoint& point)
 TextIterator::TextIterator(const SimpleRange& range, TextIteratorBehaviors behaviors)
     : m_behaviors(behaviors)
 {
+    ASSERT(!m_behaviors.contains(TextIteratorBehavior::EmitsObjectReplacementCharacters) || !m_behaviors.contains(TextIteratorBehavior::EmitsObjectReplacementCharactersForImages));
+
     range.start.protectedDocument()->updateLayoutIgnorePendingStylesheets();
 
     m_startContainer = range.start.container.ptr();
@@ -772,7 +777,22 @@ bool TextIterator::handleReplacedElement()
 
     m_hasEmitted = true;
 
-    if (m_behaviors.contains(TextIteratorBehavior::EmitsObjectReplacementCharacters)) {
+    auto shouldEmitObjectReplacementCharacter = [&] {
+        if (m_behaviors.contains(TextIteratorBehavior::EmitsObjectReplacementCharacters))
+            return true;
+
+        if (m_behaviors.contains(TextIteratorBehavior::EmitsObjectReplacementCharactersForImages) && is<HTMLImageElement>(m_currentNode.get()))
+            return true;
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+        if (m_behaviors.contains(TextIteratorBehavior::EmitsObjectReplacementCharactersForAttachments) && is<HTMLAttachmentElement>(m_currentNode.get()))
+            return true;
+#endif
+
+        return false;
+    }();
+
+    if (shouldEmitObjectReplacementCharacter) {
         emitCharacter(objectReplacementCharacter, m_currentNode->protectedParentNode(), protectedCurrentNode(), 0, 1);
         // Don't process subtrees for embedded objects. If the text there is required,
         // it must be explicitly asked by specifying a range falling inside its boundaries.
@@ -918,14 +938,23 @@ static bool shouldEmitNewlineBeforeNode(Node& node)
 
 static bool shouldEmitExtraNewlineForNode(Node& node)
 {
-    // https://html.spec.whatwg.org/multipage/dom.html#the-innertext-idl-attribute
-    // Append two required linebreaks after a <p> element.
+    // When there is a significant collapsed bottom margin, emit an extra
+    // newline for a more realistic result. We end up getting the right
+    // result even without margin collapsing. For example: <div><p>text</p></div>
+    // will work right even if both the <div> and the <p> have bottom margins.
 
     CheckedPtr renderBox = dynamicDowncast<RenderBox>(node.renderer());
     if (!renderBox || !renderBox->height())
         return false;
 
-    return node.hasTagName(pTag);
+    // NOTE: We only do this for a select set of nodes, and WinIE appears not to do this at all.
+    RefPtr element = dynamicDowncast<HTMLElement>(node);
+    if (!element || (!hasHeaderTag(*element) && !is<HTMLParagraphElement>(*element)))
+        return false;
+
+    auto bottomMargin = renderBox->collapsedMarginAfter();
+    auto fontSize = renderBox->style().fontDescription().computedSize();
+    return bottomMargin * 2 >= fontSize;
 }
 
 static int collapsedSpaceLength(RenderText& renderer, int textEnd)
@@ -1732,7 +1761,7 @@ static UStringSearch* createSearcher()
     // but it doesn't matter exactly what it is, since we don't perform any searches
     // without setting both the pattern and the text.
     UErrorCode status = U_ZERO_ERROR;
-    auto searchCollatorName = makeString(currentSearchLocaleID(), "@collation=search");
+    auto searchCollatorName = makeString(span(currentSearchLocaleID()), "@collation=search"_s);
     UStringSearch* searcher = usearch_open(&newlineCharacter, 1, &newlineCharacter, 1, searchCollatorName.utf8().data(), 0, &status);
     ASSERT(U_SUCCESS(status) || status == U_USING_FALLBACK_WARNING || status == U_USING_DEFAULT_WARNING);
     return searcher;

@@ -409,16 +409,27 @@ bool AudioBufferSourceNode::renderFromBuffer(AudioBus* bus, unsigned destination
     return true;
 }
 
+void AudioBufferSourceNode::acquireBufferContent()
+{
+    ASSERT(isMainThread());
+
+    // FIXME: We should implement https://www.w3.org/TR/webaudio/#acquire-the-content.
+    if (m_buffer)
+        m_buffer->markBuffersAsNonDetachable();
+}
+
 ExceptionOr<void> AudioBufferSourceNode::setBufferForBindings(RefPtr<AudioBuffer>&& buffer)
 {
     ASSERT(isMainThread());
     DEBUG_LOG(LOGIDENTIFIER);
 
+    // This synchronizes with process(), it is important to acquire the processLock before the
+    // graphLock to avoid a deadlock given that this is the order process() acquires the locks
+    // in.
+    Locker locker { m_processLock };
+
     // The context must be locked since changing the buffer can re-configure the number of channels that are output.
     Locker contextLocker { context().graphLock() };
-    
-    // This synchronizes with process().
-    Locker locker { m_processLock };
 
     if (buffer && m_wasBufferSet)
         return Exception { ExceptionCode::InvalidStateError, "The buffer was already set"_s };
@@ -445,6 +456,9 @@ ExceptionOr<void> AudioBufferSourceNode::setBufferForBindings(RefPtr<AudioBuffer
     // In case the buffer gets set after playback has started, we need to clamp the grain parameters now.
     if (m_isGrain)
         adjustGrainParameters();
+
+    if (isPlayingOrScheduled())
+        acquireBufferContent();
 
     return { };
 }
@@ -513,6 +527,7 @@ ExceptionOr<void> AudioBufferSourceNode::startPlaying(double when, double grainO
 
     adjustGrainParameters();
 
+    acquireBufferContent();
     m_playbackState = SCHEDULED_STATE;
 
     return { };
@@ -588,6 +603,22 @@ bool AudioBufferSourceNode::propagatesSilence() const
     }
     Locker locker { AdoptLock, m_processLock };
     return !m_buffer;
+}
+
+float AudioBufferSourceNode::noiseInjectionMultiplier() const
+{
+    Locker locker { m_processLock };
+
+    if (!m_buffer)
+        return 0;
+
+    auto multiplier = m_buffer->noiseInjectionMultiplier();
+    if (m_isLooping && m_loopStart < m_loopEnd) {
+        static constexpr auto noiseMultiplierPerLoop = 0.005;
+        auto loopCount = m_buffer->duration() / (m_loopEnd - m_loopStart);
+        multiplier *= std::max(1.0, noiseMultiplierPerLoop * loopCount);
+    }
+    return multiplier;
 }
 
 } // namespace WebCore

@@ -28,6 +28,24 @@
 
 #if ENABLE(B3_JIT)
 
+// On Windows, there's macros for these which interfere with the opcodes
+#pragma push_macro("RotateLeft32")
+#pragma push_macro("RotateLeft64")
+#pragma push_macro("RotateRight32")
+#pragma push_macro("RotateRight64")
+#pragma push_macro("StoreFence")
+#pragma push_macro("LoadFence")
+#pragma push_macro("MemoryFence")
+
+#undef RotateLeft32
+#undef RotateLeft64
+#undef RotateRight32
+#undef RotateRight64
+#undef StoreFence
+#undef LoadFence
+#undef MemoryFence
+
+#if USE(JSVALUE64)
 #include "AirBlockInsertionSet.h"
 #include "AirCCallSpecial.h"
 #include "AirCode.h"
@@ -104,7 +122,7 @@ public:
         , m_procedure(procedure)
         , m_code(procedure.code())
         , m_blockInsertionSet(m_code)
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
         , m_eax(X86Registers::eax)
         , m_ecx(X86Registers::ecx)
         , m_edx(X86Registers::edx)
@@ -157,7 +175,7 @@ public:
         }
 
         for (Variable* variable : m_procedure.variables()) {
-            auto addResult = m_variableToTmps.add(variable, Vector<Tmp, 1>(m_procedure.resultCount(variable->type())));
+            auto addResult = m_variableToTmps.add(variable, Vector<Tmp>(m_procedure.resultCount(variable->type())));
             ASSERT(addResult.isNewEntry);
             for (unsigned i = 0; i < m_procedure.resultCount(variable->type()); ++i)
                 addResult.iterator->value[i] = tmpForType(m_procedure.typeAtOffset(variable->type(), i));
@@ -3301,7 +3319,8 @@ private:
                     return false;
                 uint64_t width = WTF::bitCount(mask);
                 uint64_t datasize = opcode == ExtractUnsignedBitfield32 ? 32 : 64;
-                if (lsb + width > datasize)
+                uint64_t resultDataSize = 0;
+                if (!WTF::safeAdd(lsb, width, resultDataSize) || resultDataSize > datasize)
                     return false;
 
                 append(opcode, tmp(srcValue), imm(lsbValue), imm(width), tmp(m_value));
@@ -3390,9 +3409,8 @@ private:
                 uint64_t highWidth = highWidthValue->asInt();
                 uint64_t lowWidth = lowWidthValue->asInt();
                 uint64_t datasize = opcode == ExtractRegister32 ? 32 : 64;
-                // Note that when `lowWidth == datasize` we cannot turn it to `MOV Rd Rn` since
-                // `m >>> lowWidth` means `m >>> (lowWidth % datasize)` in JavaScript.
-                if (lowWidth + highWidth != datasize || maskBitCount != lowWidth || lowWidth == datasize)
+                uint64_t resultWidth = 0;
+                if (!WTF::safeAdd(lowWidth, highWidth, resultWidth) || resultWidth != datasize || maskBitCount != lowWidth || lowWidth == datasize)
                     return false;
 
                 ASSERT(lowWidth < datasize);
@@ -3429,7 +3447,8 @@ private:
                     return false;
                 uint64_t datasize = opcode == InsertBitField32 ? 32 : 64;
                 uint64_t width = WTF::bitCount(mask1);
-                if (lsb + width > datasize)
+                uint64_t resultDataSize = 0;
+                if (!WTF::safeAdd(lsb, width, resultDataSize) || resultDataSize > datasize)
                     return false;
 
                 uint64_t mask2 = maskValue2->asInt();
@@ -3479,7 +3498,8 @@ private:
                     return false;
                 uint64_t width = WTF::bitCount(mask1);
                 uint64_t datasize = opcode == ExtractInsertBitfieldAtLowEnd32 ? 32 : 64;
-                if (lsb + width > datasize)
+                uint64_t resultDataSize = 0;
+                if (!WTF::safeAdd(lsb, width, resultDataSize) || resultDataSize > datasize)
                     return false;
                 uint64_t mask2 = maskValue2->asInt();
 
@@ -3653,7 +3673,8 @@ private:
 
                     uint64_t width = WTF::bitCount(mask);
                     uint64_t datasize = opcode == InsertUnsignedBitfieldInZero32 ? 32 : 64;
-                    if (lsb + width > datasize)
+                    uint64_t resultDataSize = 0;
+                    if (!WTF::safeAdd(lsb, width, resultDataSize) || resultDataSize > datasize)
                         return false;
 
                     append(opcode, tmp(nValue), imm(right), imm(width), tmp(m_value));
@@ -3715,8 +3736,13 @@ private:
                 uint64_t amount2 = amount2Value->asInt();
                 uint64_t lsb = lsbValue->asInt();
                 uint64_t datasize = opcode == InsertSignedBitfieldInZero32 ? 32 : 64;
+
+                if (amount1 >= datasize)
+                    return false;
+
                 uint64_t width = datasize - amount1;
-                if (amount1 != amount2 || !width || lsb + width > datasize)
+                uint64_t resultDataSize = 0;
+                if (!WTF::safeAdd(lsb, width, resultDataSize) || amount1 != amount2 || !width || resultDataSize > datasize)
                     return false;
 
                 append(opcode, tmp(srcValue), imm(lsbValue), imm(width), tmp(m_value));
@@ -3763,8 +3789,13 @@ private:
                 uint64_t amount2 = amount2Value->asInt();
                 uint64_t lsb = lsbValue->asInt();
                 uint64_t datasize = opcode == ExtractSignedBitfield32 ? 32 : 64;
+
+                if (amount1 >= datasize)
+                    return false;
+
                 uint64_t width = datasize - amount1;
-                if (amount1 != amount2 || !width || lsb + width > datasize)
+                uint64_t resultDataSize = 0;
+                if (!WTF::safeAdd(lsb, width, resultDataSize) || amount1 != amount2 || !width || resultDataSize > datasize)
                     return false;
 
                 append(opcode, tmp(srcValue), imm(lsbValue), imm(width), tmp(m_value));
@@ -5293,5 +5324,15 @@ void lowerToAir(Procedure& procedure)
 #if !ASSERT_ENABLED
 IGNORE_RETURN_TYPE_WARNINGS_END
 #endif
+
+#endif // USE(JSVALUE64)
+
+#pragma pop_macro("RotateLeft32")
+#pragma pop_macro("RotateLeft64")
+#pragma pop_macro("RotateRight32")
+#pragma pop_macro("RotateRight64")
+#pragma pop_macro("StoreFence")
+#pragma pop_macro("LoadFence")
+#pragma pop_macro("MemoryFence")
 
 #endif // ENABLE(B3_JIT)

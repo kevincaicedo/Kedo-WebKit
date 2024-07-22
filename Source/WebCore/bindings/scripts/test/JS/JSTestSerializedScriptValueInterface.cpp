@@ -54,6 +54,7 @@
 #include <wtf/GetPtr.h>
 #include <wtf/PointerPreparations.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 
 
 namespace WebCore {
@@ -210,10 +211,11 @@ static inline bool setJSTestSerializedScriptValueInterface_valueSetter(JSGlobalO
     UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
-    auto nativeValue = convert<IDLSerializedScriptValue<SerializedScriptValue>>(lexicalGlobalObject, value);
-    RETURN_IF_EXCEPTION(throwScope, false);
+    auto nativeValueConversionResult = convert<IDLSerializedScriptValue<SerializedScriptValue>>(lexicalGlobalObject, value);
+    if (UNLIKELY(nativeValueConversionResult.hasException(throwScope)))
+        return false;
     invokeFunctorPropagatingExceptionIfNecessary(lexicalGlobalObject, throwScope, [&] {
-        return impl.setValue(WTFMove(nativeValue));
+        return impl.setValue(nativeValueConversionResult.releaseReturnValue());
     });
     return true;
 }
@@ -260,10 +262,11 @@ static inline bool setJSTestSerializedScriptValueInterface_cachedValueSetter(JSG
     UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
-    auto nativeValue = convert<IDLSerializedScriptValue<SerializedScriptValue>>(lexicalGlobalObject, value);
-    RETURN_IF_EXCEPTION(throwScope, false);
+    auto nativeValueConversionResult = convert<IDLSerializedScriptValue<SerializedScriptValue>>(lexicalGlobalObject, value);
+    if (UNLIKELY(nativeValueConversionResult.hasException(throwScope)))
+        return false;
     invokeFunctorPropagatingExceptionIfNecessary(lexicalGlobalObject, throwScope, [&] {
-        return impl.setCachedValue(WTFMove(nativeValue));
+        return impl.setCachedValue(nativeValueConversionResult.releaseReturnValue());
     });
     return true;
 }
@@ -314,9 +317,10 @@ static inline JSC::EncodedJSValue jsTestSerializedScriptValueInterfacePrototypeF
     if (UNLIKELY(callFrame->argumentCount() < 1))
         return throwVMError(lexicalGlobalObject, throwScope, createNotEnoughArgumentsError(lexicalGlobalObject));
     EnsureStillAliveScope argument0 = callFrame->uncheckedArgument(0);
-    auto value = convert<IDLSerializedScriptValue<SerializedScriptValue>>(*lexicalGlobalObject, argument0.value());
-    RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.function(WTFMove(value)); })));
+    auto valueConversionResult = convert<IDLSerializedScriptValue<SerializedScriptValue>>(*lexicalGlobalObject, argument0.value());
+    if (UNLIKELY(valueConversionResult.hasException(throwScope)))
+       return encodedJSValue();
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.function(valueConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestSerializedScriptValueInterfacePrototypeFunction_function, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -366,7 +370,7 @@ void JSTestSerializedScriptValueInterface::analyzeHeap(JSCell* cell, HeapAnalyze
     auto* thisObject = jsCast<JSTestSerializedScriptValueInterface*>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (thisObject->scriptExecutionContext())
-        analyzer.setLabelForCell(cell, "url "_s + thisObject->scriptExecutionContext()->url().string());
+        analyzer.setLabelForCell(cell, makeString("url "_s, thisObject->scriptExecutionContext()->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
 
@@ -392,14 +396,9 @@ extern "C" { extern void (*const __identifier("??_7TestSerializedScriptValueInte
 #else
 extern "C" { extern void* _ZTVN7WebCore34TestSerializedScriptValueInterfaceE[]; }
 #endif
-#endif
-
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestSerializedScriptValueInterface>&& impl)
-{
-
-    if constexpr (std::is_polymorphic_v<TestSerializedScriptValueInterface>) {
-#if ENABLE(BINDING_INTEGRITY)
-        const void* actualVTablePointer = getVTablePointer(impl.ptr());
+template<typename T, typename = std::enable_if_t<std::is_same_v<T, TestSerializedScriptValueInterface>, void>> static inline void verifyVTable(TestSerializedScriptValueInterface* ptr) {
+    if constexpr (std::is_polymorphic_v<T>) {
+        const void* actualVTablePointer = getVTablePointer<T>(ptr);
 #if PLATFORM(WIN)
         void* expectedVTablePointer = __identifier("??_7TestSerializedScriptValueInterface@WebCore@@6B@");
 #else
@@ -411,8 +410,14 @@ JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObj
         // to toJS() we currently require TestSerializedScriptValueInterface you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
         RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
-#endif
     }
+}
+#endif
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestSerializedScriptValueInterface>&& impl)
+{
+#if ENABLE(BINDING_INTEGRITY)
+    verifyVTable<TestSerializedScriptValueInterface>(impl.ptr());
+#endif
     return createWrapper<TestSerializedScriptValueInterface>(globalObject, WTFMove(impl));
 }
 

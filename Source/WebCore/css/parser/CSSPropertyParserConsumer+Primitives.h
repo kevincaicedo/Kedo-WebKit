@@ -32,22 +32,10 @@
 namespace WebCore {
 
 class CSSParserTokenRange;
-class CSSCalcValue;
 
 namespace CSSPropertyParserHelpers {
 
-bool equal(const Ref<CSSCalcValue>&, const Ref<CSSCalcValue>&);
-
-template<typename T> struct UnevaluatedCalc {
-    using RawType = T;
-    Ref<CSSCalcValue> calc;
-
-    inline bool operator==(const UnevaluatedCalc<T>& other)
-    {
-        return equal(calc, other.calc);
-    }
-};
-
+enum class AnchorPolicy : bool { Forbid, Allow };
 enum class NegativePercentagePolicy : bool { Forbid, Allow };
 enum class UnitlessQuirk : bool { Allow, Forbid };
 enum class UnitlessZeroQuirk : bool { Allow, Forbid };
@@ -55,6 +43,7 @@ enum class UnitlessZeroQuirk : bool { Allow, Forbid };
 struct CSSPropertyParserOptions {
     CSSParserMode parserMode                    { HTMLStandardMode };
     ValueRange valueRange                       { ValueRange::All };
+    AnchorPolicy anchorPolicy                   { AnchorPolicy::Forbid };
     NegativePercentagePolicy negativePercentage { NegativePercentagePolicy::Forbid };
     UnitlessQuirk unitless                      { UnitlessQuirk::Forbid };
     UnitlessZeroQuirk unitlessZero              { UnitlessZeroQuirk::Forbid };

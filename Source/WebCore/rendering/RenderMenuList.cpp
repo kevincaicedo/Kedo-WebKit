@@ -194,7 +194,7 @@ HTMLSelectElement& RenderMenuList::selectElement() const
 
 void RenderMenuList::didAttachChild(RenderObject& child, RenderObject*)
 {
-    if (AXObjectCache* cache = document().existingAXObjectCache())
+    if (CheckedPtr cache = document().existingAXObjectCache())
         cache->childrenChanged(this, &child);
 }
 
@@ -350,7 +350,10 @@ void RenderMenuList::computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, 
         if (auto logicalWidth = explicitIntrinsicInnerLogicalWidth())
             maxLogicalWidth = logicalWidth.value();
     }
-    if (!style().logicalWidth().isPercentOrCalculated())
+    auto& logicalWidth = style().logicalWidth();
+    if (logicalWidth.isCalculated())
+        minLogicalWidth = std::max(0_lu, valueForLength(logicalWidth, 0_lu));
+    else if (!logicalWidth.isPercent())
         minLogicalWidth = maxLogicalWidth;
 }
 
@@ -438,7 +441,7 @@ void RenderMenuList::didUpdateActiveOption(int optionIndex)
     if (!AXObjectCache::accessibilityEnabled())
         return;
 
-    auto* axCache = document().existingAXObjectCache();
+    CheckedPtr axCache = document().existingAXObjectCache();
     if (!axCache)
         return;
 

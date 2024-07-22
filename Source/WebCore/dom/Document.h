@@ -32,11 +32,13 @@
 #include "ContextDestructionObserverInlines.h"
 #include "DocumentEventTiming.h"
 #include "FontSelectorClient.h"
+#include "FragmentDirective.h"
 #include "FrameDestructionObserver.h"
 #include "FrameIdentifier.h"
 #include "HitTestSource.h"
 #include "IntDegrees.h"
 #include "PageIdentifier.h"
+#include "PermissionsPolicy.h"
 #include "PlaybackTargetClientContextIdentifier.h"
 #include "PseudoElementIdentifier.h"
 #include "RegistrableDomain.h"
@@ -222,6 +224,7 @@ class SelectorQuery;
 class SelectorQueryCache;
 class SerializedScriptValue;
 class Settings;
+class SharedBuffer;
 class SleepDisabler;
 class SpaceSplitString;
 class SpeechRecognition;
@@ -272,6 +275,7 @@ struct CSSParserContext;
 struct ClientOrigin;
 struct FocusOptions;
 struct IntersectionObserverData;
+struct OwnerPermissionsPolicyData;
 struct QuerySelectorAllResults;
 struct SecurityPolicyViolationEventInit;
 
@@ -467,7 +471,7 @@ public:
     void setShouldNotFireMutationEvents(bool fire) { m_shouldNotFireMutationEvents = fire; }
 
     void setMarkupUnsafe(const String&, OptionSet<ParserContentPolicy>);
-    static Ref<Document> parseHTMLUnsafe(Document&, const String&);
+    static ExceptionOr<Ref<Document>> parseHTMLUnsafe(Document&, std::variant<RefPtr<TrustedHTML>, String>&&);
 
     Element* elementForAccessKey(const String& key);
     void invalidateAccessKeyCache();
@@ -494,14 +498,12 @@ public:
     
     Element* documentElement() const { return m_documentElement.get(); }
     inline RefPtr<Element> protectedDocumentElement() const; // Defined in DocumentInlines.h.
-    static ptrdiff_t documentElementMemoryOffset() { return OBJECT_OFFSETOF(Document, m_documentElement); }
+    static constexpr ptrdiff_t documentElementMemoryOffset() { return OBJECT_OFFSETOF(Document, m_documentElement); }
 
     WEBCORE_EXPORT Element* activeElement();
     WEBCORE_EXPORT bool hasFocus() const;
     void whenVisible(Function<void()>&&);
 
-    bool hasManifest() const;
-    
     WEBCORE_EXPORT ExceptionOr<Ref<Element>> createElementForBindings(const AtomString& tagName);
     WEBCORE_EXPORT Ref<DocumentFragment> createDocumentFragment();
     WEBCORE_EXPORT Ref<Text> createTextNode(String&& data);
@@ -582,7 +584,6 @@ public:
 
     WEBCORE_EXPORT Ref<HTMLCollection> images();
     WEBCORE_EXPORT Ref<HTMLCollection> embeds();
-    WEBCORE_EXPORT Ref<HTMLCollection> plugins(); // an alias for embeds() required for the JS DOM bindings.
     WEBCORE_EXPORT Ref<HTMLCollection> applets();
     WEBCORE_EXPORT Ref<HTMLCollection> links();
     WEBCORE_EXPORT Ref<HTMLCollection> forms();
@@ -633,7 +634,7 @@ public:
     bool hasSVGRootNode() const;
     virtual bool isFrameSet() const { return false; }
 
-    static ptrdiff_t documentClassesMemoryOffset() { return OBJECT_OFFSETOF(Document, m_documentClasses); }
+    static constexpr ptrdiff_t documentClassesMemoryOffset() { return OBJECT_OFFSETOF(Document, m_documentClasses); }
     static auto isHTMLDocumentClassFlag() { return enumToUnderlyingType(DocumentClass::HTML); }
 
     bool isSrcdocDocument() const { return m_isSrcdocDocument; }
@@ -807,8 +808,10 @@ public:
     void cancelParsing();
 
     ExceptionOr<void> write(Document* entryDocument, SegmentedString&&);
-    WEBCORE_EXPORT ExceptionOr<void> write(Document* entryDocument, FixedVector<std::variant<RefPtr<TrustedHTML>, String>>&&);
-    WEBCORE_EXPORT ExceptionOr<void> writeln(Document* entryDocument, FixedVector<std::variant<RefPtr<TrustedHTML>, String>>&&);
+    ExceptionOr<void> write(Document* entryDocument, FixedVector<std::variant<RefPtr<TrustedHTML>, String>>&&);
+    ExceptionOr<void> writeln(Document* entryDocument, FixedVector<std::variant<RefPtr<TrustedHTML>, String>>&&);
+    WEBCORE_EXPORT ExceptionOr<void> write(Document* entryDocument, FixedVector<String>&&);
+    WEBCORE_EXPORT ExceptionOr<void> writeln(Document* entryDocument, FixedVector<String>&&);
 
     bool wellFormed() const { return m_wellFormed; }
 
@@ -843,6 +846,7 @@ public:
 
     void disableEval(const String& errorMessage) final;
     void disableWebAssembly(const String& errorMessage) final;
+    void setRequiresTrustedTypes(bool required) final;
 
     IDBClient::IDBConnectionProxy* idbConnectionProxy() final;
     StorageConnection* storageConnection();
@@ -852,7 +856,7 @@ public:
 #if ENABLE(WEB_RTC)
     RTCNetworkManager* rtcNetworkManager() { return m_rtcNetworkManager.get(); }
     WEBCORE_EXPORT void setRTCNetworkManager(Ref<RTCNetworkManager>&&);
-    void startGatheringRTCLogs(Function<void(String&& logType, String&& logMessage, String&& logLevel, RefPtr<RTCPeerConnection>&&)>&&);
+    void startGatheringRTCLogs(Function<void(String&& logType, String&& logMessage, RefPtr<SharedBuffer>&&, String&& logLevel, RefPtr<RTCPeerConnection>&&)>&&);
     void stopGatheringRTCLogs();
 #endif
 
@@ -876,7 +880,7 @@ public:
 
     void setCompatibilityMode(DocumentCompatibilityMode);
     void lockCompatibilityMode() { m_compatibilityModeLocked = true; }
-    static ptrdiff_t compatibilityModeMemoryOffset() { return OBJECT_OFFSETOF(Document, m_compatibilityMode); }
+    static constexpr ptrdiff_t compatibilityModeMemoryOffset() { return OBJECT_OFFSETOF(Document, m_compatibilityMode); }
 
     WEBCORE_EXPORT String compatMode() const;
 
@@ -1098,6 +1102,7 @@ public:
     // Returns the owning element in the parent document.
     // Returns nullptr if this is the top level document.
     WEBCORE_EXPORT HTMLFrameOwnerElement* ownerElement() const;
+    WEBCORE_EXPORT std::optional<OwnerPermissionsPolicyData> ownerPermissionsPolicy() const;
 
     // Used by DOM bindings; no direction known.
     const String& title() const { return m_title.string; }
@@ -1400,6 +1405,8 @@ public:
     WEBCORE_EXPORT void exitPointerLock();
 #endif
 
+    OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections() const final;
+
     std::optional<uint64_t> noiseInjectionHashSalt() const final;
     NoiseInjectionPolicy noiseInjectionPolicy() const;
 
@@ -1537,6 +1544,8 @@ public:
     bool inRenderTreeUpdate() const { return m_inRenderTreeUpdate; }
     bool isResolvingContainerQueries() const { return m_isResolvingContainerQueries; }
     bool isResolvingContainerQueriesForSelfOrAncestor() const;
+    bool isInStyleInterleavedLayout() const { return m_isResolvingContainerQueries || m_isResolvingAnchorPositionedElements; };
+    bool isInStyleInterleavedLayoutForSelfOrAncestor() const;
     bool isResolvingTreeStyle() const { return m_isResolvingTreeStyle; }
     void setIsResolvingTreeStyle(bool);
 
@@ -1684,6 +1693,11 @@ public:
 
     void performPendingViewTransitions();
 
+    bool renderingIsSuppressedForViewTransition() const;
+    void setRenderingIsSuppressedForViewTransitionAfterUpdateRendering();
+    void clearRenderingIsSuppressedForViewTransition();
+    void flushDeferredRenderingIsSuppressedForViewTransitionChanges();
+
 #if ENABLE(MEDIA_STREAM)
     void setHasCaptureMediaStreamTrack() { m_hasHadCaptureMediaStreamTrack = true; }
     bool hasHadCaptureMediaStreamTrack() const { return m_hasHadCaptureMediaStreamTrack; }
@@ -1790,7 +1804,7 @@ public:
     WEBCORE_EXPORT void navigateFromServiceWorker(const URL&, CompletionHandler<void(ScheduleLocationChangeResult)>&&);
 
 #if ENABLE(VIDEO)
-    void forEachMediaElement(const Function<void(HTMLMediaElement&)>&);
+    WEBCORE_EXPORT void forEachMediaElement(const Function<void(HTMLMediaElement&)>&);
 #endif
 
 #if ENABLE(IOS_TOUCH_EVENTS)
@@ -1874,6 +1888,8 @@ public:
     void setFragmentDirective(const String& fragmentDirective) { m_fragmentDirective = fragmentDirective; }
     const String& fragmentDirective() const { return m_fragmentDirective; }
 
+    Ref<FragmentDirective> fragmentDirectiveForBindings() { return m_fragmentDirectiveForBindings; }
+
     void prepareCanvasesForDisplayOrFlushIfNeeded();
     void addCanvasNeedingPreparationForDisplayOrFlush(CanvasRenderingContext&);
     void removeCanvasNeedingPreparationForDisplayOrFlush(CanvasRenderingContext&);
@@ -1924,6 +1940,10 @@ public:
 
     void detachFromFrame();
 
+    PermissionsPolicy permissionsPolicy() const;
+
+    unsigned unloadCounter() const { return m_unloadCounter; }
+
 protected:
     enum class ConstructionFlag : uint8_t {
         Synthesized = 1 << 0,
@@ -1939,7 +1959,7 @@ private:
     friend class DocumentParserYieldToken;
     friend class Node;
     friend class ThrowOnDynamicMarkupInsertionCountIncrementer;
-    friend class IgnoreOpensDuringUnloadCountIncrementer;
+    friend class UnloadCountIncrementer;
     friend class IgnoreDestructiveWriteCountIncrementer;
 
     void updateTitleElement(Element& changingTitleElement);
@@ -1948,6 +1968,8 @@ private:
     void frameDestroyed() final;
 
     void commonTeardown();
+
+    ExceptionOr<void> write(Document* entryDocument, FixedVector<std::variant<RefPtr<TrustedHTML>, String>>&&, ASCIILiteral lineFeed);
 
     WEBCORE_EXPORT Quirks& ensureQuirks();
     WEBCORE_EXPORT CachedResourceLoader& ensureCachedResourceLoader();
@@ -2070,6 +2092,7 @@ private:
     MediaProducerMediaStateFlags computeCaptureState() const;
 #endif
     bool isTopDocumentLegacy() const { return &topDocument() == this; }
+    void securityOriginDidChange() final;
 
     const Ref<const Settings> m_settings;
 
@@ -2380,6 +2403,8 @@ private:
 
     String m_fragmentDirective;
 
+    Ref<FragmentDirective> m_fragmentDirectiveForBindings;
+
     ListHashSet<Ref<Element>> m_topLayerElements;
     ListHashSet<Ref<HTMLElement>> m_autoPopoverList;
 
@@ -2432,8 +2457,8 @@ private:
     // https://html.spec.whatwg.org/multipage/dynamic-markup-insertion.html#throw-on-dynamic-markup-insertion-counter
     unsigned m_throwOnDynamicMarkupInsertionCount { 0 };
 
-    // https://html.spec.whatwg.org/multipage/dynamic-markup-insertion.html#ignore-opens-during-unload-counter
-    unsigned m_ignoreOpensDuringUnloadCount { 0 };
+    // https://html.spec.whatwg.org/multipage/document-lifecycle.html#unload-counter
+    unsigned m_unloadCounter { 0 };
 
     // https://html.spec.whatwg.org/multipage/dynamic-markup-insertion.html#ignore-destructive-writes-counter
     unsigned m_ignoreDestructiveWriteCount { 0 };
@@ -2508,6 +2533,7 @@ private:
     bool m_inRenderTreeUpdate { false };
     bool m_isResolvingTreeStyle { false };
     bool m_isResolvingContainerQueries { false };
+    bool m_isResolvingAnchorPositionedElements { false };
 
     bool m_gotoAnchorNeededAfterStylesheetsLoad { false };
     TriState m_isDNSPrefetchEnabled { TriState::Indeterminate };
@@ -2570,6 +2596,8 @@ private:
 #endif
 
     bool m_hasViewTransitionPseudoElementTree { false };
+    bool m_renderingIsSuppressedForViewTransition { false };
+    bool m_enableRenderingIsSuppressedForViewTransitionAfterUpdateRendering { false };
 
 #if ENABLE(TOUCH_ACTION_REGIONS)
     bool m_mayHaveElementsWithNonAutoTouchAction { false };
@@ -2598,6 +2626,7 @@ private:
     std::optional<bool> m_cachedCookiesEnabled;
 
     mutable std::unique_ptr<CSSParserContext> m_cachedCSSParserContext;
+    mutable std::unique_ptr<PermissionsPolicy> m_permissionsPolicy;
 };
 
 Element* eventTargetElementForDocument(Document*);

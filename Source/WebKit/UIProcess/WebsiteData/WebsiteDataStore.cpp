@@ -75,6 +75,7 @@
 #include <wtf/FileSystem.h>
 #include <wtf/ProcessPrivilege.h>
 #include <wtf/RunLoop.h>
+#include <wtf/text/MakeString.h>
 
 #if OS(DARWIN)
 #include <wtf/spi/darwin/OSVariantSPI.h>
@@ -611,7 +612,7 @@ void WebsiteDataStore::fetchDataAndApply(OptionSet<WebsiteDataType> dataTypes, O
                     if (!allowsWebsiteDataRecordsForAllOrigins)
                         continue;
 
-                    String hostString = entry.origin.host().isEmpty() ? emptyString() : makeString(" ", entry.origin.host());
+                    String hostString = entry.origin.host().isEmpty() ? emptyString() : makeString(' ', entry.origin.host());
                     displayName = makeString(entry.origin.protocol(), hostString);
                 }
 

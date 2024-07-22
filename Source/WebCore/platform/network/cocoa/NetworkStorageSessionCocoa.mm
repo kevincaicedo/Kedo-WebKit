@@ -42,6 +42,7 @@
 #import <wtf/ProcessPrivilege.h>
 #import <wtf/URL.h>
 #import <wtf/cocoa/VectorCocoa.h>
+#import <wtf/text/MakeString.h>
 #import <wtf/text/StringBuilder.h>
 #import <wtf/text/cf/StringConcatenateCF.h>
 
@@ -378,7 +379,7 @@ std::pair<String, bool> NetworkStorageSession::cookiesForSession(const URL& firs
             if (includeSecureCookies == IncludeSecureCookies::No)
                 continue;
         }
-        cookiesBuilder.append(cookiesBuilder.isEmpty() ? "" : "; ", [cookie name], '=', [cookie value]);
+        cookiesBuilder.append(cookiesBuilder.isEmpty() ? ""_s : "; "_s, [cookie name], '=', [cookie value]);
     }
     return { cookiesBuilder.toString(), didAccessSecureCookies };
 
@@ -445,7 +446,7 @@ static NSHTTPCookie *parseDOMCookie(String cookieString, NSURL* cookieURL, std::
 
     // <http://bugs.webkit.org/show_bug.cgi?id=6531>, <rdar://4409034>
     // cookiesWithResponseHeaderFields doesn't parse cookies without a value
-    cookieString = cookieString.contains('=') ? cookieString : cookieString + "=";
+    cookieString = cookieString.contains('=') ? cookieString : makeString(cookieString, '=');
 
     NSHTTPCookie *initialCookie = [NSHTTPCookie _cookieForSetCookieString:cookieString forURL:cookieURL partition:nil];
     if (!initialCookie)

@@ -38,6 +38,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Scope.h>
 #include <wtf/StringPrintStream.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -106,7 +107,7 @@ static String vectorToHexString(const Vector<uint8_t>& vec)
 
 String KeyHandle::idAsString() const
 {
-    return makeString("[", vectorToHexString(m_id), "]");
+    return makeString('[', vectorToHexString(m_id), ']');
 }
 
 KeyStoreIDType keyStoreBaseNextID()

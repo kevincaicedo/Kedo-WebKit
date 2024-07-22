@@ -196,7 +196,7 @@ void Editor::writeImageToPasteboard(Pasteboard& pasteboard, Element& imageElemen
         pasteboardImage.resourceData = buffer->makeContiguous();
 
     if (!pasteboard.isStatic())
-        client()->getClientPasteboardData(makeRangeSelectingNode(imageElement), pasteboardImage.clientTypes, pasteboardImage.clientData);
+        client()->getClientPasteboardData(makeRangeSelectingNode(imageElement), pasteboardImage.clientTypesAndData);
 
     pasteboard.write(pasteboardImage);
 }
@@ -352,6 +352,11 @@ void Editor::ensureLastEditCommandHasCurrentSelectionIfOpenForMoreTyping()
 {
     Ref document = protectedDocument();
     TypingCommand::ensureLastEditCommandHasCurrentSelectionIfOpenForMoreTyping(document, document->selection().selection());
+}
+
+bool Editor::writingSuggestionsSupportsSuffix()
+{
+    return false;
 }
 
 } // namespace WebCore

@@ -27,6 +27,7 @@
 #include "IDBObjectStoreInfo.h"
 
 #include <wtf/CrossThreadCopier.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -143,7 +144,7 @@ String IDBObjectStoreInfo::loggingString(int indent) const
 
 String IDBObjectStoreInfo::condensedLoggingString() const
 {
-    return makeString("<OS: ", m_name, " (", m_identifier, ")>");
+    return makeString("<OS: "_s, m_name, " ("_s, m_identifier, ")>"_s);
 }
 
 #endif

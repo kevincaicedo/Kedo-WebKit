@@ -38,6 +38,7 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/Vector.h>
 #include <wtf/text/AtomStringHash.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/TextStream.h>
 
@@ -373,16 +374,17 @@ static void appendPseudoClassFunctionTail(StringBuilder& builder, const CSSSelec
 
 }
 
+static void appendLangArgument(StringBuilder& builder, const PossiblyQuotedIdentifier& langArgument)
+{
+    if (!langArgument.wasQuoted)
+        serializeIdentifier(langArgument.identifier, builder);
+    else
+        serializeString(langArgument.identifier, builder);
+}
+
 static void appendLangArgumentList(StringBuilder& builder, const FixedVector<PossiblyQuotedIdentifier>& list)
 {
-    for (unsigned i = 0, size = list.size(); i < size; ++i) {
-        if (!list[i].wasQuoted)
-            serializeIdentifier(list[i].identifier, builder);
-        else
-            serializeString(list[i].identifier, builder);
-        if (i != size - 1)
-            builder.append(", "_s);
-    }
+    builder.append(interleave(list, appendLangArgument, ", "_s));
 }
 
 // http://dev.w3.org/csswg/css-syntax/#serializing-anb
@@ -658,7 +660,7 @@ String CSSSelector::selectorText(StringView separator, StringView rightSide) con
         return previousSelector->selectorText(separator, builder);
     } else if (auto separatorText = separatorTextForNestingRelative(); !separatorText.isNull()) {
         // We have a separator but no tag history which can happen with implicit relative nesting selector
-        return separatorText + builder.toString();
+        return makeString(separatorText, builder.toString());
     }
 
     return builder.toString();

@@ -124,7 +124,7 @@ public:
     WTF_EXPORT_PRIVATE CString utf8(ConversionMode = LenientConversion) const;
 
     template<typename Func>
-    Expected<std::invoke_result_t<Func, std::span<const char>>, UTF8ConversionError> tryGetUTF8(const Func&, ConversionMode = LenientConversion) const;
+    Expected<std::invoke_result_t<Func, std::span<const char8_t>>, UTF8ConversionError> tryGetUTF8(const Func&, ConversionMode = LenientConversion) const;
 
     template<size_t N>
     class UpconvertedCharactersWithSize;
@@ -154,7 +154,7 @@ public:
 
     size_t find(UChar, unsigned start = 0) const;
     size_t find(LChar, unsigned start = 0) const;
-    ALWAYS_INLINE size_t find(char c, unsigned start = 0) const { return find(static_cast<LChar>(c), start); }
+    ALWAYS_INLINE size_t find(char c, unsigned start = 0) const { return find(byteCast<LChar>(c), start); }
     template<typename CodeUnitMatchFunction, std::enable_if_t<std::is_invocable_r_v<bool, CodeUnitMatchFunction, UChar>>* = nullptr>
     size_t find(CodeUnitMatchFunction&&, unsigned start = 0) const;
     ALWAYS_INLINE size_t find(ASCIILiteral literal, unsigned start = 0) const { return find(literal.span8(), start); }
@@ -412,7 +412,7 @@ inline StringView::StringView(const char* characters)
 
 inline StringView::StringView(std::span<const char> characters)
 {
-    initialize(std::span { reinterpret_cast<const LChar*>(characters.data()), characters.size() });
+    initialize(byteCast<LChar>(characters));
 }
 
 inline StringView::StringView(const void* characters, unsigned length, bool is8bit)
@@ -734,8 +734,8 @@ public:
     {
     }
 
-    unsigned length() { return m_string.length(); }
-    bool is8Bit() { return m_string.is8Bit(); }
+    unsigned length() const { return m_string.length(); }
+    bool is8Bit() const { return m_string.is8Bit(); }
     template<typename CharacterType> void writeTo(CharacterType* destination) { m_string.getCharacters(destination); }
 
 private:
@@ -776,7 +776,7 @@ inline bool equal(StringView a, const LChar* b)
     if (a.isEmpty())
         return !b;
 
-    auto bSpan = span8(reinterpret_cast<const char*>(b));
+    auto bSpan = span8(byteCast<char>(b));
     if (a.length() != bSpan.size())
         return false;
 
@@ -787,7 +787,7 @@ inline bool equal(StringView a, const LChar* b)
 
 ALWAYS_INLINE bool equal(StringView a, ASCIILiteral b)
 {
-    return equal(a, b.characters8());
+    return equal(a, b.span8().data());
 }
 
 inline bool equalIgnoringASCIICase(StringView a, StringView b)
@@ -1474,7 +1474,7 @@ inline bool AtomString::endsWithIgnoringASCIICase(StringView string) const
 }
 
 template<typename Func>
-inline Expected<std::invoke_result_t<Func, std::span<const char>>, UTF8ConversionError> StringView::tryGetUTF8(const Func& function, ConversionMode mode) const
+inline Expected<std::invoke_result_t<Func, std::span<const char8_t>>, UTF8ConversionError> StringView::tryGetUTF8(const Func& function, ConversionMode mode) const
 {
     if (is8Bit())
         return StringImpl::tryGetUTF8ForCharacters(function, span8());

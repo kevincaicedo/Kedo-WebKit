@@ -51,6 +51,7 @@ OBJC_CLASS UIView;
 OBJC_CLASS CALayer;
 OBJC_CLASS NSError;
 OBJC_CLASS WebAVPlayerController;
+OBJC_CLASS WebAVPlayerLayer;
 OBJC_CLASS WebAVPlayerLayerView;
 
 namespace WebCore {
@@ -86,6 +87,7 @@ public:
     WEBCORE_EXPORT virtual AVPlayerViewController *avPlayerViewController() const = 0;
     WebAVPlayerController *playerController() const;
     WebAVPlayerLayerView *playerLayerView() const { return m_playerLayerView.get(); }
+    WebAVPlayerLayer *playerLayer() const;
     WEBCORE_EXPORT void enterFullscreen();
     WEBCORE_EXPORT virtual bool exitFullscreen(const FloatRect& finalRect);
     WEBCORE_EXPORT void exitFullscreenWithoutAnimationToMode(HTMLMediaElementEnums::VideoFullscreenMode);
@@ -98,6 +100,7 @@ public:
     WEBCORE_EXPORT virtual void setInlineRect(const FloatRect&, bool visible);
     WEBCORE_EXPORT void preparedToReturnToStandby();
     bool changingStandbyOnly() { return m_changingStandbyOnly; }
+    WEBCORE_EXPORT void failedToRestoreFullscreen();
 
     enum class ExitFullScreenReason {
         DoneButtonTapped,

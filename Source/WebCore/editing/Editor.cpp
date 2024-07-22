@@ -131,6 +131,7 @@
 #include <pal/text/KillRing.h>
 #include <wtf/Scope.h>
 #include <wtf/SetForScope.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/unicode/CharacterNames.h>
 
 #if PLATFORM(MAC)
@@ -1192,6 +1193,13 @@ static void dispatchInputEvents(RefPtr<Element> startRoot, RefPtr<Element> endRo
 
 bool Editor::willApplyEditing(CompositeEditCommand& command, Vector<RefPtr<StaticRange>>&& targetRanges)
 {
+#if ENABLE(WRITING_TOOLS)
+    if (suppressEditingForWritingTools()) {
+        RELEASE_LOG(Editing, "Editor %p suppressed editing for Writing Tools", this);
+        return false;
+    }
+#endif
+
     m_hasHandledAnyEditing = true;
 
     if (!command.shouldDispatchInputEvents())
@@ -1280,6 +1288,9 @@ void Editor::unappliedEditing(EditCommandComposition& composition)
     updateEditorUINowIfScheduled();
 
     m_alternativeTextController->respondToUnappliedEditing(&composition);
+#if ENABLE(WRITING_TOOLS)
+    protectedDocument()->page()->respondToUnappliedWritingToolsEditing(&composition);
+#endif
 
     m_lastEditCommand = nullptr;
     if (auto* client = this->client())
@@ -1303,6 +1314,10 @@ void Editor::reappliedEditing(EditCommandComposition& composition)
     dispatchInputEvents(composition.startingRootEditableElement(), composition.endingRootEditableElement(), "historyRedo"_s, IsInputMethodComposing::No);
     
     updateEditorUINowIfScheduled();
+
+#if ENABLE(WRITING_TOOLS)
+    protectedDocument()->page()->respondToReappliedWritingToolsEditing(&composition);
+#endif
 
     m_lastEditCommand = nullptr;
     if (auto* client = this->client())
@@ -2260,6 +2275,11 @@ void Editor::setComposition(const String& text, SetCompositionMode mode)
     }
 }
 
+void Editor::closeTyping()
+{
+    TypingCommand::closeTyping(m_document);
+}
+
 RenderInline* Editor::writingSuggestionRenderer() const
 {
     return m_writingSuggestionRenderer.get();
@@ -2270,6 +2290,7 @@ void Editor::setWritingSuggestionRenderer(RenderInline& renderer)
     m_writingSuggestionRenderer = renderer;
 }
 
+#if PLATFORM(COCOA)
 void Editor::setWritingSuggestion(const String& fullTextWithPrediction, const CharacterRange& selection)
 {
     Ref document = protectedDocument();
@@ -2282,6 +2303,11 @@ void Editor::setWritingSuggestion(const String& fullTextWithPrediction, const Ch
     if (!selectedElement->hasEditableStyle())
         return;
 
+    auto range = document->selection().selection().firstRange();
+    if (!range)
+        return;
+    range->start.offset = 0;
+
     m_isHandlingAcceptedCandidate = true;
 
     auto newText = fullTextWithPrediction.substring(0, selection.location);
@@ -2289,20 +2315,25 @@ void Editor::setWritingSuggestion(const String& fullTextWithPrediction, const Ch
 
     auto currentText = m_writingSuggestionData ? m_writingSuggestionData->currentText() : emptyString();
 
-    ASSERT(newText.startsWith(currentText));
-    auto textDelta = newText.substring(currentText.length());
+    ASSERT(newText.isEmpty() || newText.startsWith(currentText));
+    auto textDelta = newText.isEmpty() ? emptyString() : newText.substring(currentText.length());
 
-    auto range = document->selection().selection().firstRange();
-    if (!range)
-        return;
-
-    range->start.offset = 0;
     auto offset = WebCore::characterCount(*range);
     auto offsetWithDelta = currentText.isEmpty() ? offset : offset + textDelta.length();
 
-    if (!suggestionText.isEmpty())
-        m_writingSuggestionData = makeUnique<WritingSuggestionData>(WTFMove(suggestionText), WTFMove(newText), WTFMove(offsetWithDelta));
-    else
+    if (!suggestionText.isEmpty()) {
+        String originalPrefix;
+        String originalSuffix;
+        if (m_writingSuggestionData) {
+            originalPrefix = m_writingSuggestionData->originalPrefix();
+            originalSuffix = m_writingSuggestionData->originalSuffix();
+        } else {
+            originalPrefix = WebCore::plainTextReplacingNoBreakSpace(*range);
+            originalSuffix = suggestionText;
+        }
+
+        m_writingSuggestionData = makeUnique<WritingSuggestionData>(WTFMove(suggestionText), WTFMove(newText), WTFMove(offsetWithDelta), WTFMove(originalPrefix), WTFMove(originalSuffix), Editor::writingSuggestionsSupportsSuffix());
+    } else
         m_writingSuggestionData = nullptr;
 
     if (!currentText.isEmpty()) {
@@ -2311,6 +2342,7 @@ void Editor::setWritingSuggestion(const String& fullTextWithPrediction, const Ch
     } else
         selectedElement->invalidateStyleAndRenderersForSubtree();
 }
+#endif
 
 void Editor::setComposition(const String& text, const Vector<CompositionUnderline>& underlines, const Vector<CompositionHighlight>& highlights, const HashMap<String, Vector<CharacterRange>>& annotations, unsigned selectionStart, unsigned selectionEnd)
 {
@@ -3967,6 +3999,39 @@ void Editor::respondToChangedSelection(const VisibleSelection&, OptionSet<FrameS
 #endif
 
     Ref document = protectedDocument();
+
+    auto continueDisplayingSuggestion = [&] {
+        if (!m_writingSuggestionData)
+            return false;
+
+        auto newSelection = document->selection().selection();
+
+        auto range = newSelection.firstRange();
+        if (!range)
+            return false;
+
+        range->start.offset = 0;
+
+        auto completion = makeString(m_writingSuggestionData->originalPrefix(), m_writingSuggestionData->originalSuffix());
+        auto content = plainTextReplacingNoBreakSpace(*range);
+
+        auto currentFullText = makeString(content, m_writingSuggestionData->content());
+
+        if (completion == content)
+            return false;
+
+        if (completion != currentFullText)
+            return false;
+
+        if (content.length() <= m_writingSuggestionData->originalPrefix().length())
+            return false;
+
+        return completion.startsWith(content);
+    }();
+
+    if (m_writingSuggestionData && !continueDisplayingSuggestion)
+        removeWritingSuggestionIfNeeded();
+
     if (client())
         client()->respondToChangedSelection(document->frame());
 
@@ -4451,13 +4516,12 @@ PromisedAttachmentInfo Editor::promisedAttachmentInfo(Element& element)
     if (!attachment)
         return { };
 
-    Vector<String> additionalTypes;
-    Vector<RefPtr<SharedBuffer>> additionalData;
+    Vector<std::pair<String, RefPtr<WebCore::SharedBuffer>>>  additionalTypesAndData;
 #if PLATFORM(COCOA)
-    getPasteboardTypesAndDataForAttachment(element, additionalTypes, additionalData);
+    getPasteboardTypesAndDataForAttachment(element, additionalTypesAndData);
 #endif
 
-    return { attachment->uniqueIdentifier(), WTFMove(additionalTypes), WTFMove(additionalData) };
+    return { attachment->uniqueIdentifier(), WTFMove(additionalTypesAndData) };
 }
 
 void Editor::registerAttachmentIdentifier(const String& identifier, const String& contentType, const String& preferredFileName, Ref<FragmentedSharedBuffer>&& data)

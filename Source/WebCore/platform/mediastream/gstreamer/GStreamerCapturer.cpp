@@ -33,6 +33,7 @@
 #include <wtf/HexNumber.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/PrintStream.h>
+#include <wtf/text/MakeString.h>
 
 GST_DEBUG_CATEGORY(webkit_capturer_debug);
 #define GST_CAT_DEFAULT webkit_capturer_debug
@@ -146,7 +147,7 @@ GstElement* GStreamerCapturer::createSource()
         }
     } else {
         ASSERT(m_device);
-        auto sourceName = makeString(name(), hex(reinterpret_cast<uintptr_t>(this)));
+        auto sourceName = makeString(WTF::span(name()), hex(reinterpret_cast<uintptr_t>(this)));
         m_src = gst_device_create_element(m_device->device(), sourceName.ascii().data());
         ASSERT(m_src);
         g_object_set(m_src.get(), "do-timestamp", TRUE, nullptr);

@@ -84,6 +84,7 @@
 #include <wtf/Language.h>
 #include <wtf/MathExtras.h>
 #include <wtf/Ref.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringToIntegerConversion.h>
 
 #if ENABLE(TOUCH_EVENTS)
@@ -1089,7 +1090,7 @@ void HTMLInputElement::setChecked(bool isChecked, WasSetByJavaScript wasCheckedB
     // RenderTextView), but it's not possible to do it at the moment
     // because of the way the code is structured.
     if (auto* renderer = this->renderer()) {
-        if (auto* cache = renderer->document().existingAXObjectCache())
+        if (CheckedPtr cache = renderer->document().existingAXObjectCache())
             cache->checkedStateChanged(*this);
     }
 }
@@ -1105,7 +1106,7 @@ void HTMLInputElement::setIndeterminate(bool newValue)
     if (auto* renderer = this->renderer(); renderer && renderer->style().hasUsedAppearance())
         renderer->repaint();
 
-    if (auto* cache = document().existingAXObjectCache())
+    if (CheckedPtr cache = document().existingAXObjectCache())
         cache->valueChanged(*this);
 }
 
@@ -1277,6 +1278,14 @@ void HTMLInputElement::willDispatchEvent(Event& event, InputElementClickState& s
             state.stateful = true;
         }
     }
+
+    if (event.type() == eventNames.auxclickEvent) {
+        auto* mouseEvent = dynamicDowncast<MouseEvent>(event);
+        if (mouseEvent && mouseEvent->button() != MouseButton::Left) {
+            m_inputType->willDispatchClick(state);
+            state.stateful = true;
+        }
+    }
 }
 
 void HTMLInputElement::didDispatchClickEvent(Event& event, const InputElementClickState& state)
@@ -1293,7 +1302,7 @@ void HTMLInputElement::defaultEventHandler(Event& event)
 {
     if (auto* mouseEvent = dynamicDowncast<MouseEvent>(event); mouseEvent && mouseEvent->button() == MouseButton::Left) {
         auto eventType = mouseEvent->type();
-        if (eventType == eventNames().clickEvent)
+        if (isAnyClick(*mouseEvent))
             m_inputType->handleClickEvent(*mouseEvent);
         else if (eventType == eventNames().mousedownEvent)
             m_inputType->handleMouseDownEvent(*mouseEvent);
@@ -1538,7 +1547,7 @@ void HTMLInputElement::setAutoFilledAndObscured(bool autoFilledAndObscured)
     Style::PseudoClassChangeInvalidation styleInvalidation(*this, CSSSelector::PseudoClass::WebKitAutofillAndObscured, autoFilledAndObscured);
     m_isAutoFilledAndObscured = autoFilledAndObscured;
 
-    if (auto* cache = document().existingAXObjectCache())
+    if (CheckedPtr cache = document().existingAXObjectCache())
         cache->onTextSecurityChanged(*this);
 }
 
@@ -1553,7 +1562,7 @@ void HTMLInputElement::setShowAutoFillButton(AutoFillButtonType autoFillButtonTy
     updateInnerTextElementEditability();
     invalidateStyleForSubtree();
 
-    if (auto* cache = document().existingAXObjectCache())
+    if (CheckedPtr cache = document().existingAXObjectCache())
         cache->autofillTypeChanged(*this);
 }
 
@@ -2225,7 +2234,7 @@ std::optional<unsigned> HTMLInputElement::selectionStartForBindings() const
 ExceptionOr<void> HTMLInputElement::setSelectionStartForBindings(std::optional<unsigned> start)
 {
     if (!canHaveSelection() || !m_inputType->supportsSelectionAPI())
-        return Exception { ExceptionCode::InvalidStateError, "The input element's type ('" + m_inputType->formControlType() + "') does not support selection." };
+        return Exception { ExceptionCode::InvalidStateError, makeString("The input element's type ('"_s, m_inputType->formControlType(), "') does not support selection."_s) };
 
     setSelectionStart(start.value_or(0));
     return { };
@@ -2242,7 +2251,7 @@ std::optional<unsigned> HTMLInputElement::selectionEndForBindings() const
 ExceptionOr<void> HTMLInputElement::setSelectionEndForBindings(std::optional<unsigned> end)
 {
     if (!canHaveSelection() || !m_inputType->supportsSelectionAPI())
-        return Exception { ExceptionCode::InvalidStateError, "The input element's type ('" + m_inputType->formControlType() + "') does not support selection." };
+        return Exception { ExceptionCode::InvalidStateError, makeString("The input element's type ('"_s, m_inputType->formControlType(), "') does not support selection."_s) };
 
     setSelectionEnd(end.value_or(0));
     return { };
@@ -2259,7 +2268,7 @@ ExceptionOr<String> HTMLInputElement::selectionDirectionForBindings() const
 ExceptionOr<void> HTMLInputElement::setSelectionDirectionForBindings(const String& direction)
 {
     if (!canHaveSelection() || !m_inputType->supportsSelectionAPI())
-        return Exception { ExceptionCode::InvalidStateError, "The input element's type ('" + m_inputType->formControlType() + "') does not support selection." };
+        return Exception { ExceptionCode::InvalidStateError, makeString("The input element's type ('"_s, m_inputType->formControlType(), "') does not support selection."_s) };
 
     setSelectionDirection(direction);
     return { };
@@ -2268,7 +2277,7 @@ ExceptionOr<void> HTMLInputElement::setSelectionDirectionForBindings(const Strin
 ExceptionOr<void> HTMLInputElement::setSelectionRangeForBindings(unsigned start, unsigned end, const String& direction)
 {
     if (!canHaveSelection() || !m_inputType->supportsSelectionAPI())
-        return Exception { ExceptionCode::InvalidStateError, "The input element's type ('" + m_inputType->formControlType() + "') does not support selection." };
+        return Exception { ExceptionCode::InvalidStateError, makeString("The input element's type ('"_s, m_inputType->formControlType(), "') does not support selection."_s) };
     
     setSelectionRange(start, end, direction, AXTextStateChangeIntent(), ForBindings::Yes);
     return { };
@@ -2276,20 +2285,18 @@ ExceptionOr<void> HTMLInputElement::setSelectionRangeForBindings(unsigned start,
 
 static Ref<StyleGradientImage> autoFillStrongPasswordMaskImage()
 {
-    Vector<StyleGradientImage::Stop> stops {
-        { Color::black, CSSPrimitiveValue::create(50, CSSUnitType::CSS_PERCENTAGE) },
-        { Color::transparentBlack, CSSPrimitiveValue::create(100, CSSUnitType::CSS_PERCENTAGE) }
-    };
-
     return StyleGradientImage::create(
         StyleGradientImage::LinearData {
             {
-                CSSLinearGradientValue::Angle { CSSPrimitiveValue::create(90, CSSUnitType::CSS_DEG) }
+                AngleRaw { CSSUnitType::CSS_DEG, 90 }
             },
-            CSSGradientRepeat::NonRepeating
+            CSSGradientRepeat::NonRepeating,
+            {
+                { Color::black, Length(50, LengthType::Percent) },
+                { Color::transparentBlack, Length(100, LengthType::Percent) }
+            }
         },
-        CSSGradientColorInterpolationMethod::legacyMethod(AlphaPremultiplication::Unpremultiplied),
-        WTFMove(stops)
+        CSSGradientColorInterpolationMethod::legacyMethod(AlphaPremultiplication::Unpremultiplied)
     );
 }
 

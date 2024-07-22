@@ -78,6 +78,7 @@
 #include <wtf/SetForScope.h>
 #include <wtf/SharedTask.h>
 #include <wtf/Threading.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextPosition.h>
 
 #define SCRIPTCONTROLLER_RELEASE_LOG_ERROR(channel, fmt, ...) RELEASE_LOG_ERROR(channel, "%p - ScriptController::" fmt, this, ##__VA_ARGS__)
@@ -453,6 +454,14 @@ void ScriptController::setWebAssemblyEnabled(bool value, const String& errorMess
     jsWindowProxy->window()->setWebAssemblyEnabled(value, errorMessage);
 }
 
+void ScriptController::setRequiresTrustedTypes(bool required)
+{
+    auto* proxy = windowProxy().existingJSWindowProxy(mainThreadNormalWorld());
+    if (!proxy)
+        return;
+    proxy->window()->setRequiresTrustedTypes(required);
+}
+
 bool ScriptController::canAccessFromCurrentOrigin(LocalFrame* frame, Document& accessingDocument)
 {
     auto* lexicalGlobalObject = JSExecState::currentState();
@@ -460,7 +469,7 @@ bool ScriptController::canAccessFromCurrentOrigin(LocalFrame* frame, Document& a
     // If the current lexicalGlobalObject is null we should use the accessing document for the security check.
     if (!lexicalGlobalObject) {
         auto* targetDocument = frame ? frame->document() : nullptr;
-        return targetDocument && accessingDocument.securityOrigin().isSameOriginDomain(targetDocument->securityOrigin());
+        return targetDocument && accessingDocument.protectedSecurityOrigin()->isSameOriginDomain(targetDocument->securityOrigin());
     }
 
     return BindingSecurity::shouldAllowAccessToFrame(lexicalGlobalObject, frame);
@@ -801,7 +810,7 @@ bool ScriptController::canExecuteScripts(ReasonForCallingCanExecuteScripts reaso
     if (m_frame.document() && m_frame.document()->isSandboxed(SandboxScripts)) {
         // FIXME: This message should be moved off the console once a solution to https://bugs.webkit.org/show_bug.cgi?id=103274 exists.
         if (reason == ReasonForCallingCanExecuteScripts::AboutToExecuteScript || reason == ReasonForCallingCanExecuteScripts::AboutToCreateEventListener)
-            m_frame.document()->addConsoleMessage(MessageSource::Security, MessageLevel::Error, "Blocked script execution in '" + m_frame.document()->url().stringCenterEllipsizedToLength() + "' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.");
+            m_frame.document()->addConsoleMessage(MessageSource::Security, MessageLevel::Error, makeString("Blocked script execution in '"_s, m_frame.document()->url().stringCenterEllipsizedToLength(), "' because the document's frame is sandboxed and the 'allow-scripts' permission is not set."_s));
         return false;
     }
 

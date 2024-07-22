@@ -150,9 +150,11 @@ b3/B3InferSwitches.cpp
 b3/B3InsertionSet.cpp
 b3/B3Kind.cpp
 b3/B3LegalizeMemoryOffsets.cpp
+b3/B3LowerInt64.cpp
 b3/B3LowerMacros.cpp
 b3/B3LowerMacrosAfterOptimizations.cpp
 b3/B3LowerToAir.cpp
+b3/B3LowerToAir32_64.cpp
 b3/B3MathExtras.cpp
 b3/B3MemoryValue.cpp
 b3/B3MoveConstants.cpp
@@ -272,7 +274,6 @@ bytecode/PreciseJumpTargets.cpp
 bytecode/ProgramCodeBlock.cpp
 bytecode/PropertyCondition.cpp
 bytecode/ProxyableAccessCase.cpp
-bytecode/ProxyObjectAccessCase.cpp
 bytecode/PutByIdFlags.cpp
 bytecode/PutByStatus.cpp
 bytecode/PutByVariant.cpp
@@ -756,6 +757,7 @@ runtime/ArrayConstructor.cpp
 runtime/ArrayConventions.cpp
 runtime/ArrayIteratorPrototype.cpp
 runtime/ArrayPrototype.cpp
+runtime/AssertInvariants.cpp
 runtime/AsyncFromSyncIteratorPrototype.cpp
 runtime/AsyncGeneratorFunctionConstructor.cpp
 runtime/AsyncGeneratorFunctionPrototype.cpp
@@ -809,7 +811,6 @@ runtime/DirectEvalExecutable.cpp
 runtime/DoublePredictionFuzzerAgent.cpp
 runtime/DumpContext.cpp
 runtime/ECMAMode.cpp
-runtime/EnsureStillAliveHere.cpp
 runtime/Error.cpp
 runtime/ErrorConstructor.cpp
 runtime/ErrorHandlingScope.cpp
@@ -841,7 +842,6 @@ runtime/GeneratorPrototype.cpp
 runtime/GetPutInfo.cpp
 runtime/GetterSetter.cpp
 runtime/GlobalExecutable.cpp
-runtime/HashMapImpl.cpp
 runtime/HasOwnPropertyCache.cpp
 runtime/Identifier.cpp
 runtime/ImportMap.cpp
@@ -917,6 +917,9 @@ runtime/JSFinalizationRegistry.cpp
 runtime/JSFunction.cpp
 runtime/JSGenerator.cpp
 runtime/JSGeneratorFunction.cpp
+runtime/JSGenericTypedArrayView.cpp
+runtime/JSGenericTypedArrayViewConstructor.cpp
+runtime/JSGenericTypedArrayViewPrototype.cpp
 runtime/JSGlobalLexicalEnvironment.cpp
 runtime/JSGlobalObject.cpp
 runtime/JSGlobalObjectDebuggable.cpp
@@ -998,6 +1001,7 @@ runtime/ObjectInitializationScope.cpp
 runtime/ObjectPrototype.cpp
 runtime/Operations.cpp
 runtime/Options.cpp
+runtime/OrderedHashTable.cpp
 runtime/PageCount.cpp
 runtime/PredictionFileCreatingFuzzerAgent.cpp
 runtime/PrivateFieldPutKind.cpp
@@ -1107,6 +1111,7 @@ runtime/WeakSetPrototype.cpp
 runtime/WideningNumberPredictionFuzzerAgent.cpp
 
 tools/CellList.cpp
+tools/CharacterPropertyDataGenerator.cpp
 tools/CompilerTimingScope.cpp
 tools/FunctionAllowlist.cpp
 tools/FunctionOverrides.cpp
@@ -1116,6 +1121,7 @@ tools/JSDollarVM.cpp
 tools/VMInspector.cpp
 
 wasm/WasmOMGIRGenerator.cpp
+wasm/WasmOMGIRGenerator32_64.cpp
 wasm/WasmBBQDisassembler.cpp
 wasm/WasmBBQJIT.cpp @no-unify
 wasm/WasmBBQJIT32_64.cpp @no-unify

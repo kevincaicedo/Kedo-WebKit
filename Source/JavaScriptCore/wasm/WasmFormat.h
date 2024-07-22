@@ -366,20 +366,20 @@ inline bool isSubtype(StorageType sub, StorageType parent)
     return isSubtype(sub.as<Type>(), parent.as<Type>());
 }
 
-inline bool isValidHeapTypeKind(TypeKind kind)
+inline bool isValidHeapTypeKind(intptr_t kind)
 {
     switch (kind) {
-    case TypeKind::Funcref:
-    case TypeKind::Externref:
+    case static_cast<intptr_t>(TypeKind::Funcref):
+    case static_cast<intptr_t>(TypeKind::Externref):
         return true;
-    case TypeKind::I31ref:
-    case TypeKind::Arrayref:
-    case TypeKind::Structref:
-    case TypeKind::Eqref:
-    case TypeKind::Anyref:
-    case TypeKind::Nullref:
-    case TypeKind::Nullfuncref:
-    case TypeKind::Nullexternref:
+    case static_cast<intptr_t>(TypeKind::I31ref):
+    case static_cast<intptr_t>(TypeKind::Arrayref):
+    case static_cast<intptr_t>(TypeKind::Structref):
+    case static_cast<intptr_t>(TypeKind::Eqref):
+    case static_cast<intptr_t>(TypeKind::Anyref):
+    case static_cast<intptr_t>(TypeKind::Nullref):
+    case static_cast<intptr_t>(TypeKind::Nullfuncref):
+    case static_cast<intptr_t>(TypeKind::Nullexternref):
         return Options::useWebAssemblyGC();
     default:
         break;
@@ -390,7 +390,7 @@ inline bool isValidHeapTypeKind(TypeKind kind)
 // FIXME: separating out heap types in wasm.json could be cleaner in the long term.
 inline const char* heapTypeKindAsString(TypeKind kind)
 {
-    ASSERT(isValidHeapTypeKind(kind));
+    ASSERT(isValidHeapTypeKind(static_cast<intptr_t>(kind)));
     switch (kind) {
     case TypeKind::Funcref:
         return "func";
@@ -598,7 +598,7 @@ struct Segment {
     uint8_t& byte(uint32_t pos)
     {
         ASSERT(pos < sizeInBytes);
-        return *reinterpret_cast<uint8_t*>(reinterpret_cast<char*>(this) + sizeof(Segment) + pos);
+        return *(reinterpret_cast<uint8_t*>(this) + sizeof(Segment) + pos);
     }
 
     static void destroy(Segment*);
@@ -761,10 +761,10 @@ static constexpr uintptr_t NullWasmCallee = 0;
 struct WasmToWasmImportableFunction {
     WTF_MAKE_STRUCT_FAST_ALLOCATED;
     using LoadLocation = CodePtr<WasmEntryPtrTag>*;
-    static ptrdiff_t offsetOfSignatureIndex() { return OBJECT_OFFSETOF(WasmToWasmImportableFunction, typeIndex); }
-    static ptrdiff_t offsetOfEntrypointLoadLocation() { return OBJECT_OFFSETOF(WasmToWasmImportableFunction, entrypointLoadLocation); }
-    static ptrdiff_t offsetOfBoxedWasmCalleeLoadLocation() { return OBJECT_OFFSETOF(WasmToWasmImportableFunction, boxedWasmCalleeLoadLocation); }
-    static ptrdiff_t offsetOfRTT() { return OBJECT_OFFSETOF(WasmToWasmImportableFunction, rtt); }
+    static constexpr ptrdiff_t offsetOfSignatureIndex() { return OBJECT_OFFSETOF(WasmToWasmImportableFunction, typeIndex); }
+    static constexpr ptrdiff_t offsetOfEntrypointLoadLocation() { return OBJECT_OFFSETOF(WasmToWasmImportableFunction, entrypointLoadLocation); }
+    static constexpr ptrdiff_t offsetOfBoxedWasmCalleeLoadLocation() { return OBJECT_OFFSETOF(WasmToWasmImportableFunction, boxedWasmCalleeLoadLocation); }
+    static constexpr ptrdiff_t offsetOfRTT() { return OBJECT_OFFSETOF(WasmToWasmImportableFunction, rtt); }
 
     // FIXME: Pack type index and code pointer into one 64-bit value. See <https://bugs.webkit.org/show_bug.cgi?id=165511>.
     TypeIndex typeIndex { TypeDefinition::invalidIndex };

@@ -42,6 +42,7 @@
 #import "_WKWebExtensionStorageSQLiteStore.h"
 #import <wtf/BlockPtr.h>
 #import <wtf/cocoa/VectorCocoa.h>
+#import <wtf/text/MakeString.h>
 
 namespace WebKit {
 
@@ -182,15 +183,15 @@ void WebExtensionContext::fireStorageChangedEventIfNeeded(NSDictionary *oldKeysA
 
     if (!newKeysAndValues) {
         [oldKeysAndValues enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *value, BOOL *) {
-            changedData[key] = @{ oldValueKey: parseJSON(value, { JSONOptions::FragmentsAllowed }) };
+            changedData[key] = @{ oldValueKey: parseJSON(value, { JSONOptions::FragmentsAllowed }) ?: NSNull.null };
         }];
     } else {
         [newKeysAndValues enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *value, BOOL *) {
             if (NSString *oldValue = oldKeysAndValues[key]) {
                 if (![oldValue isEqualToString:value]) {
                     changedData[key] = @{
-                        oldValueKey: parseJSON(oldValue, { JSONOptions::FragmentsAllowed }),
-                        newValueKey: parseJSON(value, { JSONOptions::FragmentsAllowed }),
+                        oldValueKey: parseJSON(oldValue, { JSONOptions::FragmentsAllowed }) ?: NSNull.null,
+                        newValueKey: parseJSON(value, { JSONOptions::FragmentsAllowed }) ?: NSNull.null,
                     };
                 }
 
@@ -198,7 +199,7 @@ void WebExtensionContext::fireStorageChangedEventIfNeeded(NSDictionary *oldKeysA
             }
 
             // A new key is being added for the first time.
-            changedData[key] = @{ newValueKey: parseJSON(value, { JSONOptions::FragmentsAllowed }) };
+            changedData[key] = @{ newValueKey: parseJSON(value, { JSONOptions::FragmentsAllowed }) ?: NSNull.null };
         }];
     }
 

@@ -77,7 +77,7 @@ static Vector<double> doubleOperands()
 }
 
 
-#if CPU(X86) || CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
+#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
 static Vector<float> floatOperands()
 {
     return Vector<float> {
@@ -269,7 +269,7 @@ template<typename T, typename... Arguments>
 T invoke(const MacroAssemblerCodeRef<JSEntryPtrTag>& code, Arguments... arguments)
 {
     void* executableAddress = untagCFunctionPtr<JSEntryPtrTag>(code.code().taggedPtr());
-    T (*function)(Arguments...) = bitwise_cast<T(*)(Arguments...)>(executableAddress);
+    T (SYSV_ABI *function)(Arguments...) = bitwise_cast<T(SYSV_ABI *)(Arguments...)>(executableAddress);
 
 #if CPU(RISCV64)
     // RV64 calling convention requires all 32-bit values to be sign-extended into the whole register.
@@ -3026,7 +3026,7 @@ void testZeroExtend48ToWord()
 }
 #endif
 
-#if CPU(X86) || CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
+#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
 void testCompareFloat(MacroAssembler::DoubleCondition condition)
 {
     float arg1 = 0;
@@ -3067,7 +3067,7 @@ void testCompareFloat(MacroAssembler::DoubleCondition condition)
         }
     }
 }
-#endif // CPU(X86) || CPU(X86_64) || CPU(ARM64)
+#endif // CPU(X86_64) || CPU(ARM64)
 
 #if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
 
@@ -4840,7 +4840,7 @@ void testProbeModifiesStackPointer(WTF::Function<void*(Probe::Context&)> compute
     uintptr_t modifiedFlags { 0 };
 #endif
     
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
     auto flagsSPR = X86Registers::eflags;
     uintptr_t flagsMask = 0xc5;
 #elif CPU(ARM_THUMB2)
@@ -5016,7 +5016,7 @@ void testProbeModifiesStackValues()
 #endif
     size_t numberOfExtraEntriesToWrite { 10 }; // ARM64 requires that this be 2 word aligned.
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
     MacroAssembler::SPRegisterID flagsSPR = X86Registers::eflags;
     uintptr_t flagsMask = 0xc5;
 #elif CPU(ARM_THUMB2)
@@ -5713,11 +5713,7 @@ void testStoreBaseIndex()
     {
         auto test = compile([=](CCallHelpers& jit) {
             emitFunctionPrologue(jit);
-#if OS(WINDOWS)
-            constexpr FPRReg inputFPR = FPRInfo::argumentFPR2;
-#else
             constexpr FPRReg inputFPR = FPRInfo::argumentFPR0;
-#endif
             jit.storeDouble(inputFPR, CCallHelpers::BaseIndex(GPRInfo::argumentGPR0, GPRInfo::argumentGPR1, CCallHelpers::TimesEight, -8));
             emitFunctionEpilogue(jit);
             jit.ret();
@@ -5729,11 +5725,7 @@ void testStoreBaseIndex()
     {
         auto test = compile([=](CCallHelpers& jit) {
             emitFunctionPrologue(jit);
-#if OS(WINDOWS)
-            constexpr FPRReg inputFPR = FPRInfo::argumentFPR2;
-#else
             constexpr FPRReg inputFPR = FPRInfo::argumentFPR0;
-#endif
             jit.storeDouble(inputFPR, CCallHelpers::BaseIndex(GPRInfo::argumentGPR0, GPRInfo::argumentGPR1, CCallHelpers::TimesEight, 8));
             emitFunctionEpilogue(jit);
             jit.ret();
@@ -5747,11 +5739,7 @@ void testStoreBaseIndex()
     {
         auto test = compile([=](CCallHelpers& jit) {
             emitFunctionPrologue(jit);
-#if OS(WINDOWS)
-            constexpr FPRReg inputFPR = FPRInfo::argumentFPR2;
-#else
             constexpr FPRReg inputFPR = FPRInfo::argumentFPR0;
-#endif
             jit.storeFloat(inputFPR, CCallHelpers::BaseIndex(GPRInfo::argumentGPR0, GPRInfo::argumentGPR1, CCallHelpers::TimesFour, -4));
             emitFunctionEpilogue(jit);
             jit.ret();
@@ -5763,11 +5751,7 @@ void testStoreBaseIndex()
     {
         auto test = compile([=](CCallHelpers& jit) {
             emitFunctionPrologue(jit);
-#if OS(WINDOWS)
-            constexpr FPRReg inputFPR = FPRInfo::argumentFPR2;
-#else
             constexpr FPRReg inputFPR = FPRInfo::argumentFPR0;
-#endif
             jit.storeFloat(inputFPR, CCallHelpers::BaseIndex(GPRInfo::argumentGPR0, GPRInfo::argumentGPR1, CCallHelpers::TimesFour, 4));
             emitFunctionEpilogue(jit);
             jit.ret();
@@ -6204,7 +6188,7 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
     }
 #endif
 
-#if CPU(X86) || CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
+#if CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
     FOR_EACH_DOUBLE_CONDITION_RUN(testCompareFloat);
 #endif
 

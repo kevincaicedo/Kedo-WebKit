@@ -28,6 +28,7 @@
 
 #if PLATFORM(IOS_FAMILY)
 
+#import "AXSearchManager.h"
 #import "AccessibilityAttachment.h"
 #import "AccessibilityMediaObject.h"
 #import "AccessibilityRenderObject.h"
@@ -142,9 +143,9 @@ static AccessibilityObjectWrapper* AccessibilityUnignoredAncestor(AccessibilityO
 {
     if (!(self = [super init]))
         return nil;
-    
+
     _cache = cache;
-    memcpy(&_textMarkerData, data, sizeof(TextMarkerData));
+    _textMarkerData = *data;
     return self;
 }
 
@@ -152,10 +153,10 @@ static AccessibilityObjectWrapper* AccessibilityUnignoredAncestor(AccessibilityO
 {
     if (!(self = [super init]))
         return nil;
-    
+
     _cache = cache;
-    [data getBytes:&_textMarkerData length:sizeof(TextMarkerData)];
-    
+    [data getBytes:&_textMarkerData length:sizeof(_textMarkerData)];
+
     return self;
 }
 
@@ -201,7 +202,7 @@ static AccessibilityObjectWrapper* AccessibilityUnignoredAncestor(AccessibilityO
 
 - (NSData *)dataRepresentation
 {
-    return [NSData dataWithBytes:&_textMarkerData length:sizeof(TextMarkerData)];
+    return [NSData dataWithBytes:&_textMarkerData length:sizeof(_textMarkerData)];
 }
 
 - (VisiblePosition)visiblePosition
@@ -221,14 +222,12 @@ static AccessibilityObjectWrapper* AccessibilityUnignoredAncestor(AccessibilityO
 
 - (AccessibilityObject*)accessibilityObject
 {
-    if (_textMarkerData.ignored)
-        return nullptr;
-    return _cache->accessibilityObjectForTextMarkerData(_textMarkerData);
+    return _cache->objectForTextMarkerData(_textMarkerData);
 }
 
 - (NSString *)description
 {
-    return [NSString stringWithFormat:@"[AXTextMarker %p] = node: %p offset: %d", self, _textMarkerData.node, _textMarkerData.offset];
+    return [NSString stringWithFormat:@"[AXTextMarker %p] = objectID: %d offset: %d", self, _textMarkerData.objectID, _textMarkerData.offset];
 }
 
 - (TextMarkerData)textMarkerData
@@ -867,9 +866,6 @@ static AccessibilityObjectWrapper *ancestorWithRole(const AXCoreObject& descenda
         break;
     }
 
-    if ([self accessibilityIsInNonNativeTextControl])
-        traits |= [self _accessibilityTextEntryTraits];
-
     if (self.axBackingObject->isAttachmentElement())
         traits |= [self _axUpdatesFrequentlyTrait];
     
@@ -961,6 +957,9 @@ static AccessibilityObjectWrapper *ancestorWithRole(const AXCoreObject& descenda
         return ![self accessibilityElementCount];
     case AccessibilityRole::Video:
         return [self accessibilityIsWebInteractiveVideo];
+
+    // Links can sometimes be elements (when they only contain static text or don't contain anything).
+    // They should not be elements when containing text and other types.
     case AccessibilityRole::WebCoreLink:
     case AccessibilityRole::Link:
         // Links can sometimes be elements (when they only contain static text or don't contain anything).
@@ -1543,6 +1542,37 @@ static void appendStringToResult(NSMutableString *result, NSString *string)
     return nil;
 }
 
+- (NSString *)browserAccessibilityValueInRange:(NSRange)range
+{
+    if (![self _prepareAccessibilityCall])
+        return nil;
+
+    NSString *value = [self accessibilityValue];
+    if (value == nil)
+        return nil;
+
+    NSRange intersection = NSIntersectionRange(range, NSMakeRange(0, [value length]));
+    if (!intersection.length)
+        return nil;
+    return [value substringWithRange:intersection];
+}
+
+- (NSAttributedString *)browserAccessibilityAttributedValueInRange:(NSRange)range
+{
+    if (![self _prepareAccessibilityCall])
+        return nil;
+
+    NSRange elementRange = [self elementTextRange];
+    if (elementRange.location != NSNotFound)
+        range.location += elementRange.location;
+
+    NSAttributedString *attributedString = [self attributedStringForRange:range];
+    if (![attributedString length])
+        return adoptNS([[NSAttributedString alloc] initWithString:[self browserAccessibilityValueInRange:range]]).autorelease();
+
+    return attributedString;
+}
+
 - (BOOL)accessibilityIsIndeterminate
 {
     if (![self _prepareAccessibilityCall])
@@ -2086,10 +2116,8 @@ static RenderObject* rendererForView(WAKView* view)
 
 - (NSArray<WebAccessibilityObjectWrapper *> *)accessibilityFindMatchingObjects:(NSDictionary *)parameters
 {
-    AccessibilitySearchCriteria criteria = accessibilitySearchCriteriaForSearchPredicateParameterizedAttribute(parameters);
-    AccessibilityObject::AccessibilityChildrenVector results;
-    self.axBackingObject->findMatchingObjects(&criteria, results);
-    return makeNSArray(results);
+    auto criteria = accessibilitySearchCriteriaForSearchPredicateParameterizedAttribute(parameters);
+    return makeNSArray(self.axBackingObject->findMatchingObjects(WTFMove(criteria)));
 }
 
 - (void)accessibilityModifySelection:(TextGranularity)granularity increase:(BOOL)increase
@@ -2361,7 +2389,7 @@ static RenderObject* rendererForView(WAKView* view)
     return self.axBackingObject->attributedStringForTextMarkerRange({ [markers.firstObject textMarkerData], [markers.lastObject textMarkerData] }).autorelease();
 }
 
-- (NSRange)_accessibilitySelectedTextRange
+- (NSRange)browserAccessibilitySelectedTextRange
 {
     if (![self _prepareAccessibilityCall] || !self.axBackingObject->isTextControl())
         return NSMakeRange(NSNotFound, 0);
@@ -2372,12 +2400,22 @@ static RenderObject* rendererForView(WAKView* view)
     return textRange;
 }
 
-- (void)_accessibilitySetSelectedTextRange:(NSRange)range
+- (NSRange)_accessibilitySelectedTextRange
+{
+    return [self browserAccessibilitySelectedTextRange];
+}
+
+- (void)browserAccessibilitySetSelectedTextRange:(NSRange)range
 {
     if (![self _prepareAccessibilityCall])
         return;
 
     self.axBackingObject->setSelectedTextRange(range);
+}
+
+- (void)_accessibilitySetSelectedTextRange:(NSRange)range
+{
+    [self browserAccessibilitySetSelectedTextRange:range];
 }
 
 - (BOOL)accessibilityReplaceRange:(NSRange)range withText:(NSString *)string
@@ -2394,6 +2432,43 @@ static RenderObject* rendererForView(WAKView* view)
         return NO;
 
     return self.axBackingObject->insertText(text);
+}
+
+- (void)browserAccessibilityInsertTextAtCursor:(NSString *)text
+{
+    if (![self _prepareAccessibilityCall])
+        return;
+
+    self.axBackingObject->insertText(text);
+}
+
+- (void)browserAccessibilityDeleteTextAtCursor:(NSInteger)numberOfCharacters
+{
+    if (![self _prepareAccessibilityCall] || numberOfCharacters <= 0)
+        return;
+
+    // Start the deletion range from the current selection.
+    NSRange rangeToDelete = [self browserAccessibilitySelectedTextRange];
+
+    // If this is a secure field, we will get a {0, 0} selected text range. But we're
+    // operating under the assumption that we always want to delete all the characters
+    // from a secure field, so the next lines assume we are at the end and deleting everything.
+    BOOL isSecureField = [self accessibilityTraits] & self._axSecureTextFieldTrait;
+    if (isSecureField)
+        rangeToDelete = NSMakeRange([self accessibilityValue].length, 0);
+
+    if (!rangeToDelete.length) {
+        NSUInteger charactersToDelete = std::min(rangeToDelete.location, (NSUInteger)numberOfCharacters);
+        rangeToDelete.length = charactersToDelete;
+        rangeToDelete.location -= charactersToDelete;
+    }
+    [self accessibilityReplaceRange:rangeToDelete withText:@""];
+
+    if (isSecureField) {
+        // Replacing the entire range (like we do unconditionally for secure fields) can result
+        // in the selected text range being set, which we don't want. Undo that here.
+        [self browserAccessibilitySetSelectedTextRange:NSMakeRange([self accessibilityValue].length, 0)];
+    }
 }
 
 - (NSString *)selectionRangeString
@@ -2716,16 +2791,6 @@ static RenderObject* rendererForView(WAKView* view)
     return Accessibility::findAncestor(*self.axBackingObject, false, [] (const auto& object) {
         return object.roleValue() == AccessibilityRole::Deletion;
     }) != nullptr;
-}
-
-- (BOOL)accessibilityIsInNonNativeTextControl
-{
-    if (![self _prepareAccessibilityCall])
-        return NO;
-
-    return !!Accessibility::findAncestor(*self.axBackingObject, true, [] (const auto& object) {
-        return object.isNonNativeTextControl();
-    });
 }
 
 - (BOOL)accessibilityIsFirstItemInSuggestion

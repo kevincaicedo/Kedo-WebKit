@@ -36,7 +36,7 @@ class SVGPathElement final : public SVGGeometryElement {
     WTF_MAKE_ISO_ALLOCATED(SVGPathElement);
 public:
     static Ref<SVGPathElement> create(const QualifiedName&, Document&);
-    
+
     static Ref<SVGPathSegClosePath> createSVGPathSegClosePath() { return SVGPathSegClosePath::create(); }
     static Ref<SVGPathSegMovetoAbs> createSVGPathSegMovetoAbs(float x, float y) { return SVGPathSegMovetoAbs::create(x, y); }
     static Ref<SVGPathSegMovetoRel> createSVGPathSegMovetoRel(float x, float y) { return SVGPathSegMovetoRel::create(x, y); }
@@ -96,9 +96,11 @@ public:
     Ref<SVGPathSegList>& pathSegList() { return m_pathSegList->baseVal(); }
     RefPtr<SVGPathSegList>& animatedPathSegList() { return m_pathSegList->animVal(); }
 
-    const SVGPathByteStream& pathByteStream() const { return m_pathSegList->currentPathByteStream(); }
-    Path path() const { return m_pathSegList->currentPath(); }
+    const SVGPathByteStream& pathByteStream() const;
+    Path path() const;
     size_t approximateMemoryCost() const final { return m_pathSegList->approximateMemoryCost(); }
+
+    void pathDidChange();
 
     static void clearCache();
 
@@ -120,7 +122,10 @@ private:
 
     void invalidateMPathDependencies();
 
-private:
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
+    void collectExtraStyleForPresentationalHints(MutableStyleProperties&) override;
+    void collectDPresentationalHint(MutableStyleProperties&);
+
     Ref<SVGAnimatedPathSegList> m_pathSegList { SVGAnimatedPathSegList::create(this) };
 };
 

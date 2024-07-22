@@ -28,8 +28,8 @@
 
 #include "KeyedCoding.h"
 #include <wtf/CrossThreadCopier.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
-#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
 
@@ -320,19 +320,10 @@ String IDBKeyData::loggingString() const
     switch (type()) {
     case IndexedDB::KeyType::Invalid:
         return "<invalid>"_s;
-    case IndexedDB::KeyType::Array: {
-        StringBuilder builder;
-        builder.append("<array> - { "_s);
-        auto& array = std::get<Vector<IDBKeyData>>(m_value);
-        for (size_t i = 0; i < array.size(); ++i) {
-            builder.append(array[i].loggingString());
-            if (i < array.size() - 1)
-                builder.append(", "_s);
-        }
-        builder.append(" }"_s);
-        result = builder.toString();
+    case IndexedDB::KeyType::Array:
+        result = makeString("<array> - { "_s, interleave(std::get<Vector<IDBKeyData>>(m_value), [](auto& builder, auto& item) { builder.append(item.loggingString()); }, ", "_s), " }"_s);
         break;
-    }
+
     case IndexedDB::KeyType::Binary: {
         StringBuilder builder;
         builder.append("<binary> - "_s);
@@ -358,12 +349,12 @@ String IDBKeyData::loggingString() const
         break;
     }
     case IndexedDB::KeyType::String:
-        result = "<string> - " + std::get<String>(m_value);
+        result = makeString("<string> - "_s, std::get<String>(m_value));
         break;
     case IndexedDB::KeyType::Date:
-        return makeString("<date> - ", std::get<Date>(m_value).value);
+        return makeString("<date> - "_s, std::get<Date>(m_value).value);
     case IndexedDB::KeyType::Number:
-        return makeString("<number> - ", std::get<double>(m_value));
+        return makeString("<number> - "_s, std::get<double>(m_value));
     case IndexedDB::KeyType::Max:
         return "<maximum>"_s;
     case IndexedDB::KeyType::Min:

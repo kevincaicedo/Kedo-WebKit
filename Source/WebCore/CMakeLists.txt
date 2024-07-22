@@ -1122,6 +1122,7 @@ set(WebCore_NON_SVG_IDL_FILES
     dom/NodeList.idl
     dom/NonDocumentTypeChildNode.idl
     dom/NonElementParentNode.idl
+    dom/Observable.idl
     dom/OverflowEvent.idl
     dom/PageTransitionEvent.idl
     dom/ParentNode.idl
@@ -1144,6 +1145,11 @@ set(WebCore_NON_SVG_IDL_FILES
     dom/Slotable.idl
     dom/StaticRange.idl
     dom/StringCallback.idl
+    dom/SubscribeOptions.idl
+    dom/Subscriber.idl
+    dom/SubscriberCallback.idl
+    dom/SubscriptionObserver.idl
+    dom/SubscriptionObserverCallback.idl
     dom/Text.idl
     dom/TextDecoder.idl
     dom/TextDecoderStream.idl
@@ -1300,6 +1306,7 @@ set(WebCore_NON_SVG_IDL_FILES
     html/canvas/CanvasGradient.idl
     html/canvas/CanvasImageData.idl
     html/canvas/CanvasImageSmoothing.idl
+    html/canvas/CanvasLayers.idl
     html/canvas/CanvasLineCap.idl
     html/canvas/CanvasLineJoin.idl
     html/canvas/CanvasPath.idl
@@ -1368,6 +1375,7 @@ set(WebCore_NON_SVG_IDL_FILES
     page/DOMWindow+VisualViewport.idl
     page/DOMWindow.idl
     page/EventSource.idl
+    page/FragmentDirective.idl
     page/History.idl
     page/IntersectionObserver.idl
     page/IntersectionObserverCallback.idl
@@ -1375,6 +1383,7 @@ set(WebCore_NON_SVG_IDL_FILES
     page/Location.idl
     page/NavigateEvent.idl
     page/Navigation.idl
+    page/NavigationActivation.idl
     page/NavigationCurrentEntryChangeEvent.idl
     page/NavigationDestination.idl
     page/NavigationHistoryEntry.idl

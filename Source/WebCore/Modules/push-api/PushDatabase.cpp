@@ -38,7 +38,7 @@
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
 #include <wtf/UniqueRef.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 
 #define PUSHDB_RELEASE_LOG(fmt, ...) RELEASE_LOG(Push, "%p - PushDatabase::" fmt, this, ##__VA_ARGS__)
 #define PUSHDB_RELEASE_LOG_ERROR(fmt, ...) RELEASE_LOG_ERROR(Push, "%p - PushDatabase::" fmt, this, ##__VA_ARGS__)
@@ -223,7 +223,7 @@ static Expected<UniqueRef<SQLiteDatabase>, ShouldDeleteAndRetry> openAndMigrateD
             }
         }
 
-        if (!db->executeCommandSlow(makeString("PRAGMA user_version = ", currentPushDatabaseVersion)))
+        if (!db->executeCommandSlow(makeString("PRAGMA user_version = "_s, currentPushDatabaseVersion)))
             RELEASE_LOG_ERROR(Push, "Error setting user version for PushDatabase at path %s: %d", path.utf8().data(), db->lastError());
 
         transaction.commit();

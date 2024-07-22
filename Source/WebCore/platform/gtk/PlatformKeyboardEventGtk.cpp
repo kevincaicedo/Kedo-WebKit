@@ -38,6 +38,7 @@
 #include <gdk/gdkkeysyms.h>
 #include <pal/text/TextEncoding.h>
 #include <wtf/HexNumber.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -882,7 +883,7 @@ String PlatformKeyboardEvent::keyIdentifierForGdkKeyCode(unsigned keyCode)
     case GDK_KEY_Tab:
         return "U+0009"_s;
     default:
-        return makeString("U+", hex(gdk_keyval_to_unicode(gdk_keyval_to_upper(keyCode)), 4));
+        return makeString("U+"_s, hex(gdk_keyval_to_unicode(gdk_keyval_to_upper(keyCode)), 4));
     }
 }
 

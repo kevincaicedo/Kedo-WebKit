@@ -30,15 +30,14 @@
 
 #import "AppKitSPI.h"
 #import "WKSafeBrowsingWarning.h"
+#import "WKTextAnimationType.h"
 #import "WKTextFinderClient.h"
-#import "WKTextIndicatorStyleType.h"
+#import "WKWebViewConfigurationPrivate.h"
 #import <WebKit/WKUIDelegatePrivate.h>
 #import "WebBackForwardList.h"
 #import "WebFrameProxy.h"
 #import "WebPageProxy.h"
 #import "WebProcessProxy.h"
-#import "WebTextReplacementData.h"
-#import "WebUnifiedTextReplacementContextData.h"
 #import "WebViewImpl.h"
 #import "_WKFrameHandleInternal.h"
 #import "_WKHitTestResultInternal.h"
@@ -46,11 +45,6 @@
 #import <pal/spi/mac/NSTextInputContextSPI.h>
 #import <pal/spi/mac/NSViewSPI.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
-
-#if USE(APPLE_INTERNAL_SDK)
-#import <WebKitAdditions/UnifiedTextReplacementAdditions.h>
-#import <WebKitAdditions/WebMultiRepresentationHEICAttachmentAdditions.h>
-#endif
 
 _WKOverlayScrollbarStyle toAPIScrollbarStyle(std::optional<WebCore::ScrollbarOverlayStyle> coreScrollbarStyle)
 {
@@ -675,6 +669,13 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
     _impl->attributedSubstringForProposedRange(nsRange, completionHandlerPtr);
 }
 
+// FIXME: actually return valid information.
+// rdar://130702677
+- (void)unionRectForCharacterRange:(NSRange)range completionHandler:(void(^)(NSRect rect))completionHandler
+{
+    completionHandler(NSZeroRect);
+}
+
 - (void)firstRectForCharacterRange:(NSRange)theRange completionHandler:(void(^)(NSRect firstRect, NSRange actualRange))completionHandlerPtr
 {
     _impl->firstRectForCharacterRange(theRange, completionHandlerPtr);
@@ -698,6 +699,10 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (void)removeTextPlaceholder:(NSTextPlaceholder *)placeholder willInsertText:(BOOL)willInsertText completionHandler:(void (^)(void))completionHandler
 {
     _impl->removeTextPlaceholder(placeholder, willInsertText, completionHandler);
+}
+
+- (void)showContextMenuForSelection:(id)sender
+{
 }
 
 #if ENABLE(DRAG_SUPPORT)
@@ -1076,8 +1081,23 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 #endif // HAVE(NSSCROLLVIEW_SEPARATOR_TRACKING_ADAPTER)
 
-#if USE(APPLE_INTERNAL_SDK)
-#import <WebKitAdditions/WKWebViewMacAdditionsAfter.mm>
+#pragma mark – NSAdaptiveImageGlyph
+
+#if ENABLE(MULTI_REPRESENTATION_HEIC)
+
+- (BOOL)supportsAdaptiveImageGlyph
+{
+    if ([self _isEditable] || [_configuration _multiRepresentationHEICInsertionEnabled])
+        return _impl->isContentRichlyEditable();
+
+    return NO;
+}
+
+- (void)insertAdaptiveImageGlyph:(NSAdaptiveImageGlyph *)adaptiveImageGlyph replacementRange:(NSRange)replacementRange
+{
+    _impl->insertMultiRepresentationHEIC(adaptiveImageGlyph.imageContent, adaptiveImageGlyph.contentDescription);
+}
+
 #endif
 
 @end
@@ -1307,6 +1327,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)endPreviewPanelControl:(QLPreviewPanel *)panel
 {
     _impl->endPreviewPanelControl(panel);
+}
+
+#pragma mark - NSTextCheckingClient_WritingTools
+
+- (BOOL)providesWritingToolsContextMenu
+{
+    return YES;
 }
 
 @end
@@ -1632,6 +1659,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)_gestureEventWasNotHandledByWebCore:(NSEvent *)event
 {
     _impl->gestureEventWasNotHandledByWebCoreFromViewOnly(event);
+}
+
+- (double)minimumMagnification
+{
+    return _page->minPageZoomFactor();
 }
 
 - (void)_disableFrameSizeUpdates

@@ -33,6 +33,7 @@
 #import <WebCore/WebAuthenticationConstants.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/RunLoop.h>
+#import <wtf/cocoa/SpanCocoa.h>
 
 #import "AppAttestInternalSoftLink.h"
 #import "LocalAuthenticationSoftLink.h"
@@ -54,11 +55,6 @@ static inline String bundleName()
 }
 #endif
 } // namespace
-
-static inline RetainPtr<NSData> toNSData(const Vector<uint8_t>& data)
-{
-    return adoptNS([[NSData alloc] initWithBytes:data.data() length:data.size()]);
-}
 
 LocalConnection::~LocalConnection()
 {
@@ -85,10 +81,12 @@ void LocalConnection::verifyUser(const String& rpId, ClientDataType type, SecAcc
     m_context = [allocLAContextInstance() init];
 
     auto options = adoptNS([[NSMutableDictionary alloc] init]);
+#if HAVE(UNIFIED_ASC_AUTH_UI)
     if ([m_context biometryType] == LABiometryTypeTouchID) {
         [options setObject:title forKey:@(LAOptionAuthenticationTitle)];
         [options setObject:@NO forKey:@(LAOptionFallbackVisible)];
     }
+#endif
 
     auto reply = makeBlockPtr([context = m_context, completionHandler = WTFMove(completionHandler)] (NSDictionary *information, NSError *error) mutable {
         UserVerification verification = UserVerification::Yes;

@@ -44,6 +44,7 @@
 #include <wtf/GetPtr.h>
 #include <wtf/PointerPreparations.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 
 
 namespace WebCore {
@@ -246,7 +247,7 @@ void JSExposedStar::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
     auto* thisObject = jsCast<JSExposedStar*>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (thisObject->scriptExecutionContext())
-        analyzer.setLabelForCell(cell, "url "_s + thisObject->scriptExecutionContext()->url().string());
+        analyzer.setLabelForCell(cell, makeString("url "_s, thisObject->scriptExecutionContext()->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
 
@@ -257,14 +258,9 @@ extern "C" { extern void (*const __identifier("??_7ExposedStar@WebCore@@6B@")[])
 #else
 extern "C" { extern void* _ZTVN7WebCore11ExposedStarE[]; }
 #endif
-#endif
-
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<ExposedStar>&& impl)
-{
-
-    if constexpr (std::is_polymorphic_v<ExposedStar>) {
-#if ENABLE(BINDING_INTEGRITY)
-        const void* actualVTablePointer = getVTablePointer(impl.ptr());
+template<typename T, typename = std::enable_if_t<std::is_same_v<T, ExposedStar>, void>> static inline void verifyVTable(ExposedStar* ptr) {
+    if constexpr (std::is_polymorphic_v<T>) {
+        const void* actualVTablePointer = getVTablePointer<T>(ptr);
 #if PLATFORM(WIN)
         void* expectedVTablePointer = __identifier("??_7ExposedStar@WebCore@@6B@");
 #else
@@ -276,8 +272,14 @@ JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObj
         // to toJS() we currently require ExposedStar you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
         RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
-#endif
     }
+}
+#endif
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<ExposedStar>&& impl)
+{
+#if ENABLE(BINDING_INTEGRITY)
+    verifyVTable<ExposedStar>(impl.ptr());
+#endif
     return createWrapper<ExposedStar>(globalObject, WTFMove(impl));
 }
 

@@ -32,9 +32,10 @@
 #include "ImageAnalysisUtilities.h"
 #include "PDFPluginIdentifier.h"
 #include "WKLayoutMode.h"
-#include "WKTextIndicatorStyleType.h"
+#include "WKTextAnimationType.h"
 #include <WebCore/DOMPasteAccess.h>
 #include <WebCore/FocusDirection.h>
+#include <WebCore/PlatformPlaybackSessionInterface.h>
 #include <WebCore/ScrollTypes.h>
 #include <WebCore/ShareableBitmap.h>
 #include <WebCore/TextIndicatorWindow.h>
@@ -72,7 +73,7 @@ OBJC_CLASS WKMouseTrackingObserver;
 OBJC_CLASS WKRevealItemPresenter;
 OBJC_CLASS WKSafeBrowsingWarning;
 OBJC_CLASS WKShareSheet;
-OBJC_CLASS WKTextIndicatorStyleManager;
+OBJC_CLASS WKTextAnimationManager;
 OBJC_CLASS WKViewLayoutStrategy;
 OBJC_CLASS WKWebView;
 OBJC_CLASS WKWindowVisibilityObserver;
@@ -104,6 +105,11 @@ class Object;
 class PageConfiguration;
 }
 
+namespace PAL {
+class HysteresisActivity;
+enum class HysteresisState : bool;
+}
+
 namespace WebCore {
 class DestinationColorSpace;
 class IntPoint;
@@ -114,7 +120,12 @@ struct TextRecognitionResult;
 #if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
 struct TranslationContextMenuInfo;
 #endif
+
+namespace WritingTools {
+enum class ReplacementBehavior : uint8_t;
 }
+
+} // namespace WebCore
 
 @protocol WebViewImplDelegate
 
@@ -383,6 +394,9 @@ public:
     bool validateUserInterfaceItem(id <NSValidatedUserInterfaceItem>);
     void setEditableElementIsFocused(bool);
 
+    enum class ContentRelativeChildViewsSuppressionType : uint8_t { Remove, Restore, TemporarilyRemove };
+    void suppressContentRelativeChildViews(ContentRelativeChildViewsSuppressionType);
+
 #if HAVE(REDESIGNED_TEXT_CURSOR)
     void updateCursorAccessoryPlacement();
 #endif
@@ -462,7 +476,6 @@ public:
     void enableAccessibilityIfNecessary();
     id accessibilityAttributeValue(NSString *, id parameter = nil);
 
-    NSTrackingArea *primaryTrackingArea() const { return m_primaryTrackingArea.get(); }
     void updatePrimaryTrackingAreaOptions(NSTrackingAreaOptions);
 
     NSTrackingRectTag addTrackingRect(CGRect, id owner, void* userData, bool assumeInside);
@@ -600,6 +613,9 @@ public:
     void insertMultiRepresentationHEIC(NSData *, NSString *);
 #endif
 
+    void createFlagsChangedEventMonitor();
+    void removeFlagsChangedEventMonitor();
+
     void mouseMoved(NSEvent *);
     void mouseDown(NSEvent *);
     void mouseUp(NSEvent *);
@@ -647,6 +663,7 @@ public:
     NSTouchBar *currentTouchBar() const { return m_currentTouchBar.get(); }
     NSCandidateListTouchBarItem *candidateListTouchBarItem() const;
 #if ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
+    RefPtr<WebCore::PlatformPlaybackSessionInterface> protectedPlaybackSessionInterface() const;
     bool isPictureInPictureActive();
     void togglePictureInPicture();
     bool isInWindowFullscreenActive() const;
@@ -685,7 +702,7 @@ public:
     void takeFocus(WebCore::FocusDirection);
     void clearPromisedDragImage();
 
-    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, const WebCore::IntRect&, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&);
+    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect&, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&);
     void handleDOMPasteRequestForCategoryWithResult(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteAccessResponse);
     NSMenu *domPasteMenu() const { return m_domPasteMenu.get(); }
     void hideDOMPasteMenuWithResult(WebCore::DOMPasteAccessResponse);
@@ -695,9 +712,8 @@ public:
     void handleContextMenuTranslation(const WebCore::TranslationContextMenuInfo&);
 #endif
 
-#if ENABLE(UNIFIED_TEXT_REPLACEMENT) && ENABLE(CONTEXT_MENUS)
-    bool canHandleSwapCharacters() const;
-    void handleContextMenuSwapCharacters(WebCore::IntRect selectionBoundsInRootView);
+#if ENABLE(WRITING_TOOLS) && ENABLE(CONTEXT_MENUS)
+    bool canHandleContextMenuWritingTools() const;
 #endif
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
@@ -721,25 +737,9 @@ public:
     bool inlinePredictionsEnabled() const { return m_inlinePredictionsEnabled; }
 #endif
 
-#if ENABLE(UNIFIED_TEXT_REPLACEMENT)
-    void willBeginTextReplacementSession(const WTF::UUID&, WebUnifiedTextReplacementType, CompletionHandler<void(const Vector<WebUnifiedTextReplacementContextData>&)>&&);
-
-    void didBeginTextReplacementSession(const WTF::UUID&, const Vector<WebUnifiedTextReplacementContextData>&);
-
-    void textReplacementSessionDidReceiveReplacements(const WTF::UUID&, const Vector<WebTextReplacementData>&, const WebUnifiedTextReplacementContextData&, bool finished);
-
-    void textReplacementSessionDidUpdateStateForReplacement(const WTF::UUID&, WebTextReplacementDataState, const WebTextReplacementData&, const WebUnifiedTextReplacementContextData&);
-
-    void didEndTextReplacementSession(const WTF::UUID&, bool accepted);
-
-    void textReplacementSessionDidReceiveTextWithReplacementRange(const WTF::UUID&, const WebCore::AttributedString&, const WebCore::CharacterRange&, const WebUnifiedTextReplacementContextData&);
-
-    void textReplacementSessionDidReceiveEditAction(const WTF::UUID&, WebTextReplacementDataEditAction);
-#endif
-
-#if ENABLE(UNIFIED_TEXT_REPLACEMENT_UI)
-    void addTextIndicatorStyleForID(WTF::UUID, WKTextIndicatorStyleType);
-    void removeTextIndicatorStyleForID(WTF::UUID);
+#if ENABLE(WRITING_TOOLS_UI)
+    void addTextAnimationForAnimationID(WTF::UUID, const WebKit::TextAnimationData&);
+    void removeTextAnimationForAnimationID(WTF::UUID);
 #endif
 
 #if HAVE(INLINE_PREDICTIONS)
@@ -759,6 +759,11 @@ private:
     void installImageAnalysisOverlayView(VKCImageAnalysis *);
     void uninstallImageAnalysisOverlayView();
 #endif
+
+    bool hasContentRelativeChildViews() const;
+
+    void suppressContentRelativeChildViews();
+    void restoreContentRelativeChildViews();
 
     bool m_clientWantsMediaPlaybackControlsView { false };
     bool m_canCreateTouchBars { false };
@@ -823,6 +828,8 @@ private:
 #endif
 
     NSTextCheckingTypes getTextCheckingTypes() const;
+
+    void contentRelativeViewsHysteresisTimerFired(PAL::HysteresisState);
 
     void flushPendingMouseEventCallbacks();
 
@@ -898,6 +905,8 @@ private:
 
     std::unique_ptr<WebCore::TextIndicatorWindow> m_textIndicatorWindow;
 
+    std::unique_ptr<PAL::HysteresisActivity> m_contentRelativeViewsHysteresis;
+
     RetainPtr<NSColorSpace> m_colorSpace;
 
     RetainPtr<NSColor> m_backgroundColor;
@@ -917,6 +926,7 @@ private:
 
     RetainPtr<WKMouseTrackingObserver> m_mouseTrackingObserver;
     RetainPtr<NSTrackingArea> m_primaryTrackingArea;
+    RetainPtr<NSTrackingArea> m_flagsChangedEventMonitorTrackingArea;
 
     NSToolTipTag m_lastToolTipTag { 0 };
     WeakObjCPtr<id> m_trackingRectOwner;
@@ -969,8 +979,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     NSInteger m_initialNumberOfValidItemsForDrop { 0 };
 #endif
 
-#if ENABLE(UNIFIED_TEXT_REPLACEMENT_UI)
-    RetainPtr<WKTextIndicatorStyleManager> m_textIndicatorStyleManager;
+#if ENABLE(WRITING_TOOLS)
+    RetainPtr<WKTextAnimationManager> m_TextAnimationTypeManager;
 #endif
 
 #if HAVE(NSSCROLLVIEW_SEPARATOR_TRACKING_ADAPTER)

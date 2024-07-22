@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2023 Apple Inc.
+ * Copyright (C) 2016-2024 Apple Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted, provided that the following conditions
@@ -42,6 +42,7 @@
 #include "TextResourceDecoder.h"
 #include <wtf/StringExtras.h>
 #include <wtf/URLParser.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -196,7 +197,7 @@ RefPtr<DOMFormData> FetchBodyConsumer::packageFormData(ScriptExecutionContext* c
     auto form = DOMFormData::create(context, PAL::UTF8Encoding());
     auto mimeType = parseMIMEType(contentType);
     if (auto multipartBoundary = parseMultipartBoundary(mimeType)) {
-        auto boundaryWithDashes = makeString("--", *multipartBoundary);
+        auto boundaryWithDashes = makeString("--"_s, *multipartBoundary);
         CString boundary = boundaryWithDashes.utf8();
         size_t boundaryLength = boundary.length();
 
@@ -231,6 +232,9 @@ static void resolveWithTypeAndData(Ref<DeferredPromise>&& promise, FetchBodyCons
         promise->resolveCallbackValueWithNewlyCreated<IDLInterface<Blob>>([data, &contentType](auto& context) {
             return blobFromData(&context, { data }, contentType);
         });
+        return;
+    case FetchBodyConsumer::Type::Bytes:
+        fulfillPromiseWithUint8ArrayFromSpan(WTFMove(promise), data);
         return;
     case FetchBodyConsumer::Type::JSON:
         fulfillPromiseWithJSON(WTFMove(promise), TextResourceDecoder::textFromUTF8(data));
@@ -299,7 +303,7 @@ void FetchBodyConsumer::resolveWithFormData(Ref<DeferredPromise>&& promise, cons
 void FetchBodyConsumer::consumeFormDataAsStream(const FormData& formData, FetchBodySource& source, ScriptExecutionContext* context)
 {
     if (auto sharedBuffer = formData.asSharedBuffer()) {
-        if (source.enqueue(ArrayBuffer::tryCreate(sharedBuffer->makeContiguous()->data(), sharedBuffer->size())))
+        if (source.enqueue(ArrayBuffer::tryCreate(sharedBuffer->makeContiguous()->span())))
             source.close();
         return;
     }
@@ -320,7 +324,7 @@ void FetchBodyConsumer::consumeFormDataAsStream(const FormData& formData, FetchB
             return;
         }
 
-        if (!source->enqueue(ArrayBuffer::tryCreate(value.data(), value.size())))
+        if (!source->enqueue(ArrayBuffer::tryCreate(value)))
             m_formDataConsumer->cancel();
     });
 }
@@ -374,6 +378,12 @@ void FetchBodyConsumer::resolve(Ref<DeferredPromise>&& promise, const String& co
             return takeAsBlob(&context, contentType);
         });
         return;
+    case Type::Bytes: {
+        RefPtr buffer = takeAsArrayBuffer();
+        RefPtr view = buffer ? RefPtr { Uint8Array::create(buffer.releaseNonNull()) } : nullptr;
+        fulfillPromiseWithUint8Array(WTFMove(promise), view.get());
+        return;
+    }
     case Type::JSON:
         fulfillPromiseWithJSON(WTFMove(promise), takeAsText());
         return;

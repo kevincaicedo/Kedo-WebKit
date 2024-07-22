@@ -38,6 +38,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/Base64.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebKit {
 
@@ -210,7 +211,7 @@ void RemoteInspectorClient::setBackendCommands(const char* backendCommands)
         return;
     }
 
-    m_backendCommandsURL = makeString("data:text/javascript;base64,", base64Encoded(backendCommands, strlen(backendCommands)));
+    m_backendCommandsURL = makeString("data:text/javascript;base64,"_s, base64Encoded(span8(backendCommands)));
 }
 
 void RemoteInspectorClient::connectionDidClose()

@@ -34,6 +34,7 @@
 #include "WebProcess.h"
 #include <WebCore/GLFence.h>
 #include <WebCore/PlatformDisplay.h>
+#include <WebCore/Region.h>
 #include <WebCore/ShareableBitmap.h>
 #include <array>
 #include <epoxy/egl.h>
@@ -146,13 +147,10 @@ std::unique_ptr<AcceleratedSurfaceDMABuf::RenderTarget> AcceleratedSurfaceDMABuf
     }
 
     struct gbm_bo* bo = nullptr;
-    uint64_t modifier = DRM_FORMAT_MOD_INVALID;
     uint32_t flags = dmabufFormat.usage == DMABufRendererBufferFormat::Usage::Scanout ? GBM_BO_USE_SCANOUT : GBM_BO_USE_RENDERING;
-    if (!dmabufFormat.modifiers.isEmpty() && dmabufFormat.modifiers[0] != DRM_FORMAT_MOD_INVALID) {
+    bool disableModifiers = dmabufFormat.modifiers.size() == 1 && dmabufFormat.modifiers[0] == DRM_FORMAT_MOD_INVALID;
+    if (!disableModifiers && !dmabufFormat.modifiers.isEmpty())
         bo = gbm_bo_create_with_modifiers2(device, size.width(), size.height(), dmabufFormat.fourcc, dmabufFormat.modifiers.data(), dmabufFormat.modifiers.size(), flags);
-        if (bo)
-            modifier = gbm_bo_get_modifier(bo);
-    }
 
     if (!bo) {
         if (dmabufFormat.usage == DMABufRendererBufferFormat::Usage::Mapping)
@@ -170,6 +168,7 @@ std::unique_ptr<AcceleratedSurfaceDMABuf::RenderTarget> AcceleratedSurfaceDMABuf
     Vector<uint32_t> strides;
     uint32_t format = gbm_bo_get_format(bo);
     int planeCount = gbm_bo_get_plane_count(bo);
+    uint64_t modifier = disableModifiers ? DRM_FORMAT_MOD_INVALID : gbm_bo_get_modifier(bo);
 
     Vector<EGLAttrib> attributes = {
         EGL_WIDTH, static_cast<EGLAttrib>(gbm_bo_get_width(bo)),
@@ -269,7 +268,7 @@ AcceleratedSurfaceDMABuf::RenderTargetSHMImage::RenderTargetSHMImage(uint64_t su
 
 void AcceleratedSurfaceDMABuf::RenderTargetSHMImage::didRenderFrame()
 {
-    glReadPixels(0, 0, m_bitmap->size().width(), m_bitmap->size().height(), GL_BGRA, GL_UNSIGNED_BYTE, m_bitmap->data());
+    glReadPixels(0, 0, m_bitmap->size().width(), m_bitmap->size().height(), GL_BGRA, GL_UNSIGNED_BYTE, m_bitmap->mutableSpan().data());
 }
 
 std::unique_ptr<AcceleratedSurfaceDMABuf::RenderTarget> AcceleratedSurfaceDMABuf::RenderTargetTexture::create(uint64_t surfaceID, const WebCore::IntSize& size)
@@ -602,7 +601,7 @@ void AcceleratedSurfaceDMABuf::willRenderFrame()
         WTFLogAlways("AcceleratedSurfaceDMABuf was unable to construct a complete framebuffer");
 }
 
-void AcceleratedSurfaceDMABuf::didRenderFrame()
+void AcceleratedSurfaceDMABuf::didRenderFrame(const std::optional<WebCore::Region>& damage)
 {
     if (!m_target)
         return;
@@ -613,7 +612,7 @@ void AcceleratedSurfaceDMABuf::didRenderFrame()
         glFlush();
 
     m_target->didRenderFrame();
-    WebProcess::singleton().parentProcessConnection()->send(Messages::AcceleratedBackingStoreDMABuf::Frame(m_target->id()), m_id);
+    WebProcess::singleton().parentProcessConnection()->send(Messages::AcceleratedBackingStoreDMABuf::Frame(m_target->id(), damage), m_id);
 }
 
 void AcceleratedSurfaceDMABuf::releaseBuffer(uint64_t targetID)

@@ -27,6 +27,7 @@
 
 #pragma once
 
+#include "AnchorPositionEvaluator.h"
 #include "BasicShapeFunctions.h"
 #include "CSSBasicShapes.h"
 #include "CSSCalcValue.h"
@@ -78,11 +79,14 @@
 #include "TransformFunctions.h"
 #include "ViewTimeline.h"
 #include "WillChangeData.h"
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 namespace Style {
 
-// Note that we assume the CSS parser only allows valid CSSValue types.
+// FIXME: Some of those functions assume the CSS parser only allows valid CSSValue types.
+// This might not be true if we pass the CSSValue from js via CSS Typed OM.
+
 class BuilderConverter {
 public:
     static Length convertLength(const BuilderState&, const CSSValue&);
@@ -219,6 +223,8 @@ public:
     static Vector<ScrollAxis> convertScrollTimelineAxis(BuilderState&, const CSSValue&);
     static Vector<ViewTimelineInsets> convertViewTimelineInset(BuilderState&, const CSSValue&);
 
+    static Vector<AtomString> convertAnchorName(BuilderState&, const CSSValue&);
+
 private:
     friend class BuilderCustom;
 
@@ -259,6 +265,9 @@ inline Length BuilderConverter::convertLength(const BuilderState& builderState, 
 
     if (primitiveValue.isCalculatedPercentageWithLength())
         return Length(primitiveValue.cssCalcValue()->createCalculationValue(conversionData));
+
+    if (primitiveValue.isAnchor())
+        return AnchorPositionEvaluator::resolveAnchorValue(primitiveValue.cssAnchorValue(), builderState);
 
     ASSERT_NOT_REACHED();
     return Length(0, LengthType::Fixed);
@@ -306,7 +315,7 @@ inline Length BuilderConverter::convertLengthSizing(const BuilderState& builderS
         return Length(LengthType::Content);
     default:
         ASSERT_NOT_REACHED();
-        return Length();
+        return { };
     }
 }
 
@@ -746,10 +755,10 @@ inline RefPtr<PathOperation> BuilderConverter::convertRayPathOperation(BuilderSt
     return RayPathOperation::create(rayValue.angle()->computeDegrees(), size, rayValue.isContaining());
 }
 
-inline RefPtr<BasicShapePath> BuilderConverter::convertSVGPath(BuilderState& builderState, const CSSValue& value)
+inline RefPtr<BasicShapePath> BuilderConverter::convertSVGPath(BuilderState&, const CSSValue& value)
 {
     if (auto* pathValue = dynamicDowncast<CSSPathValue>(value))
-        return basicShapePathForValue(*pathValue, builderState.style().usedZoom());
+        return basicShapePathForValue(*pathValue);
 
     ASSERT(is<CSSPrimitiveValue>(value));
     ASSERT(downcast<CSSPrimitiveValue>(value).valueID() == CSSValueNone);
@@ -1137,7 +1146,10 @@ inline GridLength BuilderConverter::createGridTrackBreadth(const CSSPrimitiveVal
     if (primitiveValue.isFlex())
         return GridLength(primitiveValue.doubleValue());
 
-    return primitiveValue.convertToLength<FixedIntegerConversion | PercentConversion | CalculatedConversion | AutoConversion>(builderState.cssToLengthConversionData());
+    auto length = primitiveValue.convertToLength<FixedIntegerConversion | PercentConversion | CalculatedConversion | AutoConversion>(builderState.cssToLengthConversionData());
+    if (!length.isUndefined())
+        return length;
+    return Length(0.0, LengthType::Fixed);
 }
 
 inline GridTrackSize BuilderConverter::createGridTrackSize(const CSSValue& value, BuilderState& builderState)
@@ -1299,12 +1311,12 @@ inline void BuilderConverter::createImplicitNamedGridLinesFromGridArea(const Nam
     for (auto& area : namedGridAreas.map) {
         GridSpan areaSpan = direction == GridTrackSizingDirection::ForRows ? area.value.rows : area.value.columns;
         {
-            auto& startVector = namedGridLines.map.add(area.key + "-start"_s, Vector<unsigned>()).iterator->value;
+            auto& startVector = namedGridLines.map.add(makeString(area.key, "-start"_s), Vector<unsigned>()).iterator->value;
             startVector.append(areaSpan.startLine());
             std::sort(startVector.begin(), startVector.end());
         }
         {
-            auto& endVector = namedGridLines.map.add(area.key + "-end"_s, Vector<unsigned>()).iterator->value;
+            auto& endVector = namedGridLines.map.add(makeString(area.key, "-end"_s), Vector<unsigned>()).iterator->value;
             endVector.append(areaSpan.endLine());
             std::sort(endVector.begin(), endVector.end());
         }
@@ -2117,6 +2129,23 @@ inline Vector<ViewTimelineInsets> BuilderConverter::convertViewTimelineInset(Bui
         if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(item))
             return { convertLengthOrAuto(state, *primitiveValue), std::nullopt };
         return { };
+    });
+}
+
+inline Vector<AtomString> BuilderConverter::convertAnchorName(BuilderState&, const CSSValue& value)
+{
+    if (auto* primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
+        if (value.valueID() == CSSValueNone)
+            return { };
+        return { AtomString { primitiveValue->stringValue() } };
+    }
+
+    auto* list = dynamicDowncast<CSSValueList>(value);
+    if (!list)
+        return { };
+
+    return WTF::map(*list, [&](auto& item) {
+        return AtomString { downcast<CSSPrimitiveValue>(item).stringValue() };
     });
 }
 

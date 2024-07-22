@@ -103,7 +103,7 @@ enum class SavedFPWidth {
 };
 
 class Context;
-typedef void (*Function)(Context&);
+typedef void SYSV_ABI (*Function)(Context&);
 
 } // namespace Probe
 
@@ -164,7 +164,7 @@ public:
     using MacroAssemblerBase::and32;
     using MacroAssemblerBase::branchAdd32;
     using MacroAssemblerBase::branchMul32;
-#if CPU(ARM64) || CPU(ARM_THUMB2) || CPU(X86_64) || CPU(MIPS) || CPU(RISCV64)
+#if CPU(ARM64) || CPU(ARM_THUMB2) || CPU(X86_64) || CPU(RISCV64)
     using MacroAssemblerBase::branchPtr;
 #endif
 #if CPU(X86_64)
@@ -1039,6 +1039,11 @@ public:
         lshift64(src, imm, dest);
     }
 
+    void lshiftPtr(TrustedImm32 imm, RegisterID shiftAmount, RegisterID dest)
+    {
+        lshift64(imm, shiftAmount, dest);
+    }
+
     void rshiftPtr(Imm32 imm, RegisterID srcDest)
     {
         rshift64(trustedImm32ForShift(imm), srcDest);
@@ -1843,7 +1848,7 @@ public:
     }
 #endif
 
-#if !CPU(X86) && !CPU(X86_64) && !CPU(ARM64)
+#if !CPU(X86_64) && !CPU(ARM64)
     // We should implement this the right way eventually, but for now, it's fine because it arises so
     // infrequently.
     void compareDouble(DoubleCondition cond, FPRegisterID left, FPRegisterID right, RegisterID dest)
@@ -1873,7 +1878,7 @@ public:
     {
         add64(TrustedImm32(address.offset), address.base, dest);
     }
-#endif // CPU(X86_64) || CPU(ARM64)
+#endif // CPU(X86_64) || CPU(ARM64) || CPU(RISCV64)
 
 #if CPU(X86_64)
     bool shouldBlind(Imm32 imm)
@@ -2131,11 +2136,11 @@ public:
     void store32(Imm32 imm, Address dest)
     {
         if (shouldBlind(imm)) {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
             BlindedImm32 blind = xorBlindConstant(imm);
             store32(blind.value1, dest);
             xor32(blind.value2, dest);
-#else // CPU(X86) || CPU(X86_64)
+#else // CPU(X86_64)
             if (haveScratchRegisterForBlinding()) {
                 loadXorBlindedConstant(xorBlindConstant(imm), scratchRegisterForBlinding());
                 store32(scratchRegisterForBlinding(), dest);
@@ -2147,7 +2152,7 @@ public:
                     nop();
                 store32(imm.asTrustedImm32(), dest);
             }
-#endif // CPU(X86) || CPU(X86_64)
+#endif // CPU(X86_64)
         } else
             store32(imm.asTrustedImm32(), dest);
     }
@@ -2323,6 +2328,11 @@ public:
     {
         lshift32(src, trustedImm32ForShift(amount), dest);
     }
+
+    void lshift32(Imm32 amount, RegisterID shiftAmount, RegisterID dest)
+    {
+        lshift32(trustedImm32ForShift(amount), shiftAmount, dest);
+    }
     
     void rshift32(Imm32 imm, RegisterID dest)
     {
@@ -2408,6 +2418,7 @@ public:
 
     // This leaks memory. Must not be used for production.
     JS_EXPORT_PRIVATE void probeDebug(Function<void(Probe::Context&)>);
+    JS_EXPORT_PRIVATE void probeDebugSIMD(Function<void(Probe::Context&)>);
 
     // Let's you print from your JIT generated code.
     // See comments in MacroAssemblerPrinter.h for examples of how to use this.

@@ -175,6 +175,9 @@
 /* Allow button title in speech recognition prompt */
 "Allow (speechrecognition)" = "Allow";
 
+/* Allow displaying QuickLook Preview of 3D model */
+"Allow (usdz QuickLook Preview)" = "Allow";
+
 /* Allow button title in user media prompt */
 "Allow (usermedia)" = "Allow";
 
@@ -285,6 +288,9 @@
 
 /* Button title in Device Orientation Permission API prompt */
 "Cancel (device motion and orientation access)" = "Cancel";
+
+/* Cancel displaying QuickLook Preview of 3D model */
+"Cancel (usdz QuickLook Preview)" = "Cancel";
 
 /* Title for Cancel button label in button bar */
 "Cancel button label in button bar" = "Cancel";
@@ -544,6 +550,9 @@
 /* menu item */
 "Enter Picture in Picture" = "Enter Picture in Picture";
 
+/* Enter Video Viewer context menu item */
+"Enter Viewer" = "Enter Viewer";
+
 /* Validation message for input form controls of type 'url' that have an invalid value */
 "Enter a URL" = "Enter a URL";
 
@@ -555,6 +564,21 @@
 
 /* Validation message for input form controls of type 'email' that have an invalid value */
 "Enter an email address" = "Enter an email address";
+
+/* Fallback label text for unlabeled telephone number input field. */
+"Phone number" = "Phone number";
+
+/* Fallback label text for unlabeled email address field. */
+"Email address" = "Email address";
+
+/* Fallback label text for unlabeled URL input field. */
+"URL" = "URL";
+
+/* Fallback label text for unlabeled text field. */
+"Enter text" = "Enter text";
+
+/* Fallback label text for password field. */
+"Password" = "Password";
 
 /* Custom protocol synchronous load failure description */
 "Error handling synchronous load with custom protocol" = "Error handling synchronous load with custom protocol";
@@ -576,6 +600,9 @@
 
 /* menu item */
 "Exit Picture in Picture" = "Exit Picture in Picture";
+
+/* Exit Video Viewer context menu item */
+"Exit Viewer" = "Exit Viewer";
 
 /* Codec Strings */
 "Extended Profile (AVC Codec Profile)" = "Extended Profile";
@@ -1090,6 +1117,9 @@
 /* Title for Open in External Application Link action button */
 "Open in “%@”" = "Open in “%@”";
 
+/* Open this 3D model? */
+"Open this 3D model?" = "Open this 3D model?";
+
 /* context menu item for PDF */
 "Open with %@" = "Open with %@";
 
@@ -1408,8 +1438,8 @@
 /* Label for the support with Apple Pay button. */
 "Support with Apple Pay" = "Support with Apple Pay";
 
-/* Swap characters context menu item */
-"Swap characters" = "Swap characters";
+/* Writing Tools context menu item */
+"Writing Tools" = "Writing Tools";
 
 /* File Upload alert sheet camera button string for taking only photos */
 "Take Photo (file upload action sheet)" = "Take Photo";

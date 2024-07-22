@@ -30,6 +30,7 @@
 #include "RenderStyleInlines.h"
 #include "RenderText.h"
 #include "Text.h"
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/unicode/CharacterNames.h>
 
@@ -41,7 +42,7 @@ String convertHTMLTextToInterchangeFormat(const String& in, const Text* node)
     if (node->renderer() && node->renderer()->style().preserveNewline())
         return in;
 
-    static NeverDestroyed<const String> convertedSpaceString { makeString("<span class=\"", AppleConvertedSpace, "\">", noBreakSpace, "</span>") };
+    static NeverDestroyed<const String> convertedSpaceString { makeString("<span class=\""_s, AppleConvertedSpace, "\">"_s, noBreakSpace, "</span>"_s) };
 
     StringBuilder s;
 

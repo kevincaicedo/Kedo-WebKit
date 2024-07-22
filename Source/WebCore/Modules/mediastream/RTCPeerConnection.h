@@ -192,7 +192,7 @@ public:
     void updateDescriptions(PeerConnectionBackend::DescriptionStates&&);
     void updateTransceiversAfterSuccessfulLocalDescription();
     void updateTransceiversAfterSuccessfulRemoteDescription();
-    void updateSctpBackend(std::unique_ptr<RTCSctpTransportBackend>&&);
+    void updateSctpBackend(std::unique_ptr<RTCSctpTransportBackend>&&, std::optional<double>);
 
     void processIceTransportStateChange(RTCIceTransport&);
     void processIceTransportChanges();
@@ -211,6 +211,8 @@ public:
 
     void startGatheringStatLogs(Function<void(String&&)>&&);
     void stopGatheringStatLogs();
+    void startGatheringEventLogs(Function<void(Ref<SharedBuffer>&&)>&&);
+    void stopGatheringEventLogs();
 
 private:
     RTCPeerConnection(Document&);

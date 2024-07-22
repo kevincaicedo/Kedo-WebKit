@@ -29,8 +29,8 @@
 #include "TypedElementDescendantIteratorInlines.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/WeakHashMap.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
-#include <wtf/text/StringConcatenateNumbers.h>
 #include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore {
@@ -223,7 +223,7 @@ String FormController::FormKeyGenerator::formKey(const ValidatedFormListedElemen
     return m_formToKeyMap.ensure(*form, [this, form] {
         auto signature = formSignature(*form);
         auto nextIndex = m_formSignatureToNextIndexMap.add(signature, 0).iterator->value++;
-        return makeString(signature, " #", nextIndex);
+        return makeString(signature, " #"_s, nextIndex);
     }).iterator->value;
 }
 

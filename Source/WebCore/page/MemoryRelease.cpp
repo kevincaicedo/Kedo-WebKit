@@ -50,6 +50,7 @@
 #include "MemoryCache.h"
 #include "Page.h"
 #include "PerformanceLogging.h"
+#include "PluginDocument.h"
 #include "RenderTheme.h"
 #include "RenderView.h"
 #include "SVGPathElement.h"
@@ -66,6 +67,7 @@
 #include <wtf/FastMalloc.h>
 #include <wtf/ResourceUsage.h>
 #include <wtf/SystemTracing.h>
+#include <wtf/text/MakeString.h>
 
 #if PLATFORM(COCOA)
 #include "ResourceUsageThread.h"
@@ -131,6 +133,9 @@ static void releaseCriticalMemory(Synchronous synchronous, MaintainBackForwardCa
         if (RefPtr fontSelector = document->fontSelectorIfExists())
             fontSelector->emptyCaches();
         document->cachedResourceLoader().garbageCollectDocumentResources();
+
+        if (RefPtr pluginDocument = dynamicDowncast<PluginDocument>(document))
+            pluginDocument->releaseMemory();
     }
 
     if (synchronous == Synchronous::Yes)
@@ -239,7 +244,7 @@ void logMemoryStatistics(LogMemoryStatisticsReason reason)
             continue;
         String tagName = displayNameForVMTag(i);
         if (!tagName)
-            tagName = makeString("Tag ", i);
+            tagName = makeString("Tag "_s, i);
         RELEASE_LOG(MemoryPressure, "  %" PUBLIC_LOG_STRING ": %lu MB in %zu regions", tagName.latin1().data(), dirty / MB, pages[i].regionCount);
     }
 

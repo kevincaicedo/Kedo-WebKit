@@ -45,7 +45,7 @@ FRAMEWORK_FLAGS := $(addprefix -F, $(BUILT_PRODUCTS_DIR) $(FRAMEWORK_SEARCH_PATH
 HEADER_FLAGS := $(addprefix -I, $(BUILT_PRODUCTS_DIR) $(HEADER_SEARCH_PATHS) $(SYSTEM_HEADER_SEARCH_PATHS))
 EXTERNAL_FLAGS := -DRELEASE_WITHOUT_OPTIMIZATIONS $(addprefix -D, $(GCC_PREPROCESSOR_DEFINITIONS))
 
-platform_h_compiler_command = $(CC) -std=c++2a -x c++ $(1) $(SDK_FLAGS) $(TARGET_TRIPLE_FLAGS) $(FRAMEWORK_FLAGS) $(HEADER_FLAGS) $(EXTERNAL_FLAGS) -include "wtf/Platform.h" /dev/null
+platform_h_compiler_command = $(CC) -std=c++2b -x c++ $(1) $(SDK_FLAGS) $(TARGET_TRIPLE_FLAGS) $(FRAMEWORK_FLAGS) $(HEADER_FLAGS) $(EXTERNAL_FLAGS) -include "wtf/Platform.h" /dev/null
 
 FEATURE_AND_PLATFORM_DEFINES := $(shell $(call platform_h_compiler_command,-E -P -dM) | $(PERL) -ne "print if s/\#define ((HAVE_|USE_|ENABLE_|WTF_PLATFORM_)\w+) 1/\1/")
 
@@ -222,7 +222,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/Modules/applepay/ApplePayDateComponents.idl \
     $(WebCore)/Modules/applepay/ApplePayDateComponentsRange.idl \
     $(WebCore)/Modules/applepay/ApplePayDeferredPaymentRequest.idl \
-    $(WebCore)/Modules/applepay/ApplePayDisbursementPaymentRequest.idl \
+    $(WebCore)/Modules/applepay/ApplePayDisbursementRequest.idl \
     $(WebCore)/Modules/applepay/ApplePayDetailsUpdateBase.idl \
     $(WebCore)/Modules/applepay/ApplePayError.idl \
     $(WebCore)/Modules/applepay/ApplePayErrorCode.idl \
@@ -1129,6 +1129,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/dom/NonDocumentTypeChildNode.idl \
     $(WebCore)/dom/NonElementParentNode.idl \
     $(WebCore)/dom/OverflowEvent.idl \
+    $(WebCore)/dom/Observable.idl \
     $(WebCore)/dom/PageTransitionEvent.idl \
     $(WebCore)/dom/ParentNode.idl \
     $(WebCore)/dom/PointerEvent.idl \
@@ -1150,6 +1151,11 @@ JS_BINDING_IDLS := \
     $(WebCore)/dom/Slotable.idl \
     $(WebCore)/dom/StaticRange.idl \
     $(WebCore)/dom/StringCallback.idl \
+    $(WebCore)/dom/Subscriber.idl \
+    $(WebCore)/dom/SubscribeOptions.idl \
+    $(WebCore)/dom/SubscriberCallback.idl \
+    $(WebCore)/dom/SubscriptionObserver.idl \
+    $(WebCore)/dom/SubscriptionObserverCallback.idl \
     $(WebCore)/dom/Text.idl \
     $(WebCore)/dom/TextDecoder.idl \
     $(WebCore)/dom/TextDecoderStream.idl \
@@ -1302,6 +1308,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/html/canvas/CanvasGradient.idl \
     $(WebCore)/html/canvas/CanvasImageData.idl \
     $(WebCore)/html/canvas/CanvasImageSmoothing.idl \
+    $(WebCore)/html/canvas/CanvasLayers.idl \
     $(WebCore)/html/canvas/CanvasLineCap.idl \
     $(WebCore)/html/canvas/CanvasLineJoin.idl \
     $(WebCore)/html/canvas/CanvasPath.idl \
@@ -1440,6 +1447,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/page/DOMWindow+Selection.idl \
     $(WebCore)/page/DOMWindow+VisualViewport.idl \
     $(WebCore)/page/EventSource.idl \
+    $(WebCore)/page/FragmentDirective.idl \
     $(WebCore)/page/History.idl \
     $(WebCore)/page/IntersectionObserver.idl \
     $(WebCore)/page/IntersectionObserverCallback.idl \
@@ -1447,6 +1455,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/page/Location.idl \
     $(WebCore)/page/NavigateEvent.idl \
     $(WebCore)/page/Navigation.idl \
+    $(WebCore)/page/NavigationActivation.idl \
     $(WebCore)/page/NavigationCurrentEntryChangeEvent.idl \
     $(WebCore)/page/NavigationDestination.idl \
     $(WebCore)/page/NavigationHistoryEntry.idl \
@@ -1454,7 +1463,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/page/NavigationNavigationType.idl \
     $(WebCore)/page/NavigationTransition.idl \
     $(WebCore)/page/Navigator.idl \
-    $(WebCore)/page/Navigator+IsLoggedIn.idl \
+    $(WebCore)/page/Navigator+LoginStatus.idl \
     $(WebCore)/page/Navigator+UserActivation.idl \
     $(WebCore)/page/NavigatorCookies.idl \
     $(WebCore)/page/NavigatorID.idl \
@@ -2002,6 +2011,7 @@ MODERN_MEDIA_CONTROLS_STYLE_SHEETS = \
     $(WebCore)/Modules/modern-media-controls/controls/status-label.css \
     $(WebCore)/Modules/modern-media-controls/controls/text-tracks.css \
     $(WebCore)/Modules/modern-media-controls/controls/time-label.css \
+    $(WebCore)/Modules/modern-media-controls/controls/tvos-media-controls.css \
     $(WebCore)/Modules/modern-media-controls/controls/vision-media-controls.css \
     $(WebCore)/Modules/modern-media-controls/controls/vision-slider.css \
     $(WebCore)/Modules/modern-media-controls/controls/watchos-activity-indicator.css \
@@ -2102,6 +2112,8 @@ MODERN_MEDIA_CONTROLS_SCRIPTS = \
     $(WebCore)/Modules/modern-media-controls/controls/airplay-placard.js \
     $(WebCore)/Modules/modern-media-controls/controls/invalid-placard.js \
     $(WebCore)/Modules/modern-media-controls/controls/pip-placard.js \
+    $(WebCore)/Modules/modern-media-controls/controls/tvos-layout-traits.js \
+    $(WebCore)/Modules/modern-media-controls/controls/tvos-media-controls.js \
     $(WebCore)/Modules/modern-media-controls/controls/vision-slider.js \
     $(WebCore)/Modules/modern-media-controls/controls/vision-volume-container.js \
     $(WebCore)/Modules/modern-media-controls/controls/vision-media-controls.js \

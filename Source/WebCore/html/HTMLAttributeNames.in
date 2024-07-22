@@ -182,7 +182,6 @@ loopend
 loopstart
 low
 lowsrc
-manifest
 marginheight
 marginwidth
 max
@@ -212,6 +211,7 @@ onanimationiteration
 onanimationstart
 onautocomplete
 onautocompleteerror
+onauxclick
 onbeforecopy
 onbeforecut
 onbeforeinput

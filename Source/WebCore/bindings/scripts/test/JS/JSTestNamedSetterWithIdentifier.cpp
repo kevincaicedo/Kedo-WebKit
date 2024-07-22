@@ -48,6 +48,7 @@
 #include <wtf/GetPtr.h>
 #include <wtf/PointerPreparations.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 
 
 namespace WebCore {
@@ -234,8 +235,9 @@ bool JSTestNamedSetterWithIdentifier::put(JSCell* cell, JSGlobalObject* lexicalG
         RETURN_IF_EXCEPTION(throwScope, false);
         if (!found) {
             auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, value);
-            RETURN_IF_EXCEPTION(throwScope, true);
-            invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().namedSetter(propertyNameToString(propertyName), WTFMove(nativeValue)); });
+            if (UNLIKELY(nativeValue.hasException(throwScope)))
+                return true;
+            invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().namedSetter(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
             return true;
         }
     }
@@ -269,8 +271,9 @@ bool JSTestNamedSetterWithIdentifier::putByIndex(JSCell* cell, JSGlobalObject* l
     RETURN_IF_EXCEPTION(throwScope, false);
     if (!found) {
         auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, value);
-        RETURN_IF_EXCEPTION(throwScope, true);
-        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().namedSetter(propertyNameToString(propertyName), WTFMove(nativeValue)); });
+        if (UNLIKELY(nativeValue.hasException(throwScope)))
+            return true;
+        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().namedSetter(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
         return true;
     }
 
@@ -295,8 +298,9 @@ bool JSTestNamedSetterWithIdentifier::defineOwnProperty(JSObject* object, JSGlob
             if (!propertyDescriptor.isDataDescriptor())
                 return typeError(lexicalGlobalObject, throwScope, shouldThrow, "Cannot set named properties on this object"_s);
             auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, propertyDescriptor.value());
-            RETURN_IF_EXCEPTION(throwScope, true);
-            invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().namedSetter(propertyNameToString(propertyName), WTFMove(nativeValue)); });
+            if (UNLIKELY(nativeValue.hasException(throwScope)))
+                return true;
+            invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().namedSetter(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
             return true;
         }
     }
@@ -367,12 +371,14 @@ static inline JSC::EncodedJSValue jsTestNamedSetterWithIdentifierPrototypeFuncti
     if (UNLIKELY(callFrame->argumentCount() < 2))
         return throwVMError(lexicalGlobalObject, throwScope, createNotEnoughArgumentsError(lexicalGlobalObject));
     EnsureStillAliveScope argument0 = callFrame->uncheckedArgument(0);
-    auto name = convert<IDLDOMString>(*lexicalGlobalObject, argument0.value());
-    RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
+    auto nameConversionResult = convert<IDLDOMString>(*lexicalGlobalObject, argument0.value());
+    if (UNLIKELY(nameConversionResult.hasException(throwScope)))
+       return encodedJSValue();
     EnsureStillAliveScope argument1 = callFrame->uncheckedArgument(1);
-    auto value = convert<IDLDOMString>(*lexicalGlobalObject, argument1.value());
-    RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.namedSetter(WTFMove(name), WTFMove(value)); })));
+    auto valueConversionResult = convert<IDLDOMString>(*lexicalGlobalObject, argument1.value());
+    if (UNLIKELY(valueConversionResult.hasException(throwScope)))
+       return encodedJSValue();
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.namedSetter(nameConversionResult.releaseReturnValue(), valueConversionResult.releaseReturnValue()); })));
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsTestNamedSetterWithIdentifierPrototypeFunction_namedSetter, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
@@ -395,7 +401,7 @@ void JSTestNamedSetterWithIdentifier::analyzeHeap(JSCell* cell, HeapAnalyzer& an
     auto* thisObject = jsCast<JSTestNamedSetterWithIdentifier*>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (thisObject->scriptExecutionContext())
-        analyzer.setLabelForCell(cell, "url "_s + thisObject->scriptExecutionContext()->url().string());
+        analyzer.setLabelForCell(cell, makeString("url "_s, thisObject->scriptExecutionContext()->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
 
@@ -421,14 +427,9 @@ extern "C" { extern void (*const __identifier("??_7TestNamedSetterWithIdentifier
 #else
 extern "C" { extern void* _ZTVN7WebCore29TestNamedSetterWithIdentifierE[]; }
 #endif
-#endif
-
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestNamedSetterWithIdentifier>&& impl)
-{
-
-    if constexpr (std::is_polymorphic_v<TestNamedSetterWithIdentifier>) {
-#if ENABLE(BINDING_INTEGRITY)
-        const void* actualVTablePointer = getVTablePointer(impl.ptr());
+template<typename T, typename = std::enable_if_t<std::is_same_v<T, TestNamedSetterWithIdentifier>, void>> static inline void verifyVTable(TestNamedSetterWithIdentifier* ptr) {
+    if constexpr (std::is_polymorphic_v<T>) {
+        const void* actualVTablePointer = getVTablePointer<T>(ptr);
 #if PLATFORM(WIN)
         void* expectedVTablePointer = __identifier("??_7TestNamedSetterWithIdentifier@WebCore@@6B@");
 #else
@@ -440,8 +441,14 @@ JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObj
         // to toJS() we currently require TestNamedSetterWithIdentifier you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
         RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
-#endif
     }
+}
+#endif
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestNamedSetterWithIdentifier>&& impl)
+{
+#if ENABLE(BINDING_INTEGRITY)
+    verifyVTable<TestNamedSetterWithIdentifier>(impl.ptr());
+#endif
     return createWrapper<TestNamedSetterWithIdentifier>(globalObject, WTFMove(impl));
 }
 

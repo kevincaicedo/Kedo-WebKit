@@ -33,6 +33,7 @@
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/IntDegrees.h>
 #include <WebCore/MediaPlayerIdentifier.h>
+#include <WebCore/ProcessIdentity.h>
 #include <WebCore/ShareableBitmap.h>
 #include <WebCore/Timer.h>
 #include <pal/SessionID.h>
@@ -120,7 +121,7 @@ public:
     void webProcessConnectionCountForTesting(CompletionHandler<void(uint64_t)>&&);
 
 #if USE(EXTENSIONKIT)
-    void resolveBookmarkDataForCacheDirectory(const std::span<const uint8_t>& bookmarkData);
+    void resolveBookmarkDataForCacheDirectory(std::span<const uint8_t> bookmarkData);
 #endif
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
@@ -129,6 +130,9 @@ public:
 
 #if ENABLE(VIDEO)
     void requestBitmapImageForCurrentTime(WebCore::ProcessIdentifier, WebCore::MediaPlayerIdentifier, CompletionHandler<void(std::optional<WebCore::ShareableBitmap::Handle>&&)>&&);
+#endif
+#if ENABLE(WEBXR)
+    std::optional<WebCore::ProcessIdentity> immersiveModeProcessIdentity() const;
 #endif
 
 private:
@@ -198,11 +202,14 @@ private:
 #if HAVE(POWERLOG_TASK_MODE_QUERY)
     void enablePowerLogging(SandboxExtension::Handle&&);
 #endif
+#if ENABLE(WEBXR)
+    void webXRPromptAccepted(std::optional<WebCore::ProcessIdentity>, CompletionHandler<void(bool)>&&);
+#endif
 
     // Connections to WebProcesses.
     HashMap<WebCore::ProcessIdentifier, Ref<GPUConnectionToWebProcess>> m_webProcessConnections;
     MonotonicTime m_creationTime { MonotonicTime::now() };
-    
+
     GPUProcessPreferences m_preferences;
 
 #if ENABLE(MEDIA_STREAM)
@@ -241,10 +248,13 @@ private:
 #if ENABLE(GPU_PROCESS) && USE(AUDIO_SESSION)
     mutable std::unique_ptr<RemoteAudioSessionProxyManager> m_audioSessionManager;
 #endif
+#if ENABLE(WEBXR)
+    std::optional<WebCore::ProcessIdentity> m_processIdentity;
+#endif
 #if ENABLE(VP9) && PLATFORM(COCOA)
     bool m_haveEnabledVP8Decoder { false };
     bool m_haveEnabledVP9Decoder { false };
-    bool m_haveEnabledVP9SWDecoder { false };
+    bool m_haveEnabledSWVPDecoders { false };
 #endif
 
 };

@@ -44,6 +44,7 @@
 #import <sysexits.h>
 #import <wtf/FileSystem.h>
 #import <wtf/MemoryPressureHandler.h>
+#import <wtf/text/MakeString.h>
 #import <wtf/text/WTFString.h>
 
 namespace WebKit {
@@ -76,7 +77,7 @@ void NetworkProcess::initializeSandbox(const AuxiliaryProcessInitializationParam
 {
     auto webKitBundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
 
-    sandboxParameters.setOverrideSandboxProfilePath(makeString(String([webKitBundle resourcePath]), "/com.apple.WebKit.NetworkProcess.sb"));
+    sandboxParameters.setOverrideSandboxProfilePath(makeString(String([webKitBundle resourcePath]), "/com.apple.WebKit.NetworkProcess.sb"_s));
 
     AuxiliaryProcess::initializeSandbox(parameters, sandboxParameters);
 }

@@ -272,8 +272,8 @@ void RenderTable::updateLogicalWidth()
     LayoutUnit containerWidthInInlineDirection = hasPerpendicularContainingBlock ? perpendicularContainingBlockLogicalHeight() : availableLogicalWidth;
 
     Length styleLogicalWidth = style().logicalWidth();
-    if (hasOverridingLogicalWidth())
-        setLogicalWidth(overridingLogicalWidth());
+    if (auto overridingLogicalWidth = this->overridingLogicalWidth())
+        setLogicalWidth(*overridingLogicalWidth);
     else if ((styleLogicalWidth.isSpecified() && styleLogicalWidth.isPositive()) || styleLogicalWidth.isIntrinsic())
         setLogicalWidth(convertStyleLogicalWidthToComputedWidth(styleLogicalWidth, containerWidthInInlineDirection));
     else {
@@ -458,7 +458,7 @@ void RenderTable::layout()
     unsigned sectionCount = 0;
     bool shouldCacheIntrinsicContentLogicalHeightForFlexItem = true;
 
-    LayoutRepainter repainter(*this, checkForRepaintDuringLayout());
+    LayoutRepainter repainter(*this);
     {
         LayoutStateMaintainer statePusher(*this, locationOffset(), isTransformed() || hasReflection() || style().isFlippedBlocksWritingMode());
 
@@ -720,6 +720,19 @@ void RenderTable::addOverflowFromChildren()
 
 void RenderTable::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
+    auto isSkippedContent = [&] {
+        if (style().usedContentVisibility() == ContentVisibility::Visible)
+            return false;
+        // FIXME: Tables can never be skipped content roots. If a table is _inside_ a skipped subtree, we should have bailed out at the skipped root ancestor.
+        // However with continuation (see webkit.org/b/275459) used visibility values does not always get propagated properly and
+        // we may end up here with a dirty (skipped) table.
+        if (auto* containingBlock = this->containingBlock(); containingBlock && containingBlock->isAnonymousBlock() && !containingBlock->style().hasSkippedContent())
+            return true;
+        return false;
+    };
+    if (isSkippedContent())
+        return;
+
     LayoutPoint adjustedPaintOffset = paintOffset + location();
 
     PaintPhase paintPhase = paintInfo.phase;
@@ -894,9 +907,9 @@ void RenderTable::computePreferredLogicalWidths()
     for (unsigned i = 0; i < m_captions.size(); i++)
         m_minPreferredLogicalWidth = std::max(m_minPreferredLogicalWidth, m_captions[i]->minPreferredLogicalWidth());
 
-    if (hasOverridingLogicalWidth()) {
-        m_minPreferredLogicalWidth = std::max(m_minPreferredLogicalWidth, overridingLogicalWidth());
-        m_maxPreferredLogicalWidth = std::max(m_maxPreferredLogicalWidth, overridingLogicalWidth());
+    if (auto overridingLogicalWidth = this->overridingLogicalWidth()) {
+        m_minPreferredLogicalWidth = std::max(m_minPreferredLogicalWidth, *overridingLogicalWidth);
+        m_maxPreferredLogicalWidth = std::max(m_maxPreferredLogicalWidth, *overridingLogicalWidth);
     }
 
     auto& styleToUse = style();
@@ -1172,7 +1185,7 @@ void RenderTable::recalcSections() const
     for (auto& section : childrenOfType<RenderTableSection>(const_cast<RenderTable&>(*this)))
         section.removeRedundantColumns();
 
-    ASSERT(selfNeedsLayout());
+    ASSERT(selfNeedsLayout() || !wasSkippedDuringLastLayoutDueToContentVisibility() || *wasSkippedDuringLastLayoutDueToContentVisibility());
 
     m_needsSectionRecalc = false;
 }

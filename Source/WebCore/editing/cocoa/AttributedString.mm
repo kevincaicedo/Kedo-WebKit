@@ -31,8 +31,10 @@
 #import "Font.h"
 #import "LoaderNSURLExtras.h"
 #import "Logging.h"
+#import "PlatformNSAdaptiveImageGlyph.h"
 #import "WebCoreTextAttachment.h"
 #import <Foundation/Foundation.h>
+#import <pal/spi/cocoa/UIFoundationSPI.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 #if PLATFORM(MAC)
@@ -41,10 +43,6 @@
 #else
 #import <pal/ios/UIKitSoftLink.h>
 #import "UIFoundationSoftLink.h"
-#endif
-
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/AttributedStringAdditionsBefore.mm>
 #endif
 
 namespace WebCore {
@@ -163,8 +161,57 @@ inline static RetainPtr<NSParagraphStyle> reconstructStyle(const AttributedStrin
     return mutableStyle;
 }
 
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/AttributedStringAdditions.mm>
+#if ENABLE(MULTI_REPRESENTATION_HEIC)
+
+static MultiRepresentationHEICAttachmentData toMultiRepresentationHEICAttachmentData(NSAdaptiveImageGlyph *attachment)
+{
+    MultiRepresentationHEICAttachmentData attachmentData;
+    attachmentData.identifier = attachment.contentIdentifier;
+    attachmentData.description = attachment.contentDescription;
+
+    for (NSEmojiImageStrike *strike in attachment.strikes) {
+        MultiRepresentationHEICAttachmentSingleImage image;
+        RefPtr nativeImage = NativeImage::create(strike.cgImage);
+        image.image = BitmapImage::create(WTFMove(nativeImage));
+        image.size = FloatSize { strike.alignmentInset };
+        attachmentData.images.append(image);
+    }
+
+    if (auto data = bridge_cast([attachment imageContent]))
+        attachmentData.data = data;
+
+    return attachmentData;
+}
+
+static RetainPtr<NSAdaptiveImageGlyph> toWebMultiRepresentationHEICAttachment(const MultiRepresentationHEICAttachmentData& attachmentData)
+{
+    if (RetainPtr<NSData> data = attachmentData.data ? bridge_cast((attachmentData.data).get()) : nil) {
+        RetainPtr attachment = adoptNS([[PlatformNSAdaptiveImageGlyph alloc] initWithImageContent:data.get()]);
+        if (attachment)
+            return attachment;
+    }
+
+    NSString *identifier = attachmentData.identifier;
+    NSString *description = attachmentData.description;
+    if (!description.length)
+        description = @"Apple Emoji";
+
+    NSMutableArray *images = [NSMutableArray arrayWithCapacity:attachmentData.images.size()];
+    for (auto& singleImage : attachmentData.images) {
+        RetainPtr strike = adoptNS([[CTEmojiImageStrike alloc] initWithImage:singleImage.image->nativeImage()->platformImage().get() alignmentInset:singleImage.size]);
+        [images addObject:strike.get()];
+    }
+
+    if (![images count])
+        return nil;
+
+    RetainPtr asset = adoptNS([[CTEmojiImageAsset alloc] initWithContentIdentifier:identifier shortDescription:description strikeImages:images]);
+    if (![asset imageData])
+        return nil;
+
+    return adoptNS([[PlatformNSAdaptiveImageGlyph alloc] initWithImageContent:[asset imageData]]);
+}
+
 #endif
 
 static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, IdentifierToTableMap& tables, IdentifierToTableBlockMap& tableBlocks, IdentifierToListMap& lists)
@@ -194,14 +241,15 @@ static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, I
         return attachment;
     }, [] (const TextAttachmentFileWrapper& value) -> RetainPtr<id> {
         RetainPtr<NSData> data = value.data ? bridge_cast((value.data).get()) : nil;
-        RetainPtr<NSFileWrapper> fileWrapper = nil;
-        if (!value.preferredFilename.isNull()) {
-            fileWrapper = adoptNS([[NSFileWrapper alloc] initRegularFileWithContents:data.get()]);
+
+        RetainPtr fileWrapper = adoptNS([[NSFileWrapper alloc] initRegularFileWithContents:data.get()]);
+        if (!value.preferredFilename.isNull())
             [fileWrapper setPreferredFilename:filenameByFixingIllegalCharacters((NSString *)value.preferredFilename)];
-        }
+
         auto textAttachment = adoptNS([[PlatformNSTextAttachment alloc] initWithFileWrapper:fileWrapper.get()]);
         if (!value.accessibilityLabel.isNull())
             ((NSTextAttachment*)textAttachment.get()).accessibilityLabel = (NSString *)value.accessibilityLabel;
+
         return textAttachment;
 #if ENABLE(MULTI_REPRESENTATION_HEIC)
     }, [] (const MultiRepresentationHEICAttachmentData& value) -> RetainPtr<id> {
@@ -353,8 +401,8 @@ static std::optional<AttributedString::AttributeValue> extractValue(id value, Ta
     if ([value isKindOfClass:PlatformNSPresentationIntent])
         return { { { RetainPtr { (NSPresentationIntent *)value } } } };
 #if ENABLE(MULTI_REPRESENTATION_HEIC)
-    if ([value isKindOfClass:PlatformWebMultiRepresentationHEICAttachment]) {
-        auto attachment = static_cast<WebMultiRepresentationHEICAttachment *>(value);
+    if ([value isKindOfClass:PlatformNSAdaptiveImageGlyph]) {
+        auto attachment = static_cast<NSAdaptiveImageGlyph *>(value);
         return { { toMultiRepresentationHEICAttachmentData(attachment) } };
     }
 #endif

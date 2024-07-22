@@ -25,9 +25,11 @@
 #include "DocumentInlines.h"
 #include "FEConvolveMatrix.h"
 #include "NodeName.h"
+#include "SVGDocumentExtensions.h"
 #include "SVGNames.h"
 #include "SVGParserUtilities.h"
 #include <wtf/IsoMallocInlines.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore {
@@ -71,7 +73,7 @@ void SVGFEConvolveMatrixElement::attributeChanged(const QualifiedName& name, con
             Ref { m_orderX }->setBaseValInternal(result->first);
             Ref { m_orderY }->setBaseValInternal(result->second);
         } else
-            protectedDocument()->checkedSVGExtensions()->reportWarning("feConvolveMatrix: problem parsing order=\"" + newValue + "\". Filtered element will not be displayed.");
+            protectedDocument()->checkedSVGExtensions()->reportWarning(makeString("feConvolveMatrix: problem parsing order=\""_s, newValue, "\". Filtered element will not be displayed."_s));
         break;
     }
     case AttributeNames::edgeModeAttr: {
@@ -79,7 +81,7 @@ void SVGFEConvolveMatrixElement::attributeChanged(const QualifiedName& name, con
         if (propertyValue != EdgeModeType::Unknown)
             Ref { m_edgeMode }->setBaseValInternal<EdgeModeType>(propertyValue);
         else
-            protectedDocument()->checkedSVGExtensions()->reportWarning("feConvolveMatrix: problem parsing edgeMode=\"" + newValue + "\". Filtered element will not be displayed.");
+            protectedDocument()->checkedSVGExtensions()->reportWarning(makeString("feConvolveMatrix: problem parsing edgeMode=\""_s, newValue, "\". Filtered element will not be displayed."_s));
         break;
     }
     case AttributeNames::kernelMatrixAttr:
@@ -89,7 +91,7 @@ void SVGFEConvolveMatrixElement::attributeChanged(const QualifiedName& name, con
         if (float divisor = newValue.toFloat())
             Ref { m_divisor }->setBaseValInternal(divisor);
         else
-            protectedDocument()->checkedSVGExtensions()->reportWarning("feConvolveMatrix: problem parsing divisor=\"" + newValue + "\". Filtered element will not be displayed.");
+            protectedDocument()->checkedSVGExtensions()->reportWarning(makeString("feConvolveMatrix: problem parsing divisor=\""_s, newValue, "\". Filtered element will not be displayed."_s));
         break;
     case AttributeNames::biasAttr:
         Ref { m_bias }->setBaseValInternal(newValue.toFloat());
@@ -106,7 +108,7 @@ void SVGFEConvolveMatrixElement::attributeChanged(const QualifiedName& name, con
             Ref { m_kernelUnitLengthX }->setBaseValInternal(result->first);
             Ref { m_kernelUnitLengthY }->setBaseValInternal(result->second);
         } else
-            protectedDocument()->checkedSVGExtensions()->reportWarning("feConvolveMatrix: problem parsing kernelUnitLength=\"" + newValue + "\". Filtered element will not be displayed.");
+            protectedDocument()->checkedSVGExtensions()->reportWarning(makeString("feConvolveMatrix: problem parsing kernelUnitLength=\""_s, newValue, "\". Filtered element will not be displayed."_s));
         break;
     }
     case AttributeNames::preserveAlphaAttr:
@@ -115,7 +117,7 @@ void SVGFEConvolveMatrixElement::attributeChanged(const QualifiedName& name, con
         else if (newValue == falseAtom())
             Ref { m_preserveAlpha }->setBaseValInternal(false);
         else
-            protectedDocument()->checkedSVGExtensions()->reportWarning("feConvolveMatrix: problem parsing preserveAlphaAttr=\"" + newValue + "\". Filtered element will not be displayed.");
+            protectedDocument()->checkedSVGExtensions()->reportWarning(makeString("feConvolveMatrix: problem parsing preserveAlphaAttr=\""_s, newValue, "\". Filtered element will not be displayed."_s));
         break;
     default:
         break;

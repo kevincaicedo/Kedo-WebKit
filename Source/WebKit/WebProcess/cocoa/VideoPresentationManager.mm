@@ -116,6 +116,12 @@ void VideoPresentationInterfaceContext::hasVideoChanged(bool hasVideo)
         m_manager->hasVideoChanged(m_contextId, hasVideo);
 }
 
+void VideoPresentationInterfaceContext::documentVisibilityChanged(bool isDocumentVisible)
+{
+    if (RefPtr manager = m_manager.get())
+        manager->documentVisibilityChanged(m_contextId, isDocumentVisible);
+}
+
 void VideoPresentationInterfaceContext::videoDimensionsChanged(const FloatSize& videoDimensions)
 {
     if (m_manager)
@@ -521,6 +527,12 @@ void VideoPresentationManager::hasVideoChanged(PlaybackSessionContextIdentifier 
         m_page->send(Messages::VideoPresentationManagerProxy::SetHasVideo(contextId, hasVideo));
 }
 
+void VideoPresentationManager::documentVisibilityChanged(PlaybackSessionContextIdentifier contextId, bool isDocumentVisibile)
+{
+    if (RefPtr page = m_page.get())
+        page->send(Messages::VideoPresentationManagerProxy::SetDocumentVisibility(contextId, isDocumentVisibile));
+}
+
 void VideoPresentationManager::videoDimensionsChanged(PlaybackSessionContextIdentifier contextId, const FloatSize& videoDimensions)
 {
     if (m_page)
@@ -804,6 +816,14 @@ void VideoPresentationManager::setVideoLayerFrameFenced(PlaybackSessionContextId
         model->setVideoLayerFrame(bounds);
     } else
         model->setVideoSizeFenced(bounds.size(), WTFMove(machSendRight));
+
+    model->setTextTrackRepresentationBounds(enclosingIntRect(bounds));
+}
+
+void VideoPresentationManager::setVideoFullscreenFrame(PlaybackSessionContextIdentifier contextId, WebCore::FloatRect frame)
+{
+    INFO_LOG(LOGIDENTIFIER, contextId.toUInt64());
+    ensureModel(contextId).setVideoFullscreenFrame(frame);
 }
 
 void VideoPresentationManager::updateTextTrackRepresentationForVideoElement(WebCore::HTMLVideoElement& videoElement, ShareableBitmap::Handle&& textTrack)
@@ -830,6 +850,16 @@ void VideoPresentationManager::setTextTrackRepresentationIsHiddenForVideoElement
     auto contextId = m_videoElements.get(videoElement);
     m_page->send(Messages::VideoPresentationManagerProxy::TextTrackRepresentationSetHidden(contextId, hidden));
 
+}
+
+void VideoPresentationManager::setRequiresTextTrackRepresentation(PlaybackSessionContextIdentifier contextId, bool requiresTextTrackRepresentation)
+{
+    ensureModel(contextId).setRequiresTextTrackRepresentation(requiresTextTrackRepresentation);
+}
+
+void VideoPresentationManager::setTextTrackRepresentationBounds(PlaybackSessionContextIdentifier contextId, const IntRect& bounds)
+{
+    ensureModel(contextId).setTextTrackRepresentationBounds(bounds);
 }
 
 #if !RELEASE_LOG_DISABLED

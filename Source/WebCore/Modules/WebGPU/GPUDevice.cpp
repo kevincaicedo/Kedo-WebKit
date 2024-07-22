@@ -321,6 +321,8 @@ public:
         return adoptRef(*new GPUDeviceVideoFrameRequestCallback(externalTexture, videoElement, gpuDevice, scriptExecutionContext));
     }
 
+    bool hasCallback() const final { return true; }
+
     ~GPUDeviceVideoFrameRequestCallback() final { }
 private:
     GPUDeviceVideoFrameRequestCallback(GPUExternalTexture& externalTexture, HTMLVideoElement& videoElement, GPUDevice& gpuDevice, ScriptExecutionContext* scriptExecutionContext)
@@ -602,9 +604,11 @@ bool GPUDevice::addEventListener(const AtomString& eventType, Ref<EventListener>
     return result;
 }
 
+#if ENABLE(VIDEO)
 WeakPtr<GPUExternalTexture> GPUDevice::takeExternalTextureForVideoElement(const HTMLVideoElement& element)
 {
     return m_videoElementToExternalTextureMap.take(element);
 }
+#endif
 
 }

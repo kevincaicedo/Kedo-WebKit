@@ -23,6 +23,7 @@
 
 #include "GStreamerCommon.h"
 #include "GStreamerRegistryScanner.h"
+#include <wtf/text/MakeString.h>
 
 GST_DEBUG_CATEGORY(webkit_webrtc_incoming_track_processor_debug);
 #define GST_CAT_DEFAULT webkit_webrtc_incoming_track_processor_debug
@@ -137,7 +138,7 @@ GRefPtr<GstElement> GStreamerIncomingTrackProcessor::incomingTrackProcessor()
     if (!forceEarlyVideoDecoding) {
         auto structure = gst_caps_get_structure(m_data.caps.get(), 0);
         ASSERT(gst_structure_has_name(structure, "application/x-rtp"));
-        auto encodingNameValue = makeString(gst_structure_get_string(structure, "encoding-name"));
+        String encodingNameValue = WTF::span(gst_structure_get_string(structure, "encoding-name"));
         auto mediaType = makeString("video/x-"_s, encodingNameValue.convertToASCIILowercase());
         auto codecCaps = adoptGRef(gst_caps_new_empty_simple(mediaType.ascii().data()));
 
@@ -159,7 +160,7 @@ GRefPtr<GstElement> GStreamerIncomingTrackProcessor::incomingTrackProcessor()
     gst_element_link(m_queue.get(), m_fakeVideoSink.get());
 
     g_signal_connect(decodebin.get(), "deep-element-added", G_CALLBACK(+[](GstBin*, GstBin*, GstElement* element, gpointer) {
-        auto elementClass = makeString(gst_element_get_metadata(element, GST_ELEMENT_METADATA_KLASS));
+        String elementClass = WTF::span(gst_element_get_metadata(element, GST_ELEMENT_METADATA_KLASS));
         auto classifiers = elementClass.split('/');
         if (!classifiers.contains("Depayloader"_s))
             return;
@@ -168,7 +169,7 @@ GRefPtr<GstElement> GStreamerIncomingTrackProcessor::incomingTrackProcessor()
     }), nullptr);
 
     g_signal_connect(decodebin.get(), "element-added", G_CALLBACK(+[](GstBin*, GstElement* element, gpointer userData) {
-        auto elementClass = makeString(gst_element_get_metadata(element, GST_ELEMENT_METADATA_KLASS));
+        String elementClass = WTF::span(gst_element_get_metadata(element, GST_ELEMENT_METADATA_KLASS));
         auto classifiers = elementClass.split('/');
         if (!classifiers.contains("Decoder"_s) || !classifiers.contains("Video"_s))
             return;
@@ -209,7 +210,7 @@ GRefPtr<GstElement> GStreamerIncomingTrackProcessor::createParser()
 {
     GRefPtr<GstElement> parsebin = makeGStreamerElement("parsebin", nullptr);
     g_signal_connect(parsebin.get(), "element-added", G_CALLBACK(+[](GstBin*, GstElement* element, gpointer) {
-        auto elementClass = makeString(gst_element_get_metadata(element, GST_ELEMENT_METADATA_KLASS));
+        String elementClass = WTF::span(gst_element_get_metadata(element, GST_ELEMENT_METADATA_KLASS));
         auto classifiers = elementClass.split('/');
         if (!classifiers.contains("Depayloader"_s))
             return;
@@ -250,13 +251,14 @@ const GstStructure* GStreamerIncomingTrackProcessor::stats()
         return nullptr;
 
     m_stats.reset(gst_structure_new_empty("incoming-video-stats"));
-    uint64_t droppedVideoFrames = 0;
     GUniqueOutPtr<GstStructure> stats;
     g_object_get(m_fakeVideoSink.get(), "stats", &stats.outPtr(), nullptr);
-    if (!gst_structure_get_uint64(stats.get(), "dropped", &droppedVideoFrames))
+
+    auto droppedVideoFrames = gstStructureGet<uint64_t>(stats.get(), "dropped"_s);
+    if (!droppedVideoFrames)
         return m_stats.get();
 
-    gst_structure_set(m_stats.get(), "frames-decoded", G_TYPE_UINT64, m_decodedVideoFrames, "frames-dropped", G_TYPE_UINT64, droppedVideoFrames, nullptr);
+    gst_structure_set(m_stats.get(), "frames-decoded", G_TYPE_UINT64, m_decodedVideoFrames, "frames-dropped", G_TYPE_UINT64, *droppedVideoFrames, nullptr);
     if (!m_videoSize.isZero())
         gst_structure_set(m_stats.get(), "frame-width", G_TYPE_UINT, static_cast<unsigned>(m_videoSize.width()), "frame-height", G_TYPE_UINT, static_cast<unsigned>(m_videoSize.height()), nullptr);
     return m_stats.get();

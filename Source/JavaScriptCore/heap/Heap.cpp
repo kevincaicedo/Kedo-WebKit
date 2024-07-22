@@ -756,8 +756,8 @@ void Heap::finalizeUnconditionalFinalizers()
         finalizeMarkedUnconditionalFinalizers<JSFinalizationRegistry>(*m_finalizationRegistrySpace, collectionScope);
 
 #if ENABLE(WEBASSEMBLY)
-    if (m_webAssemblyModuleSpace)
-        finalizeMarkedUnconditionalFinalizers<JSWebAssemblyModule>(*m_webAssemblyModuleSpace, collectionScope);
+    if (m_webAssemblyInstanceSpace)
+        finalizeMarkedUnconditionalFinalizers<JSWebAssemblyInstance>(*m_webAssemblyInstanceSpace, collectionScope);
 #endif
 }
 
@@ -969,7 +969,8 @@ size_t Heap::extraMemorySize()
     checkedTotal += m_arrayBuffers.size();
     size_t total = UNLIKELY(checkedTotal.hasOverflowed()) ? std::numeric_limits<size_t>::max() : checkedTotal.value();
 
-    ASSERT(m_objectSpace.capacity() >= m_objectSpace.size());
+    // It would be nice to have `ASSERT(m_objectSpace.capacity() >= m_objectSpace.size());` here but `m_objectSpace.size()`
+    // requires having heap access which thread might not. Specifically, we might be called from the resource usage thread.
     return std::min(total, std::numeric_limits<size_t>::max() - m_objectSpace.capacity());
 }
 
@@ -1079,10 +1080,10 @@ void Heap::deleteAllCodeBlocks(DeleteAllCodeEffort effort)
         // points into a CodeBlock that could be dead. The IC will still succeed because
         // it uses a callee check, but then it will call into dead code.
         HeapIterationScope heapIterationScope(*this);
-        if (m_webAssemblyModuleSpace) {
-            m_webAssemblyModuleSpace->forEachLiveCell([&] (HeapCell* cell, HeapCell::Kind kind) {
+        if (m_webAssemblyInstanceSpace) {
+            m_webAssemblyInstanceSpace->forEachLiveCell([&] (HeapCell* cell, HeapCell::Kind kind) {
                 ASSERT_UNUSED(kind, kind == HeapCell::JSCell);
-                static_cast<JSWebAssemblyModule*>(cell)->clearJSCallICs(vm);
+                static_cast<JSWebAssemblyInstance*>(cell)->clearJSCallICs(vm);
             });
         }
     }
@@ -2825,18 +2826,6 @@ void Heap::didFreeBlock(size_t capacity)
 #endif
 }
 
-// The following are pulled out of the body of Heap::addCoreConstraints() only
-// because the WinCairo port is not able to handle #if's inside the body of the
-// lambda passed into the MAKE_MARKING_CONSTRAINT_EXECUTOR_PAIR macro. This works
-// around that issue.
-
-#if JSC_OBJC_API_ENABLED
-constexpr bool objcAPIEnabled = true;
-#else
-constexpr bool objcAPIEnabled = false;
-static UNUSED_FUNCTION void scanExternalRememberedSet(VM&, AbstractSlotVisitor&) { }
-#endif
-
 #if ENABLE(SAMPLING_PROFILER)
 constexpr bool samplingProfilerSupported = true;
 template<typename Visitor>
@@ -2889,18 +2878,16 @@ void Heap::addCoreConstraints()
                     m_verifierSlotVisitor->append(conservativeRoots);
                 }
             }
-            if (Options::useJIT()) {
-                // JITStubRoutines must be visited after scanning ConservativeRoots since JITStubRoutines depend on the hook executed during gathering ConservativeRoots.
-                SetRootMarkReasonScope rootScope(visitor, RootMarkReason::JITStubRoutines);
+
+            // JITStubRoutines must be visited after scanning ConservativeRoots since JITStubRoutines depend on the hook executed during gathering ConservativeRoots.
+            SetRootMarkReasonScope rootScope(visitor, RootMarkReason::JITStubRoutines);
+            m_jitStubRoutines->traceMarkedStubRoutines(visitor);
+            if (UNLIKELY(m_verifierSlotVisitor)) {
+                // It's important to cast m_verifierSlotVisitor to an AbstractSlotVisitor here
+                // so that we'll call the AbstractSlotVisitor version of traceMarkedStubRoutines().
+                AbstractSlotVisitor& visitor = *m_verifierSlotVisitor;
                 m_jitStubRoutines->traceMarkedStubRoutines(visitor);
-                if (UNLIKELY(m_verifierSlotVisitor)) {
-                    // It's important to cast m_verifierSlotVisitor to an AbstractSlotVisitor here
-                    // so that we'll call the AbstractSlotVisitor version of traceMarkedStubRoutines().
-                    AbstractSlotVisitor& visitor = *m_verifierSlotVisitor;
-                    m_jitStubRoutines->traceMarkedStubRoutines(visitor);
-                }
             }
-            
             lastVersion = m_phaseVersion;
         })),
         ConstraintVolatility::GreyedByExecution);
@@ -2909,10 +2896,12 @@ void Heap::addCoreConstraints()
         "Msr", "Misc Small Roots",
         MAKE_MARKING_CONSTRAINT_EXECUTOR_PAIR(([this] (auto& visitor) {
             VM& vm = this->vm();
-            if constexpr (objcAPIEnabled) {
+#if JSC_OBJC_API_ENABLED
+            {
                 SetRootMarkReasonScope rootScope(visitor, RootMarkReason::ExternalRememberedSet);
                 scanExternalRememberedSet(vm, visitor);
             }
+#endif
 
             {
                 SetRootMarkReasonScope rootScope(visitor, RootMarkReason::StrongReferences);
@@ -2993,13 +2982,10 @@ void Heap::addCoreConstraints()
         MAKE_MARKING_CONSTRAINT_EXECUTOR_PAIR(([] (auto& visitor) {
             JSC::Heap* heap = visitor.heap();
 
-            // The `visitor2` argument is strangely named because the WinCairo port
-            // gets confused  and thinks we're trying to capture the outer visitor
-            // arg here. Giving it a unique name works around this issue.
-            auto callOutputConstraint = [] (auto& visitor2, HeapCell* heapCell, HeapCell::Kind) {
-                SetRootMarkReasonScope rootScope(visitor2, RootMarkReason::Output);
+            auto callOutputConstraint = [] (auto& visitor, HeapCell* heapCell, HeapCell::Kind) {
+                SetRootMarkReasonScope rootScope(visitor, RootMarkReason::Output);
                 JSCell* cell = static_cast<JSCell*>(heapCell);
-                cell->methodTable()->visitOutputConstraints(cell, visitor2);
+                cell->methodTable()->visitOutputConstraints(cell, visitor);
             };
             
             auto add = [&] (auto& set) {

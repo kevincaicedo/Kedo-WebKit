@@ -34,7 +34,6 @@
 #include "ICStatusUtils.h"
 #include "InlineCacheCompiler.h"
 #include "InlineCallFrame.h"
-#include "ProxyObjectAccessCase.h"
 #include "StructureInlines.h"
 #include "StructureStubInfo.h"
 #include <wtf/ListDump.h>
@@ -216,6 +215,18 @@ PutByStatus PutByStatus::computeForStubInfo(const ConcurrentJSLocker& locker, Co
                     return PutByStatus(Megamorphic);
                 break;
             }
+            case AccessCase::ProxyObjectStore:
+            case AccessCase::IndexedProxyObjectStore: {
+                auto callLinkStatus = makeUnique<CallLinkStatus>();
+                if (CallLinkInfo* callLinkInfo = stubInfo->callLinkInfoAt(locker, 0, access))
+                    *callLinkStatus = CallLinkStatus::computeFor(locker, profiledBlock, *callLinkInfo, callExitSiteData);
+                auto status = PutByStatus(PutByStatus::ProxyObject);
+                auto variant = PutByVariant::proxy(access.identifier(), access.structure(), WTFMove(callLinkStatus));
+                if (!status.appendVariant(variant))
+                    return PutByStatus(JSC::slowVersion(summary), *stubInfo);
+                return status;
+            }
+
             default:
                 break;
             }
@@ -292,10 +303,8 @@ PutByStatus PutByStatus::computeForStubInfo(const ConcurrentJSLocker& locker, Co
 
                 case ComplexGetStatus::Inlineable: {
                     auto callLinkStatus = makeUnique<CallLinkStatus>();
-                    if (CallLinkInfo* callLinkInfo = access.as<GetterSetterAccessCase>().callLinkInfo()) {
-                        *callLinkStatus = CallLinkStatus::computeFor(
-                            locker, profiledBlock, *callLinkInfo, callExitSiteData);
-                    }
+                    if (CallLinkInfo* callLinkInfo = stubInfo->callLinkInfoAt(locker, i, access))
+                        *callLinkStatus = CallLinkStatus::computeFor(locker, profiledBlock, *callLinkInfo, callExitSiteData);
 
                     auto variant = PutByVariant::setter(access.identifier(), structure, complexGetStatus.offset(), complexGetStatus.conditionSet(), WTFMove(callLinkStatus));
                     if (!result.appendVariant(variant))
@@ -308,17 +317,6 @@ PutByStatus PutByStatus::computeForStubInfo(const ConcurrentJSLocker& locker, Co
 
             case AccessCase::CustomValueSetter:
                 return PutByStatus(MakesCalls);
-
-            case AccessCase::ProxyObjectStore: {
-                auto& accessCase = access.as<ProxyObjectAccessCase>();
-                auto callLinkStatus = makeUnique<CallLinkStatus>();
-                if (CallLinkInfo* callLinkInfo = accessCase.callLinkInfo())
-                    *callLinkStatus = CallLinkStatus::computeFor(locker, profiledBlock, *callLinkInfo, callExitSiteData);
-                auto variant = PutByVariant::proxy(accessCase.identifier(), access.structure(), WTFMove(callLinkStatus));
-                if (!result.appendVariant(variant))
-                    return PutByStatus(JSC::slowVersion(summary), *stubInfo);
-                break;
-            }
 
             default:
                 return PutByStatus(JSC::slowVersion(summary), *stubInfo);
@@ -406,7 +404,17 @@ PutByStatus PutByStatus::computeFor(JSGlobalObject* globalObject, const Structur
 
             if (attributes & (PropertyAttribute::Accessor | PropertyAttribute::ReadOnly))
                 return PutByStatus(LikelyTakesSlowPath);
-            
+
+            if (isDirect && attributes) {
+                Structure* existingTransition = Structure::attributeChangeTransitionToExistingStructureConcurrently(structure, identifier.uid(), 0, offset);
+                if (!existingTransition)
+                    return PutByStatus(LikelyTakesSlowPath);
+                bool didAppend = result.appendVariant(PutByVariant::transition(identifier, structure, existingTransition, { }, offset));
+                if (!didAppend)
+                    return PutByStatus(LikelyTakesSlowPath);
+                continue;
+            }
+
             WatchpointSet* replaceSet = structure->propertyReplacementWatchpointSet(offset);
             if (!replaceSet || replaceSet->isStillValid()) {
                 // When this executes, it'll create, and fire, this replacement watchpoint set.
@@ -482,6 +490,7 @@ bool PutByStatus::makesCalls() const
     case ObservedSlowPathAndMakesCalls:
     case Megamorphic:
     case CustomAccessor:
+    case ProxyObject:
         return true;
     case Simple: {
         for (unsigned i = m_variants.size(); i--;) {
@@ -490,9 +499,8 @@ bool PutByStatus::makesCalls() const
         }
         return false;
     }
-    default:
-        RELEASE_ASSERT_NOT_REACHED();
     }
+    return false;
 }
 
 PutByStatus PutByStatus::slowVersion() const
@@ -564,6 +572,7 @@ void PutByStatus::merge(const PutByStatus& other)
         
     case Simple:
     case CustomAccessor:
+    case ProxyObject:
         if (other.m_state != m_state)
             return mergeSlow();
         
@@ -607,6 +616,9 @@ void PutByStatus::dump(PrintStream& out) const
         break;
     case CustomAccessor:
         out.print("CustomAccessor");
+        break;
+    case ProxyObject:
+        out.print("ProxyObject");
         break;
     case Megamorphic:
         out.print("Megamorphic");

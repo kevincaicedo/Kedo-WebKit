@@ -43,6 +43,7 @@
 #include <wtf/GetPtr.h>
 #include <wtf/PointerPreparations.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 
 
 namespace WebCore {
@@ -190,10 +191,11 @@ static inline bool setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute1S
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     CustomElementReactionStack customElementReactionStack(lexicalGlobalObject);
     auto& impl = thisObject.wrapped();
-    auto nativeValue = convert<IDLLegacyNullToEmptyStringAdaptor<IDLUSVString>>(lexicalGlobalObject, value);
-    RETURN_IF_EXCEPTION(throwScope, false);
+    auto nativeValueConversionResult = convert<IDLLegacyNullToEmptyStringAdaptor<IDLUSVString>>(lexicalGlobalObject, value);
+    if (UNLIKELY(nativeValueConversionResult.hasException(throwScope)))
+        return false;
     invokeFunctorPropagatingExceptionIfNecessary(lexicalGlobalObject, throwScope, [&] {
-        return impl.setSharedAttribute1(propertyNameToAtomString(propertyName), WTFMove(nativeValue));
+        return impl.setSharedAttribute1(propertyNameToAtomString(propertyName), nativeValueConversionResult.releaseReturnValue());
     });
     return true;
 }
@@ -223,10 +225,11 @@ static inline bool setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute2S
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     CustomElementReactionStack customElementReactionStack(lexicalGlobalObject);
     auto& impl = thisObject.wrapped();
-    auto nativeValue = convert<IDLLegacyNullToEmptyStringAdaptor<IDLUSVString>>(lexicalGlobalObject, value);
-    RETURN_IF_EXCEPTION(throwScope, false);
+    auto nativeValueConversionResult = convert<IDLLegacyNullToEmptyStringAdaptor<IDLUSVString>>(lexicalGlobalObject, value);
+    if (UNLIKELY(nativeValueConversionResult.hasException(throwScope)))
+        return false;
     invokeFunctorPropagatingExceptionIfNecessary(lexicalGlobalObject, throwScope, [&] {
-        return impl.setSharedAttribute2(propertyNameToAtomString(propertyName), WTFMove(nativeValue));
+        return impl.setSharedAttribute2(propertyNameToAtomString(propertyName), nativeValueConversionResult.releaseReturnValue());
     });
     return true;
 }
@@ -251,7 +254,7 @@ void JSTestDelegateToSharedSyntheticAttribute::analyzeHeap(JSCell* cell, HeapAna
     auto* thisObject = jsCast<JSTestDelegateToSharedSyntheticAttribute*>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (thisObject->scriptExecutionContext())
-        analyzer.setLabelForCell(cell, "url "_s + thisObject->scriptExecutionContext()->url().string());
+        analyzer.setLabelForCell(cell, makeString("url "_s, thisObject->scriptExecutionContext()->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
 
@@ -277,14 +280,9 @@ extern "C" { extern void (*const __identifier("??_7TestDelegateToSharedSynthetic
 #else
 extern "C" { extern void* _ZTVN7WebCore38TestDelegateToSharedSyntheticAttributeE[]; }
 #endif
-#endif
-
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestDelegateToSharedSyntheticAttribute>&& impl)
-{
-
-    if constexpr (std::is_polymorphic_v<TestDelegateToSharedSyntheticAttribute>) {
-#if ENABLE(BINDING_INTEGRITY)
-        const void* actualVTablePointer = getVTablePointer(impl.ptr());
+template<typename T, typename = std::enable_if_t<std::is_same_v<T, TestDelegateToSharedSyntheticAttribute>, void>> static inline void verifyVTable(TestDelegateToSharedSyntheticAttribute* ptr) {
+    if constexpr (std::is_polymorphic_v<T>) {
+        const void* actualVTablePointer = getVTablePointer<T>(ptr);
 #if PLATFORM(WIN)
         void* expectedVTablePointer = __identifier("??_7TestDelegateToSharedSyntheticAttribute@WebCore@@6B@");
 #else
@@ -296,8 +294,14 @@ JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObj
         // to toJS() we currently require TestDelegateToSharedSyntheticAttribute you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
         RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
-#endif
     }
+}
+#endif
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestDelegateToSharedSyntheticAttribute>&& impl)
+{
+#if ENABLE(BINDING_INTEGRITY)
+    verifyVTable<TestDelegateToSharedSyntheticAttribute>(impl.ptr());
+#endif
     return createWrapper<TestDelegateToSharedSyntheticAttribute>(globalObject, WTFMove(impl));
 }
 

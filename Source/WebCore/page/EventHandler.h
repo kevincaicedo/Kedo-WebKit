@@ -229,7 +229,7 @@ public:
 
     WEBCORE_EXPORT void setLastKnownMousePosition(IntPoint position, IntPoint globalPosition);
 
-    bool handlePasteGlobalSelection(const PlatformMouseEvent&);
+    bool handlePasteGlobalSelection();
 
 #if ENABLE(IOS_TOUCH_EVENTS) || ENABLE(IOS_GESTURE_EVENTS)
     using TouchArray = Vector<RefPtr<Touch>>;
@@ -461,6 +461,9 @@ private:
 
     enum class Cancelable : bool { No, Yes };
     bool dispatchMouseEvent(const AtomString& eventType, Node* target, int clickCount, const PlatformMouseEvent&, FireMouseOverOut);
+
+    enum class IgnoreAncestorNodesForClickEvent : bool { No, Yes };
+    bool swallowAnyClickEvent(const PlatformMouseEvent&, const MouseEventWithHitTestResults&, IgnoreAncestorNodesForClickEvent);
 
 #if ENABLE(DRAG_SUPPORT)
     bool dispatchDragEvent(const AtomString& eventType, Element& target, const PlatformMouseEvent&, DataTransfer&);

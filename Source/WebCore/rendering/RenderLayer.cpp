@@ -154,6 +154,7 @@
 #include <wtf/MonotonicTime.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
@@ -703,6 +704,15 @@ void RenderLayer::dirtyStackingContextZOrderLists()
         sc->dirtyZOrderLists();
 }
 
+void RenderLayer::dirtyHiddenStackingContextAncestorZOrderLists()
+{
+    for (auto* sc = stackingContext(); sc; sc = sc->stackingContext()) {
+        sc->dirtyZOrderLists();
+        if (sc->hasVisibleContent())
+            break;
+    }
+}
+
 bool RenderLayer::willCompositeClipPath() const
 {
     if (!isComposited())
@@ -784,10 +794,9 @@ void RenderLayer::rebuildZOrderLists()
 
 void RenderLayer::rebuildZOrderLists(std::unique_ptr<Vector<RenderLayer*>>& posZOrderList, std::unique_ptr<Vector<RenderLayer*>>& negZOrderList, OptionSet<Compositing>& accumulatedDirtyFlags)
 {
-    bool includeHiddenLayers = compositor().usesCompositing();
     for (RenderLayer* child = firstChild(); child; child = child->nextSibling()) {
         if (!isReflectionLayer(*child))
-            child->collectLayers(includeHiddenLayers, posZOrderList, negZOrderList, accumulatedDirtyFlags);
+            child->collectLayers(posZOrderList, negZOrderList, accumulatedDirtyFlags);
     }
 
     auto compareZIndex = [] (const RenderLayer* first, const RenderLayer* second) -> bool {
@@ -822,7 +831,7 @@ void RenderLayer::rebuildZOrderLists(std::unique_ptr<Vector<RenderLayer*>>& posZ
     }
 }
 
-void RenderLayer::collectLayers(bool includeHiddenLayers, std::unique_ptr<Vector<RenderLayer*>>& positiveZOrderList, std::unique_ptr<Vector<RenderLayer*>>& negativeZOrderList, OptionSet<Compositing>& accumulatedDirtyFlags)
+void RenderLayer::collectLayers(std::unique_ptr<Vector<RenderLayer*>>& positiveZOrderList, std::unique_ptr<Vector<RenderLayer*>>& negativeZOrderList, OptionSet<Compositing>& accumulatedDirtyFlags)
 {
     updateDescendantDependentFlags();
 
@@ -831,7 +840,8 @@ void RenderLayer::collectLayers(bool includeHiddenLayers, std::unique_ptr<Vector
 
     bool isStacking = isStackingContext();
     // Overflow layers are just painted by their enclosing layers, so they don't get put in zorder lists.
-    bool includeHiddenLayer = includeHiddenLayers || (m_hasVisibleContent || (m_hasVisibleDescendant && isStacking));
+    bool includeHiddenLayer = (m_hasVisibleContent || m_intrinsicallyComposited) || ((m_hasVisibleDescendant || m_hasIntrinsicallyCompositedDescendants) && isStacking);
+    includeHiddenLayer |= page().hasEverSetVisibilityAdjustment();
     if (includeHiddenLayer && !isNormalFlowOnly()) {
         auto& layerList = (zIndex() >= 0) ? positiveZOrderList : negativeZOrderList;
         if (!layerList)
@@ -842,11 +852,11 @@ void RenderLayer::collectLayers(bool includeHiddenLayers, std::unique_ptr<Vector
 
     // Recur into our children to collect more layers, but only if we don't establish
     // a stacking context/container.
-    if ((includeHiddenLayers || m_hasVisibleDescendant) && !isStacking) {
+    if ((m_hasIntrinsicallyCompositedDescendants || m_hasVisibleDescendant) && !isStacking) {
         for (RenderLayer* child = firstChild(); child; child = child->nextSibling()) {
             // Ignore reflections.
             if (!isReflectionLayer(*child))
-                child->collectLayers(includeHiddenLayers, positiveZOrderList, negativeZOrderList, accumulatedDirtyFlags);
+                child->collectLayers(positiveZOrderList, negativeZOrderList, accumulatedDirtyFlags);
         }
     }
 }
@@ -875,7 +885,7 @@ String RenderLayer::name() const
 {
     if (!isReflection())
         return renderer().debugDescription();
-    return makeString(renderer().debugDescription(), " (reflection)");
+    return makeString(renderer().debugDescription(), " (reflection)"_s);
 }
 
 RenderLayerCompositor& RenderLayer::compositor() const
@@ -961,7 +971,7 @@ void RenderLayer::updateLayerPositionsAfterStyleChange()
     recursiveUpdateLayerPositions(flagsForUpdateLayerPositions(*this));
 }
 
-void RenderLayer::updateLayerPositionsAfterLayout(bool isRelayoutingSubtree, bool didFullRepaint)
+void RenderLayer::updateLayerPositionsAfterLayout(bool isRelayoutingSubtree, bool didFullRepaint, CanUseSimplifiedRepaintPass canUseSimplifiedRepaintPass)
 {
     auto updateLayerPositionFlags = [&](bool isRelayoutingSubtree, bool didFullRepaint) {
         auto flags = flagsForUpdateLayerPositions(*this);
@@ -977,10 +987,10 @@ void RenderLayer::updateLayerPositionsAfterLayout(bool isRelayoutingSubtree, boo
     LOG(Compositing, "RenderLayer %p updateLayerPositionsAfterLayout", this);
     willUpdateLayerPositions();
 
-    recursiveUpdateLayerPositions(updateLayerPositionFlags(isRelayoutingSubtree, didFullRepaint));
+    recursiveUpdateLayerPositions(updateLayerPositionFlags(isRelayoutingSubtree, didFullRepaint), canUseSimplifiedRepaintPass);
 }
 
-void RenderLayer::recursiveUpdateLayerPositions(OptionSet<UpdateLayerPositionsFlag> flags)
+void RenderLayer::recursiveUpdateLayerPositions(OptionSet<UpdateLayerPositionsFlag> flags, CanUseSimplifiedRepaintPass canUseSimplifiedRepaintPass)
 {
     updateLayerPosition(&flags);
     if (m_scrollableArea)
@@ -1019,13 +1029,28 @@ void RenderLayer::recursiveUpdateLayerPositions(OptionSet<UpdateLayerPositionsFl
             return;
         }
 
+        auto mayNeedRepaintRectUpdate = [&] {
+            if (canUseSimplifiedRepaintPass == CanUseSimplifiedRepaintPass::No)
+                return true;
+            if (!renderer().didVisitDuringLastLayout())
+                return false;
+            if (auto* renderBox = this->renderBox(); renderBox && renderBox->hasRenderOverflow() && renderBox->hasTransformRelatedProperty()) {
+                // Disable optimization for subtree when dealing with overflow as RenderLayer is not sized to enclose overflow.
+                // FIXME: This should check if transform related property has changed.
+                canUseSimplifiedRepaintPass = CanUseSimplifiedRepaintPass::No;
+            }
+            return true;
+        };
+        if (!mayNeedRepaintRectUpdate())
+            return;
+
         // FIXME: Paint offset cache does not work with RenderLayers as there is not a 1-to-1
         // mapping between them and the RenderObjects. It would be neat to enable
         // LayoutState outside the layout() phase and use it here.
         ASSERT(!renderer().view().frameView().layoutContext().isPaintOffsetCacheEnabled());
 
-        CheckedPtr repaintContainer = renderer().containerForRepaint().renderer;
-        
+        WeakPtr repaintContainer = renderer().containerForRepaint().renderer.get();
+
         auto oldRects = repaintRects();
         computeRepaintRects(repaintContainer.get());
         auto newRects = repaintRects();
@@ -1033,7 +1058,7 @@ void RenderLayer::recursiveUpdateLayerPositions(OptionSet<UpdateLayerPositionsFl
         if (checkForRepaint && shouldRepaintAfterLayout() && newRects) {
             auto needsFullRepaint = m_repaintStatus == RepaintStatus::NeedsFullRepaint ? RequiresFullRepaint::Yes : RequiresFullRepaint::No;
             auto resolvedOldRects = valueOrDefault(oldRects);
-            renderer().repaintAfterLayoutIfNeeded(repaintContainer.get(), needsFullRepaint, resolvedOldRects, *newRects);
+            renderer().repaintAfterLayoutIfNeeded(WTFMove(repaintContainer), needsFullRepaint, resolvedOldRects, *newRects);
         }
     };
 
@@ -1075,7 +1100,7 @@ void RenderLayer::recursiveUpdateLayerPositions(OptionSet<UpdateLayerPositionsFl
         flags.add(SeenCompositedScrollingLayer);
 
     for (RenderLayer* child = firstChild(); child; child = child->nextSibling())
-        child->recursiveUpdateLayerPositions(flags);
+        child->recursiveUpdateLayerPositions(flags, canUseSimplifiedRepaintPass);
 
     if (m_scrollableArea)
         m_scrollableArea->updateMarqueePosition();
@@ -1287,6 +1312,39 @@ void RenderLayer::dirtyAncestorChainHasBlendingDescendants()
 
         if (layer->isCSSStackingContext())
             break;
+    }
+}
+
+void RenderLayer::setIntrinsicallyComposited(bool composited)
+{
+    if (m_intrinsicallyComposited != composited) {
+        m_intrinsicallyComposited = composited;
+        if (composited)
+            updateAncestorChainHasIntrinsicallyCompositedDescendants();
+        else
+            dirtyAncestorChainHasIntrinsicallyCompositedDescendants();
+        if (!hasVisibleContent() && !isNormalFlowOnly())
+            dirtyHiddenStackingContextAncestorZOrderLists();
+    }
+}
+
+void RenderLayer::updateAncestorChainHasIntrinsicallyCompositedDescendants()
+{
+    for (auto* layer = this; layer; layer = layer->parent()) {
+        if (!layer->m_hasIntrinsicallyCompositedDescendantsStatusDirty && layer->m_hasIntrinsicallyCompositedDescendants)
+            break;
+        layer->m_hasIntrinsicallyCompositedDescendants = true;
+        layer->m_hasIntrinsicallyCompositedDescendantsStatusDirty = false;
+    }
+}
+
+void RenderLayer::dirtyAncestorChainHasIntrinsicallyCompositedDescendants()
+{
+    for (auto* layer = this; layer; layer = layer->parent()) {
+        if (layer->m_hasIntrinsicallyCompositedDescendantsStatusDirty)
+            break;
+
+        layer->m_hasIntrinsicallyCompositedDescendantsStatusDirty = true;
     }
 }
 
@@ -1505,14 +1563,10 @@ void RenderLayer::setHasVisibleContent()
     m_hasVisibleContent = true;
     computeRepaintRects(renderer().containerForRepaint().renderer.get());
     if (!isNormalFlowOnly()) {
-        // We don't collect invisible layers in z-order lists if we are not in compositing mode.
+        // We don't collect invisible layers in z-order lists if they are not composited.
         // As we became visible, we need to dirty our stacking containers ancestors to be properly
-        // collected. FIXME: When compositing, we could skip this dirtying phase.
-        for (auto* sc = stackingContext(); sc; sc = sc->stackingContext()) {
-            sc->dirtyZOrderLists();
-            if (sc->hasVisibleContent())
-                break;
-        }
+        // collected.
+        dirtyHiddenStackingContextAncestorZOrderLists();
     }
 
     if (parent())
@@ -1571,6 +1625,7 @@ void RenderLayer::updateDescendantDependentFlags()
         bool hasVisibleDescendant = false;
         bool hasSelfPaintingLayerDescendant = false;
         bool hasNotIsolatedBlendingDescendants = false;
+        bool hasIntrinsicallyCompositedDescendants = false;
 
         auto firstLayerChild = [&] () -> RenderLayer* {
             if (renderer().isSkippedContentRoot())
@@ -1583,6 +1638,7 @@ void RenderLayer::updateDescendantDependentFlags()
             hasVisibleDescendant |= child->m_hasVisibleContent || child->m_hasVisibleDescendant;
             hasSelfPaintingLayerDescendant |= child->isSelfPaintingLayer() || child->hasSelfPaintingLayerDescendant();
             hasNotIsolatedBlendingDescendants |= child->hasBlendMode() || (child->hasNotIsolatedBlendingDescendants() && !child->isolatesBlending());
+            hasIntrinsicallyCompositedDescendants |= child->isIntrinsicallyComposited() || child->m_hasIntrinsicallyCompositedDescendants;
 
             bool allFlagsSet = hasVisibleDescendant && hasSelfPaintingLayerDescendant;
             allFlagsSet &= hasNotIsolatedBlendingDescendants;
@@ -1594,6 +1650,8 @@ void RenderLayer::updateDescendantDependentFlags()
         m_visibleDescendantStatusDirty = false;
         m_hasSelfPaintingLayerDescendant = hasSelfPaintingLayerDescendant;
         m_hasSelfPaintingLayerDescendantDirty = false;
+        m_hasIntrinsicallyCompositedDescendants = hasIntrinsicallyCompositedDescendants;
+        m_hasIntrinsicallyCompositedDescendantsStatusDirty = false;
 
         m_hasNotIsolatedBlendingDescendants = hasNotIsolatedBlendingDescendants;
         if (m_hasNotIsolatedBlendingDescendantsStatusDirty) {
@@ -1716,7 +1774,9 @@ bool RenderLayer::updateLayerPosition(OptionSet<UpdateLayerPositionsFlag>* flags
     auto layerRect = computeLayerPositionAndIntegralSize(renderer());
     auto localPoint = layerRect.location();
 
+    bool geometryChanged = false;
     if (IntSize newSize(layerRect.width().toInt(), layerRect.height().toInt()); newSize != size()) {
+        geometryChanged = true;
         setSize(newSize);
 
         if (flags && renderer().hasNonVisibleOverflow())
@@ -1777,29 +1837,30 @@ bool RenderLayer::updateLayerPosition(OptionSet<UpdateLayerPositionsFlag>* flags
     } else if (!m_contentsScrollingScope || m_contentsScrollingScope != m_boxScrollingScope)
         m_contentsScrollingScope = m_boxScrollingScope;
 
-    bool positionOrOffsetChanged = false;
     if (renderer().isInFlowPositioned()) {
         if (auto* boxModelObject = dynamicDowncast<RenderBoxModelObject>(renderer())) {
             auto newOffset = boxModelObject->offsetForInFlowPosition();
-            positionOrOffsetChanged = newOffset != m_offsetForPosition;
+            geometryChanged |= newOffset != m_offsetForPosition;
             m_offsetForPosition = newOffset;
             localPoint.move(m_offsetForPosition);
         }
     }
 
-    positionOrOffsetChanged |= location() != localPoint;
+    geometryChanged |= location() != localPoint;
     setLocation(localPoint);
     
-    if (positionOrOffsetChanged && compositor().hasContentCompositingLayers()) {
+    if (geometryChanged && compositor().hasContentCompositingLayers()) {
         if (isComposited())
             setNeedsCompositingGeometryUpdate();
-        // This layer's position can affect the location of a composited descendant (which may be a sibling in z-order),
-        // so trigger a descendant walk from the paint-order parent.
-        if (auto* paintParent = paintOrderParent())
-            paintParent->setDescendantsNeedUpdateBackingAndHierarchyTraversal();
+        // This layer's footprint can affect the location of a composited descendant (which may be a sibling in z-order),
+        // so trigger a descendant walk from the enclosing stacking context.
+        if (auto* sc = stackingContext()) {
+            sc->setDescendantsNeedCompositingRequirementsTraversal();
+            sc->setDescendantsNeedUpdateBackingAndHierarchyTraversal();
+        }
     }
 
-    return positionOrOffsetChanged;
+    return geometryChanged;
 }
 
 TransformationMatrix RenderLayer::perspectiveTransform() const
@@ -2171,11 +2232,11 @@ bool RenderLayer::cannotBlitToWindow() const
 
 RenderLayer* RenderLayer::transparentPaintingAncestor(const LayerPaintingInfo& info)
 {
-    if (this == info.rootLayer || isComposited())
+    if (this == info.rootLayer || isComposited() || paintsIntoProvidedBacking())
         return nullptr;
     for (auto* ancestor = parent(); ancestor; ancestor = ancestor->parent()) {
         if (ancestor->isStackingContext()) {
-            if (ancestor->isComposited())
+            if (ancestor->isComposited() || ancestor->paintsIntoProvidedBacking())
                 return nullptr;
             if (ancestor->isTransparent())
                 return ancestor;
@@ -2659,13 +2720,13 @@ String RenderLayer::debugDescription() const
         compositedDescription = stream.release();
     }
 
-    return makeString("RenderLayer 0x", hex(reinterpret_cast<uintptr_t>(this), Lowercase),
+    return makeString("RenderLayer 0x"_s, hex(reinterpret_cast<uintptr_t>(this), Lowercase),
         ' ', size().width(), 'x', size().height(),
-        transform() ? " has transform" : "",
-        hasFilter() ? " has filter" : "",
-        hasBackdropFilter() ? " has backdrop filter" : "",
-        hasBlendMode() ? " has blend mode" : "",
-        isolatesBlending() ? " isolates blending" : "",
+        transform() ? " has transform"_s : ""_s,
+        hasFilter() ? " has filter"_s : ""_s,
+        hasBackdropFilter() ? " has backdrop filter"_s : ""_s,
+        hasBlendMode() ? " has blend mode"_s : ""_s,
+        isolatesBlending() ? " isolates blending"_s : ""_s,
         compositedDescription);
 }
 
@@ -3296,7 +3357,7 @@ void RenderLayer::paintLayerContents(GraphicsContext& context, const LayerPainti
     RenderObject* subtreePaintRootForRenderer = nullptr;
 
     auto paintBehavior = [&]() {
-        constexpr OptionSet<PaintBehavior> flagsToCopy = { PaintBehavior::FlattenCompositingLayers, PaintBehavior::Snapshotting, PaintBehavior::ExcludeSelection };
+        constexpr OptionSet<PaintBehavior> flagsToCopy = { PaintBehavior::FlattenCompositingLayers, PaintBehavior::Snapshotting, PaintBehavior::ExcludeSelection, PaintBehavior::ExcludeReplacedContent };
         OptionSet<PaintBehavior> paintBehavior = paintingInfo.paintBehavior & flagsToCopy;
 
         if (localPaintFlags.contains(PaintLayerFlag::PaintingSkipRootBackground))
@@ -3515,7 +3576,7 @@ void RenderLayer::paintList(LayerList layerIterator, GraphicsContext& context, c
 
     for (auto* childLayer : layerIterator) {
         if (paintFlags.contains(PaintLayerFlag::PaintingSkipDescendantViewTransition)) {
-            if (childLayer->renderer().capturedInViewTransition() && !childLayer->renderer().isDocumentElementRenderer())
+            if (childLayer->renderer().effectiveCapturedInViewTransition())
                 continue;
             if (childLayer->renderer().isViewTransitionPseudo())
                 continue;
@@ -3778,7 +3839,7 @@ void RenderLayer::paintForegroundForFragments(const LayerFragments& layerFragmen
         localPaintBehavior = paintBehavior;
 
     // FIXME: It's unclear if this flag copying is necessary.
-    constexpr OptionSet<PaintBehavior> flagsToCopy { PaintBehavior::ExcludeSelection, PaintBehavior::Snapshotting, PaintBehavior::DefaultAsynchronousImageDecode, PaintBehavior::CompositedOverflowScrollContent, PaintBehavior::ForceSynchronousImageDecode };
+    constexpr OptionSet<PaintBehavior> flagsToCopy { PaintBehavior::ExcludeSelection, PaintBehavior::Snapshotting, PaintBehavior::DefaultAsynchronousImageDecode, PaintBehavior::CompositedOverflowScrollContent, PaintBehavior::ForceSynchronousImageDecode, PaintBehavior::ExcludeReplacedContent };
     localPaintBehavior.add(localPaintingInfo.paintBehavior & flagsToCopy);
 
     if (localPaintingInfo.paintBehavior & PaintBehavior::DontShowVisitedLinks)
@@ -4032,7 +4093,8 @@ void RenderLayer::establishesTopLayerDidChange()
 {
     if (auto* parentLayer = renderer().layerParent()) {
         setIsNormalFlowOnly(shouldBeNormalFlowOnly());
-        parentLayer->addChild(*this);
+        auto* beforeChild = renderer().layerNextSibling(*parentLayer);
+        parentLayer->addChild(*this, beforeChild);
     }
 }
 
@@ -4141,17 +4203,21 @@ RenderLayer::HitLayer RenderLayer::hitTestLayer(RenderLayer* rootLayer, RenderLa
     updateLayerListsIfNeeded();
 
     if (!isSelfPaintingLayer() && !hasSelfPaintingLayerDescendant())
-        return { nullptr };
+        return { };
+
+    // Renderers that are captured in a view transition are not hit tested.
+    if (renderer().effectiveCapturedInViewTransition())
+        return { };
 
     // If we're hit testing 'SVG clip content' (aka. RenderSVGResourceClipper) do not early exit.
     if (!request.svgClipContent()) {
         // SVG resource layers and their children are never hit tested.
         if (is<RenderSVGResourceContainer>(m_enclosingSVGHiddenOrResourceContainer))
-            return { nullptr };
+            return { };
 
         // Hidden SVG containers (<defs> / <symbol> ...) are never hit tested directly.
         if (is<RenderSVGHiddenContainer>(renderer()))
-            return { nullptr };
+            return { };
     }
 
     // The natural thing would be to keep HitTestingTransformState on the stack, but it's big, so we heap-allocate.
@@ -4167,7 +4233,7 @@ RenderLayer::HitLayer RenderLayer::hitTestLayer(RenderLayer* rootLayer, RenderLa
             ClipRect clipRect = backgroundClipRect(clipRectsContext);
             // Test the enclosing clip now.
             if (!clipRect.intersects(hitTestLocation))
-                return { nullptr };
+                return { };
         }
 
         return hitTestLayerByApplyingTransform(rootLayer, containerLayer, request, result, hitTestRect, hitTestLocation, transformState, zOffset);
@@ -4191,7 +4257,7 @@ RenderLayer::HitLayer RenderLayer::hitTestLayer(RenderLayer* rootLayer, RenderLa
         std::optional<TransformationMatrix> invertedMatrix = localTransformState->m_accumulatedTransform.inverse();
         // If the z-vector of the matrix is negative, the back is facing towards the viewer.
         if (invertedMatrix && invertedMatrix.value().m33() < 0)
-            return { nullptr, 0 };
+            return { };
     }
 
     // The following are used for keeping track of the z-depth of the hit point of 3d-transformed
@@ -4218,7 +4284,7 @@ RenderLayer::HitLayer RenderLayer::hitTestLayer(RenderLayer* rootLayer, RenderLa
     auto offsetFromRoot = offsetFromAncestor(rootLayer);
     // FIXME: We need to correctly hit test the clip-path when we have a RenderInline too.
     if (auto* rendererBox = this->renderBox(); rendererBox && !rendererBox->hitTestClipPath(hitTestLocation, toLayoutPoint(offsetFromRoot - toLayoutSize(rendererLocation()))))
-        return { nullptr };
+        return { };
 
     // Begin by walking our list of positive layers from highest z-index down to the lowest z-index.
     auto hitLayer = hitTestList(positiveZOrderLayers(), rootLayer, request, result, hitTestRect, hitTestLocation, localTransformState.get(), zOffsetForDescendantsPtr, depthSortDescendants);
@@ -4387,7 +4453,7 @@ RenderLayer::HitLayer RenderLayer::hitTestTransformedLayerInFragments(RenderLaye
             return hitLayer;
     }
     
-    return { nullptr };
+    return { };
 }
 
 RenderLayer::HitLayer RenderLayer::hitTestLayerByApplyingTransform(RenderLayer* rootLayer, RenderLayer* containerLayer, const HitTestRequest& request, HitTestResult& result,
@@ -4398,7 +4464,7 @@ RenderLayer::HitLayer RenderLayer::hitTestLayerByApplyingTransform(RenderLayer* 
 
     // If the transform can't be inverted, then don't hit test this layer at all.
     if (!newTransformState->m_accumulatedTransform.isInvertible())
-        return { nullptr };
+        return { };
 
     // Compute the point and the hit test rect in the coords of this layer by using the values
     // from the transformState, which store the point and quad in the coords of the last flattened
@@ -4448,10 +4514,10 @@ bool RenderLayer::hitTestContents(const HitTestRequest& request, HitTestResult& 
 RenderLayer::HitLayer RenderLayer::hitTestList(LayerList layerIterator, RenderLayer* rootLayer, const HitTestRequest& request, HitTestResult& result, const LayoutRect& hitTestRect, const HitTestLocation& hitTestLocation, const HitTestingTransformState* transformState, double* zOffsetForDescendants, bool depthSortDescendants)
 {
     if (layerIterator.begin() == layerIterator.end())
-        return { nullptr };
+        return { };
 
     if (!hasSelfPaintingLayerDescendant())
-        return { nullptr };
+        return { };
 
     auto resultLayer = HitLayer { nullptr, -std::numeric_limits<double>::infinity() };
 
@@ -5560,30 +5626,39 @@ RenderStyle RenderLayer::createReflectionStyle()
     newStyle.inheritFrom(renderer().style());
     
     // Map in our transform.
-    TransformOperations transform;
+    Vector<Ref<TransformOperation>> operations;
+
     switch (renderer().style().boxReflect()->direction()) {
     case ReflectionDirection::Below:
-        transform.operations().append(TranslateTransformOperation::create(Length(0, LengthType::Fixed), Length(100., LengthType::Percent), TransformOperation::Type::Translate));
-        transform.operations().append(TranslateTransformOperation::create(Length(0, LengthType::Fixed), renderer().style().boxReflect()->offset(), TransformOperation::Type::Translate));
-        transform.operations().append(ScaleTransformOperation::create(1.0, -1.0, ScaleTransformOperation::Type::Scale));
+        operations = {
+            TranslateTransformOperation::create(Length(0, LengthType::Fixed), Length(100., LengthType::Percent), TransformOperation::Type::Translate),
+            TranslateTransformOperation::create(Length(0, LengthType::Fixed), renderer().style().boxReflect()->offset(), TransformOperation::Type::Translate),
+            ScaleTransformOperation::create(1.0, -1.0, ScaleTransformOperation::Type::Scale)
+        };
         break;
     case ReflectionDirection::Above:
-        transform.operations().append(ScaleTransformOperation::create(1.0, -1.0, ScaleTransformOperation::Type::Scale));
-        transform.operations().append(TranslateTransformOperation::create(Length(0, LengthType::Fixed), Length(100., LengthType::Percent), TransformOperation::Type::Translate));
-        transform.operations().append(TranslateTransformOperation::create(Length(0, LengthType::Fixed), renderer().style().boxReflect()->offset(), TransformOperation::Type::Translate));
+        operations = {
+            ScaleTransformOperation::create(1.0, -1.0, ScaleTransformOperation::Type::Scale),
+            TranslateTransformOperation::create(Length(0, LengthType::Fixed), Length(100., LengthType::Percent), TransformOperation::Type::Translate),
+            TranslateTransformOperation::create(Length(0, LengthType::Fixed), renderer().style().boxReflect()->offset(), TransformOperation::Type::Translate)
+        };
         break;
     case ReflectionDirection::Right:
-        transform.operations().append(TranslateTransformOperation::create(Length(100., LengthType::Percent), Length(0, LengthType::Fixed), TransformOperation::Type::Translate));
-        transform.operations().append(TranslateTransformOperation::create(renderer().style().boxReflect()->offset(), Length(0, LengthType::Fixed), TransformOperation::Type::Translate));
-        transform.operations().append(ScaleTransformOperation::create(-1.0, 1.0, ScaleTransformOperation::Type::Scale));
+        operations = {
+            TranslateTransformOperation::create(Length(100., LengthType::Percent), Length(0, LengthType::Fixed), TransformOperation::Type::Translate),
+            TranslateTransformOperation::create(renderer().style().boxReflect()->offset(), Length(0, LengthType::Fixed), TransformOperation::Type::Translate),
+            ScaleTransformOperation::create(-1.0, 1.0, ScaleTransformOperation::Type::Scale)
+        };
         break;
     case ReflectionDirection::Left:
-        transform.operations().append(ScaleTransformOperation::create(-1.0, 1.0, ScaleTransformOperation::Type::Scale));
-        transform.operations().append(TranslateTransformOperation::create(Length(100., LengthType::Percent), Length(0, LengthType::Fixed), TransformOperation::Type::Translate));
-        transform.operations().append(TranslateTransformOperation::create(renderer().style().boxReflect()->offset(), Length(0, LengthType::Fixed), TransformOperation::Type::Translate));
+        operations = {
+            ScaleTransformOperation::create(-1.0, 1.0, ScaleTransformOperation::Type::Scale),
+            TranslateTransformOperation::create(Length(100., LengthType::Percent), Length(0, LengthType::Fixed), TransformOperation::Type::Translate),
+            TranslateTransformOperation::create(renderer().style().boxReflect()->offset(), Length(0, LengthType::Fixed), TransformOperation::Type::Translate)
+        };
         break;
     }
-    newStyle.setTransform(transform);
+    newStyle.setTransform(TransformOperations { WTFMove(operations) });
 
     // Map in our mask.
     newStyle.setMaskBorder(renderer().style().boxReflect()->mask());
@@ -5888,6 +5963,7 @@ TextStream& operator<<(TextStream& ts, PaintBehavior behavior)
     case PaintBehavior::EventRegionIncludeBackground: ts << "EventRegionIncludeBackground"; break;
     case PaintBehavior::Snapshotting: ts << "Snapshotting"; break;
     case PaintBehavior::DontShowVisitedLinks: ts << "DontShowVisitedLinks"; break;
+    case PaintBehavior::ExcludeReplacedContent: ts << "ExcludeReplacedContent"; break;
     }
 
     return ts;

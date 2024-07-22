@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,6 +47,7 @@
 #include "JSMapIterator.h"
 #include "JSSetIterator.h"
 #include "RegExpObject.h"
+#include "ResourceExhaustion.h"
 #include "VMTrapsInlines.h"
 #include <wtf/Assertions.h>
 
@@ -250,14 +251,16 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSG
         }
         RELEASE_ASSERT(executable && activation);
 
+        CodeBlock* codeBlock = baselineCodeBlockForOriginAndBaselineCodeBlock(materialization->origin(), callFrame->codeBlock()->baselineAlternative());
+        JSGlobalObject* globalObject = codeBlock->globalObject();
         if (materialization->type() == PhantomNewFunction)
-            return JSFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);
+            return JSFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
         else if (materialization->type() == PhantomNewGeneratorFunction)
-            return JSGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);    
+            return JSGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
         else if (materialization->type() == PhantomNewAsyncGeneratorFunction)
-            return JSAsyncGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);
+            return JSAsyncGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
         ASSERT(materialization->type() == PhantomNewAsyncFunction);
-        return JSAsyncFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);
+        return JSAsyncFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
     }
 
     case PhantomCreateActivation: {
@@ -469,8 +472,9 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSG
         }
         case PhantomClonedArguments: {
             unsigned length = argumentCount - 1;
-            ClonedArguments* result = ClonedArguments::createEmpty(vm, codeBlock->globalObject()->clonedArgumentsStructure(), callee, length, nullptr);
-            RELEASE_ASSERT(result);
+            JSGlobalObject* globalObject = codeBlock->globalObject();
+            ClonedArguments* result = ClonedArguments::createEmpty(vm, nullptr, globalObject->clonedArgumentsStructure(), callee, length, nullptr);
+            RELEASE_ASSERT_RESOURCE_AVAILABLE(result, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
 
             for (unsigned i = materialization->properties().size(); i--;) {
                 const ExitPropertyValue& property = materialization->properties()[i];
@@ -713,11 +717,11 @@ JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationSwitchStringAndGetIndex, unsigned, (J
     JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
-    StringImpl* strImpl = string->value(globalObject).impl();
+    auto str = string->value(globalObject);
 
     RETURN_IF_EXCEPTION(throwScope, 0);
 
-    return unlinkedTable->indexForValue(strImpl, std::numeric_limits<unsigned>::max());
+    return unlinkedTable->indexForValue(str->impl(), std::numeric_limits<unsigned>::max());
 }
 
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationTypeOfObjectAsTypeofType, int32_t, (JSGlobalObject* globalObject, JSCell* object))

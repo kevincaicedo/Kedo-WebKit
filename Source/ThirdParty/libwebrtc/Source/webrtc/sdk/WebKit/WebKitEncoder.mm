@@ -158,7 +158,7 @@ public:
     {
     }
 
-    std::unique_ptr<VideoEncoder> CreateVideoEncoder(const SdpVideoFormat& format) final;
+    std::unique_ptr<VideoEncoder> Create(const Environment&, const SdpVideoFormat& format) final;
     std::vector<SdpVideoFormat> GetSupportedFormats() const final { return m_internalEncoderFactory->GetSupportedFormats(); }
 
 private:
@@ -176,9 +176,9 @@ bool isH264HardwareEncoderAllowed()
     return h264HardwareEncoderAllowed;
 }
 
-std::unique_ptr<VideoEncoder> VideoEncoderFactoryWithSimulcast::CreateVideoEncoder(const SdpVideoFormat& format)
+std::unique_ptr<VideoEncoder> VideoEncoderFactoryWithSimulcast::Create(const webrtc::Environment& environment, const SdpVideoFormat& format)
 {
-    return std::make_unique<SimulcastEncoderAdapter>(m_internalEncoderFactory.get(), format);
+    return std::make_unique<SimulcastEncoderAdapter>(environment, m_internalEncoderFactory.get(), nullptr, format);
 }
 
 struct VideoEncoderCallbacks {
@@ -228,7 +228,7 @@ public:
     ~RemoteVideoEncoderFactory() = default;
 
 private:
-    std::unique_ptr<VideoEncoder> CreateVideoEncoder(const SdpVideoFormat& format) final;
+    std::unique_ptr<VideoEncoder> Create(const Environment&, const SdpVideoFormat& format) final;
     std::vector<SdpVideoFormat> GetSupportedFormats() const final { return m_internalFactory->GetSupportedFormats(); }
 
     std::unique_ptr<VideoEncoderFactory> m_internalFactory;
@@ -239,21 +239,21 @@ RemoteVideoEncoderFactory::RemoteVideoEncoderFactory(std::unique_ptr<VideoEncode
 {
 }
 
-std::unique_ptr<VideoEncoder> RemoteVideoEncoderFactory::CreateVideoEncoder(const SdpVideoFormat& format)
+std::unique_ptr<VideoEncoder> RemoteVideoEncoderFactory::Create(const Environment& environment, const SdpVideoFormat& format)
 {
     if (!videoEncoderCallbacks().createCallback)
-        return m_internalFactory->CreateVideoEncoder(format);
+        return m_internalFactory->Create(environment, format);
 
     auto internalEncoder = videoEncoderCallbacks().createCallback(format);
     if (!internalEncoder)
-        return m_internalFactory->CreateVideoEncoder(format);
+        return m_internalFactory->Create(environment, format);
 
     return std::make_unique<RemoteVideoEncoder>(internalEncoder);
 }
 
-std::unique_ptr<webrtc::VideoEncoderFactory> createWebKitEncoderFactory(WebKitH265 supportsH265, WebKitVP9 supportsVP9, WebKitH264LowLatency useH264LowLatency, WebKitAv1 supportsAv1)
+std::unique_ptr<webrtc::VideoEncoderFactory> createWebKitEncoderFactory(WebKitH265 supportsH265, WebKitVP9 supportsVP9, WebKitAv1 supportsAv1)
 {
-    auto internalFactory = ObjCToNativeVideoEncoderFactory([[RTCDefaultVideoEncoderFactory alloc] initWithH265: supportsH265 == WebKitH265::On vp9Profile0:supportsVP9 > WebKitVP9::Off vp9Profile2:supportsVP9 == WebKitVP9::Profile0And2 lowLatencyH264:useH264LowLatency == WebKitH264LowLatency::On av1:supportsAv1 == WebKitAv1::On]);
+    auto internalFactory = ObjCToNativeVideoEncoderFactory([[RTCDefaultVideoEncoderFactory alloc] initWithH265: supportsH265 == WebKitH265::On vp9Profile0:supportsVP9 > WebKitVP9::Off vp9Profile2:supportsVP9 == WebKitVP9::Profile0And2 av1:supportsAv1 == WebKitAv1::On]);
 
     return std::make_unique<VideoEncoderFactoryWithSimulcast>(std::make_unique<RemoteVideoEncoderFactory>(std::move(internalFactory)));
 }
@@ -366,10 +366,8 @@ void encoderVideoTaskComplete(void* callback, webrtc::VideoCodecType codecType, 
 
     CodecSpecificInfo codecSpecificInfo;
     codecSpecificInfo.codecType = codecType;
-    if (codecType == kVideoCodecH264)
+    if (codecType == kVideoCodecH264 || codecType == kVideoCodecH265)
         codecSpecificInfo.codecSpecific.H264.packetization_mode = H264PacketizationMode::NonInterleaved;
-    else if (codecType == kVideoCodecH265)
-        codecSpecificInfo.codecSpecific.H265.packetization_mode = H265PacketizationMode::NonInterleaved;
 
     static_cast<EncodedImageCallback*>(callback)->OnEncodedImage(encodedImage, &codecSpecificInfo);
 }

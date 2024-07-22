@@ -35,6 +35,7 @@
 #include "LocalFrame.h"
 #include "LocalFrameLoaderClient.h"
 #include "Logging.h"
+#include "Navigation.h"
 #include "NavigationScheduler.h"
 #include "OriginAccessPatterns.h"
 #include "Page.h"
@@ -45,7 +46,7 @@
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/MainThread.h>
 #include <wtf/StdLibExtras.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 
 #if PLATFORM(COCOA)
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -253,59 +254,56 @@ ExceptionOr<void> History::stateObjectAdded(RefPtr<SerializedScriptValue>&& data
     if (!allowSandboxException && !documentSecurityOrigin->canRequest(fullURL, OriginAccessPatternsForWebProcess::singleton()) && (fullURL.path() != documentURL.path() || fullURL.query() != documentURL.query()))
         return createBlockedURLSecurityErrorWithMessageSuffix("Paths and fragments must match for a sandboxed document."_s);
 
-    RefPtr localMainFrame = dynamicDowncast<LocalFrame>(frame->page()->mainFrame());
-    RefPtr mainWindow = localMainFrame ? localMainFrame->window() : nullptr;
-    if (!mainWindow)
-        return { };
-
-    Ref mainHistory = mainWindow->history();
-
-    WallTime currentTimestamp = WallTime::now();
-    if (currentTimestamp - mainHistory->m_currentStateObjectTimeSpanStart > stateObjectTimeSpan) {
-        mainHistory->m_currentStateObjectTimeSpanStart = currentTimestamp;
-        mainHistory->m_currentStateObjectTimeSpanObjectsAdded = 0;
-    }
-    
-    if (mainHistory->m_currentStateObjectTimeSpanObjectsAdded >= perStateObjectTimeSpanLimit) {
-        if (stateObjectType == StateObjectType::Replace)
-            return Exception { ExceptionCode::SecurityError, makeString("Attempt to use history.replaceState() more than ", perStateObjectTimeSpanLimit, " times per ", stateObjectTimeSpan.seconds(), " seconds") };
-        return Exception { ExceptionCode::SecurityError, makeString("Attempt to use history.pushState() more than ", perStateObjectTimeSpanLimit, " times per ", stateObjectTimeSpan.seconds(), " seconds") };
-    }
-
     Checked<unsigned> urlSize = fullURL.string().length();
     urlSize *= 2;
 
     Checked<uint64_t> payloadSize = urlSize;
     payloadSize += data ? data->wireBytes().size() : 0;
 
-    Checked<uint64_t> newTotalUsage = mainHistory->m_totalStateObjectUsage;
+    if (RefPtr localMainFrame = dynamicDowncast<LocalFrame>(frame->page()->mainFrame())) {
+        RefPtr mainWindow = localMainFrame->window();
+        if (!mainWindow)
+            return { };
+        Ref mainHistory = mainWindow->history();
 
-    if (stateObjectType == StateObjectType::Replace)
-        newTotalUsage -= m_mostRecentStateObjectUsage;
-    newTotalUsage += payloadSize;
+        WallTime currentTimestamp = WallTime::now();
+        if (currentTimestamp - mainHistory->m_currentStateObjectTimeSpanStart > stateObjectTimeSpan) {
+            mainHistory->m_currentStateObjectTimeSpanStart = currentTimestamp;
+            mainHistory->m_currentStateObjectTimeSpanObjectsAdded = 0;
+        }
 
-    if (newTotalUsage > mainHistory->totalStateObjectPayloadLimit()) {
+        if (mainHistory->m_currentStateObjectTimeSpanObjectsAdded >= perStateObjectTimeSpanLimit) {
+            if (stateObjectType == StateObjectType::Replace)
+                return Exception { ExceptionCode::SecurityError, makeString("Attempt to use history.replaceState() more than "_s, perStateObjectTimeSpanLimit, " times per "_s, stateObjectTimeSpan.seconds(), " seconds"_s) };
+            return Exception { ExceptionCode::SecurityError, makeString("Attempt to use history.pushState() more than "_s, perStateObjectTimeSpanLimit, " times per "_s, stateObjectTimeSpan.seconds(), " seconds"_s) };
+        }
+
+        if (RefPtr document = frame->document(); document && document->settings().navigationAPIEnabled()) {
+            Ref navigation = document->domWindow()->navigation();
+            if (!navigation->dispatchPushReplaceReloadNavigateEvent(fullURL, stateObjectType == StateObjectType::Push ? NavigationNavigationType::Push : NavigationNavigationType::Replace, true, nullptr, data.get()))
+                return { };
+        }
+
+        Checked<uint64_t> newTotalUsage = mainHistory->m_totalStateObjectUsage;
+
         if (stateObjectType == StateObjectType::Replace)
-            return Exception { ExceptionCode::QuotaExceededError, "Attempt to store more data than allowed using history.replaceState()"_s };
-        return Exception { ExceptionCode::QuotaExceededError, "Attempt to store more data than allowed using history.pushState()"_s };
+            newTotalUsage -= m_mostRecentStateObjectUsage;
+        newTotalUsage += payloadSize;
+
+        if (newTotalUsage > mainHistory->totalStateObjectPayloadLimit()) {
+            if (stateObjectType == StateObjectType::Replace)
+                return Exception { ExceptionCode::QuotaExceededError, "Attempt to store more data than allowed using history.replaceState()"_s };
+            return Exception { ExceptionCode::QuotaExceededError, "Attempt to store more data than allowed using history.pushState()"_s };
+        }
+
+        mainHistory->m_totalStateObjectUsage = newTotalUsage;
+        ++mainHistory->m_currentStateObjectTimeSpanObjectsAdded;
     }
 
     m_mostRecentStateObjectUsage = payloadSize;
 
-    mainHistory->m_totalStateObjectUsage = newTotalUsage;
-    ++mainHistory->m_currentStateObjectTimeSpanObjectsAdded;
-
-    if (!urlString.isEmpty())
-        frame->protectedDocument()->updateURLForPushOrReplaceState(fullURL);
-
-    if (stateObjectType == StateObjectType::Push) {
-        frame->checkedHistory()->pushState(WTFMove(data), fullURL.string());
-        frame->loader().client().dispatchDidPushStateWithinPage();
-    } else if (stateObjectType == StateObjectType::Replace) {
-        frame->checkedHistory()->replaceState(WTFMove(data), fullURL.string());
-        frame->loader().client().dispatchDidReplaceStateWithinPage();
-    }
-
+    auto historyBehavior = stateObjectType == StateObjectType::Replace ? NavigationHistoryBehavior::Replace : NavigationHistoryBehavior::Push;
+    frame->loader().updateURLAndHistory(fullURL, WTFMove(data), historyBehavior);
     return { };
 }
 

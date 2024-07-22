@@ -73,6 +73,7 @@ class RTCSctpTransportBackend;
 class RTCSessionDescription;
 class RTCStatsReport;
 class ScriptExecutionContext;
+class SharedBuffer;
 
 struct MediaEndpointConfiguration;
 struct RTCAnswerOptions;
@@ -222,6 +223,8 @@ public:
 
     virtual void startGatheringStatLogs(Function<void(String&&)>&&) { }
     virtual void stopGatheringStatLogs() { }
+    virtual void startGatheringEventLogs(Function<void(Ref<SharedBuffer>&&)>&&) { }
+    virtual void stopGatheringEventLogs() { }
 
 protected:
     void doneGatheringCandidates();
@@ -232,10 +235,10 @@ protected:
     void createAnswerSucceeded(String&&);
     void createAnswerFailed(Exception&&);
 
-    void setLocalDescriptionSucceeded(std::optional<DescriptionStates>&&, std::optional<TransceiverStates>&&, std::unique_ptr<RTCSctpTransportBackend>&&);
+    void setLocalDescriptionSucceeded(std::optional<DescriptionStates>&&, std::optional<TransceiverStates>&&, std::unique_ptr<RTCSctpTransportBackend>&&, std::optional<double>);
     void setLocalDescriptionFailed(Exception&&);
 
-    void setRemoteDescriptionSucceeded(std::optional<DescriptionStates>&&, std::optional<TransceiverStates>&&, std::unique_ptr<RTCSctpTransportBackend>&&);
+    void setRemoteDescriptionSucceeded(std::optional<DescriptionStates>&&, std::optional<TransceiverStates>&&, std::unique_ptr<RTCSctpTransportBackend>&&, std::optional<double>);
     void setRemoteDescriptionFailed(Exception&&);
 
     void validateSDP(const String&) const;
@@ -291,7 +294,23 @@ inline PeerConnectionBackend::DescriptionStates PeerConnectionBackend::Descripti
         WTFMove(pendingRemoteDescriptionSdp).isolatedCopy()
     };
 }
-
 } // namespace WebCore
+
+namespace WTF {
+
+template<typename>
+struct LogArgument;
+
+template <>
+struct LogArgument<WebCore::PeerConnectionBackend::TransceiverState> {
+    static String toString(const WebCore::PeerConnectionBackend::TransceiverState&);
+};
+
+template <>
+struct LogArgument<WebCore::PeerConnectionBackend::TransceiverStates> {
+    static String toString(const WebCore::PeerConnectionBackend::TransceiverStates&);
+};
+
+}
 
 #endif // ENABLE(WEB_RTC)

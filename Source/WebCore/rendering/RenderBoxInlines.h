@@ -60,7 +60,7 @@ inline LayoutSize RenderBox::logicalSize() const { return style().isHorizontalWr
 inline LayoutUnit RenderBox::logicalTop() const { return style().isHorizontalWritingMode() ? y() : x(); }
 inline LayoutUnit RenderBox::logicalWidth() const { return style().isHorizontalWritingMode() ? width() : height(); }
 inline LayoutUnit RenderBox::overridingContentLogicalHeight(LayoutUnit overridingLogicalHeight) const { return std::max(0_lu, overridingLogicalHeight - borderAndPaddingLogicalHeight() - scrollbarLogicalHeight() - (style().scrollbarGutter().bothEdges ? scrollbarLogicalHeight() : 0)); }
-inline LayoutUnit RenderBox::overridingContentLogicalWidth() const { return std::max(LayoutUnit(), overridingLogicalWidth() - borderAndPaddingLogicalWidth() - scrollbarLogicalWidth() - (style().scrollbarGutter().bothEdges ? scrollbarLogicalWidth() : 0)); }
+inline LayoutUnit RenderBox::overridingContentLogicalWidth(LayoutUnit overridingLogicalWidth) const { return std::max(LayoutUnit(), overridingLogicalWidth - borderAndPaddingLogicalWidth() - scrollbarLogicalWidth() - (style().scrollbarGutter().bothEdges ? scrollbarLogicalWidth() : 0)); }
 inline LayoutUnit RenderBox::paddingBoxHeight() const { return std::max(0_lu, height() - borderTop() - borderBottom() - horizontalScrollbarHeight()); }
 inline LayoutUnit RenderBox::paddingBoxWidth() const { return std::max(0_lu, width() - borderLeft() - borderRight() - verticalScrollbarWidth()); }
 inline int RenderBox::scrollbarLogicalHeight() const { return style().isHorizontalWritingMode() ? horizontalScrollbarHeight() : verticalScrollbarWidth(); }
@@ -96,20 +96,15 @@ inline LayoutRect RenderBox::contentBoxRect() const
             topScrollbarSpace = horizontalScrollbarHeight;
     }
 
-    auto paddingLeft = this->paddingLeft();
-    auto paddingTop = this->paddingTop();
-
-    auto paddingRight = this->paddingRight();
-    auto paddingBottom = this->paddingBottom();
-
+    auto padding = this->padding();
     auto borderWidths = this->borderWidths();
-    auto location = LayoutPoint { borderWidths.left() + paddingLeft + leftScrollbarSpace, borderWidths.top() + paddingTop + topScrollbarSpace };
+    auto location = LayoutPoint { borderWidths.left() + padding.left() + leftScrollbarSpace, borderWidths.top() + padding.top() + topScrollbarSpace };
 
     auto paddingBoxWidth = std::max(0_lu, width() - borderWidths.left() - borderWidths.right() - verticalScrollbarWidth);
     auto paddingBoxHeight = std::max(0_lu, height() - borderWidths.top() - borderWidths.bottom() - horizontalScrollbarHeight);
 
-    auto width = std::max(0_lu, paddingBoxWidth - paddingLeft - paddingRight - leftScrollbarSpace);
-    auto height = std::max(0_lu, paddingBoxHeight - paddingTop - paddingBottom - topScrollbarSpace);
+    auto width = std::max(0_lu, paddingBoxWidth - padding.left() - padding.right() - leftScrollbarSpace);
+    auto height = std::max(0_lu, paddingBoxHeight - padding.top() - padding.bottom() - topScrollbarSpace);
 
     auto size = LayoutSize { width, height };
 

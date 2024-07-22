@@ -85,6 +85,7 @@
 #include <wtf/MainThread.h>
 #include <wtf/Ref.h>
 #include <wtf/SetForScope.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 using namespace Inspector;
@@ -500,7 +501,7 @@ void ScriptExecutionContext::reportUnhandledPromiseRejection(JSC::JSGlobalObject
 
     auto tryMakeErrorString = [&] (unsigned length) -> String {
         bool addEllipsis = length != resultMessage.length();
-        return tryMakeString("Unhandled Promise Rejection: ", StringView(resultMessage).left(length), addEllipsis ? "..." : "");
+        return tryMakeString("Unhandled Promise Rejection: "_s, StringView(resultMessage).left(length), addEllipsis ? "..."_s : ""_s);
     };
 
     if (!!resultMessage && !scope.exception()) {

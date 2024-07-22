@@ -51,6 +51,7 @@
 #include <wtf/Ref.h>
 #include <wtf/SetForScope.h>
 #include <wtf/Vector.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -176,7 +177,7 @@ void ValidatedFormListedElement::reportNonFocusableControlError()
 {
     auto& document = asHTMLElement().document();
     if (document.frame()) {
-        auto message = makeString("An invalid form control with name='", name(), "' is not focusable.");
+        auto message = makeString("An invalid form control with name='"_s, name(), "' is not focusable."_s);
         document.addConsoleMessage(MessageSource::Rendering, MessageLevel::Error, message);
     }
 }
@@ -275,7 +276,7 @@ void ValidatedFormListedElement::updateValidity()
             }
         }
 
-        if (auto* cache = element.document().existingAXObjectCache())
+        if (CheckedPtr cache = element.document().existingAXObjectCache())
             cache->onValidityChange(element);
     }
 

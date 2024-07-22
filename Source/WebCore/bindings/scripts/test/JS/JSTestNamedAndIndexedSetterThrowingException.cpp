@@ -46,6 +46,7 @@
 #include <wtf/GetPtr.h>
 #include <wtf/PointerPreparations.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 
 
 namespace WebCore {
@@ -241,8 +242,9 @@ bool JSTestNamedAndIndexedSetterThrowingException::put(JSCell* cell, JSGlobalObj
 
     if (auto index = parseIndex(propertyName)) {
         auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, value);
-        RETURN_IF_EXCEPTION(throwScope, true);
-        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index.value(), WTFMove(nativeValue)); });
+        if (UNLIKELY(nativeValue.hasException(throwScope)))
+            return true;
+        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index.value(), nativeValue.releaseReturnValue()); });
         return true;
     }
 
@@ -254,8 +256,9 @@ bool JSTestNamedAndIndexedSetterThrowingException::put(JSCell* cell, JSGlobalObj
         RETURN_IF_EXCEPTION(throwScope, false);
         if (!found) {
             auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, value);
-            RETURN_IF_EXCEPTION(throwScope, true);
-            invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), WTFMove(nativeValue)); });
+            if (UNLIKELY(nativeValue.hasException(throwScope)))
+                return true;
+            invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
             return true;
         }
     }
@@ -283,8 +286,9 @@ bool JSTestNamedAndIndexedSetterThrowingException::putByIndex(JSCell* cell, JSGl
 
     if (LIKELY(index <= MAX_ARRAY_INDEX)) {
         auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, value);
-        RETURN_IF_EXCEPTION(throwScope, true);
-        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index, WTFMove(nativeValue)); });
+        if (UNLIKELY(nativeValue.hasException(throwScope)))
+            return true;
+        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index, nativeValue.releaseReturnValue()); });
         return true;
     }
 
@@ -296,8 +300,9 @@ bool JSTestNamedAndIndexedSetterThrowingException::putByIndex(JSCell* cell, JSGl
     RETURN_IF_EXCEPTION(throwScope, false);
     if (!found) {
         auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, value);
-        RETURN_IF_EXCEPTION(throwScope, true);
-        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), WTFMove(nativeValue)); });
+        if (UNLIKELY(nativeValue.hasException(throwScope)))
+            return true;
+        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
         return true;
     }
 
@@ -317,8 +322,9 @@ bool JSTestNamedAndIndexedSetterThrowingException::defineOwnProperty(JSObject* o
         if (!propertyDescriptor.isDataDescriptor())
             return typeError(lexicalGlobalObject, throwScope, shouldThrow, "Cannot set indexed properties on this object"_s);
         auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, propertyDescriptor.value());
-        RETURN_IF_EXCEPTION(throwScope, true);
-        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index.value(), WTFMove(nativeValue)); });
+        if (UNLIKELY(nativeValue.hasException(throwScope)))
+            return true;
+        invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setItem(index.value(), nativeValue.releaseReturnValue()); });
         return true;
     }
 
@@ -331,8 +337,9 @@ bool JSTestNamedAndIndexedSetterThrowingException::defineOwnProperty(JSObject* o
             if (!propertyDescriptor.isDataDescriptor())
                 return typeError(lexicalGlobalObject, throwScope, shouldThrow, "Cannot set named properties on this object"_s);
             auto nativeValue = convert<IDLDOMString>(*lexicalGlobalObject, propertyDescriptor.value());
-            RETURN_IF_EXCEPTION(throwScope, true);
-            invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), WTFMove(nativeValue)); });
+            if (UNLIKELY(nativeValue.hasException(throwScope)))
+                return true;
+            invokeFunctorPropagatingExceptionIfNecessary(*lexicalGlobalObject, throwScope, [&] { return thisObject->wrapped().setNamedItem(propertyNameToString(propertyName), nativeValue.releaseReturnValue()); });
             return true;
         }
     }
@@ -403,7 +410,7 @@ void JSTestNamedAndIndexedSetterThrowingException::analyzeHeap(JSCell* cell, Hea
     auto* thisObject = jsCast<JSTestNamedAndIndexedSetterThrowingException*>(cell);
     analyzer.setWrappedObjectForCell(cell, &thisObject->wrapped());
     if (thisObject->scriptExecutionContext())
-        analyzer.setLabelForCell(cell, "url "_s + thisObject->scriptExecutionContext()->url().string());
+        analyzer.setLabelForCell(cell, makeString("url "_s, thisObject->scriptExecutionContext()->url().string()));
     Base::analyzeHeap(cell, analyzer);
 }
 
@@ -429,14 +436,9 @@ extern "C" { extern void (*const __identifier("??_7TestNamedAndIndexedSetterThro
 #else
 extern "C" { extern void* _ZTVN7WebCore42TestNamedAndIndexedSetterThrowingExceptionE[]; }
 #endif
-#endif
-
-JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestNamedAndIndexedSetterThrowingException>&& impl)
-{
-
-    if constexpr (std::is_polymorphic_v<TestNamedAndIndexedSetterThrowingException>) {
-#if ENABLE(BINDING_INTEGRITY)
-        const void* actualVTablePointer = getVTablePointer(impl.ptr());
+template<typename T, typename = std::enable_if_t<std::is_same_v<T, TestNamedAndIndexedSetterThrowingException>, void>> static inline void verifyVTable(TestNamedAndIndexedSetterThrowingException* ptr) {
+    if constexpr (std::is_polymorphic_v<T>) {
+        const void* actualVTablePointer = getVTablePointer<T>(ptr);
 #if PLATFORM(WIN)
         void* expectedVTablePointer = __identifier("??_7TestNamedAndIndexedSetterThrowingException@WebCore@@6B@");
 #else
@@ -448,8 +450,14 @@ JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObj
         // to toJS() we currently require TestNamedAndIndexedSetterThrowingException you to opt out of binding hardening
         // by adding the SkipVTableValidation attribute to the interface IDL definition
         RELEASE_ASSERT(actualVTablePointer == expectedVTablePointer);
-#endif
     }
+}
+#endif
+JSC::JSValue toJSNewlyCreated(JSC::JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<TestNamedAndIndexedSetterThrowingException>&& impl)
+{
+#if ENABLE(BINDING_INTEGRITY)
+    verifyVTable<TestNamedAndIndexedSetterThrowingException>(impl.ptr());
+#endif
     return createWrapper<TestNamedAndIndexedSetterThrowingException>(globalObject, WTFMove(impl));
 }
 

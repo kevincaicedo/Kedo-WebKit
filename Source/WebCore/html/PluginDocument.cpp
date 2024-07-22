@@ -42,6 +42,7 @@
 #include "RenderEmbeddedObject.h"
 #include "StyleSheetContents.h"
 #include <wtf/IsoMallocInlines.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
@@ -93,7 +94,6 @@ void PluginDocumentParser::createDocumentStructure()
 
     auto rootElement = HTMLHtmlElement::create(document);
     document.appendChild(rootElement);
-    rootElement->insertedByParser();
 
     auto headElement = HTMLHeadElement::create(document);
     auto styleElement = createStyleElement(document);
@@ -190,6 +190,12 @@ void PluginDocument::detachFromPluginElement()
 {
     // Release the plugin Element so that we don't have a circular reference.
     m_pluginElement = nullptr;
+}
+
+void PluginDocument::releaseMemory()
+{
+    if (RefPtr pluginView = pluginWidget())
+        pluginView->releaseMemory();
 }
 
 }

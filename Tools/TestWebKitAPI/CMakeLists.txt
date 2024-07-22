@@ -26,6 +26,7 @@ set(TestWTF_SOURCES
     Utilities.cpp
 
     Tests/WTF/AtomString.cpp
+    Tests/WTF/Base64.cpp
     Tests/WTF/BitSet.cpp
     Tests/WTF/BloomFilter.cpp
     Tests/WTF/BoxPtr.cpp
@@ -111,7 +112,6 @@ set(TestWTF_SOURCES
     Tests/WTF/SuperFastHash.cpp
     Tests/WTF/WYHash.cpp
     Tests/WTF/StringImpl.cpp
-    Tests/WTF/StringOperators.cpp
     Tests/WTF/StringParsingBuffer.cpp
     Tests/WTF/StringSearch.cpp
     Tests/WTF/StringToIntegerConversion.cpp

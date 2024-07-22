@@ -79,7 +79,7 @@
 #include <JavaScriptCore/VMTrapsInlines.h>
 #include <JavaScriptCore/WasmStreamingCompiler.h>
 #include <JavaScriptCore/WeakGCMapInlines.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 
 #if ENABLE(REMOTE_INSPECTOR)
 #include <JavaScriptCore/JSRemoteInspector.h>
@@ -370,6 +370,24 @@ ScriptExecutionContext* JSDOMGlobalObject::scriptExecutionContext() const
     dataLog("Unexpected global object: ", JSValue(this), "\n");
     RELEASE_ASSERT_NOT_REACHED();
     return nullptr;
+}
+
+bool JSDOMGlobalObject::canCompileStrings(JSGlobalObject* globalObject, CompilationType compilationType, String codeString, JSValue bodyArgument)
+{
+    VM& vm = globalObject->vm();
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+
+    auto& thisObject = static_cast<JSDOMGlobalObject&>(*globalObject);
+    auto* scriptExecutionContext = thisObject.scriptExecutionContext();
+
+    auto result = canCompile(*scriptExecutionContext, compilationType, codeString, bodyArgument);
+
+    if (result.hasException()) {
+        propagateException(*globalObject, throwScope, result.releaseException());
+        RETURN_IF_EXCEPTION(throwScope, false);
+    }
+
+    return result.releaseReturnValue();
 }
 
 template<typename Visitor>
@@ -683,7 +701,7 @@ JSC::JSGlobalObject* JSDOMGlobalObject::deriveShadowRealmGlobalObject(JSC::JSGlo
 
         while (!document->isTopDocument()) {
             auto* candidateDocument = document->parentDocument();
-            if (!candidateDocument || !candidateDocument->securityOrigin().isSameOriginDomain(originalOrigin))
+            if (!candidateDocument || !candidateDocument->protectedSecurityOrigin()->isSameOriginDomain(originalOrigin))
                 break;
 
             document = candidateDocument;
@@ -709,16 +727,16 @@ JSC::JSGlobalObject* JSDOMGlobalObject::deriveShadowRealmGlobalObject(JSC::JSGlo
 
 String JSDOMGlobalObject::defaultAgentClusterID()
 {
-    return makeString(Process::identifier().toUInt64(), "-default");
+    return makeString(Process::identifier().toUInt64(), "-default"_s);
 }
 
 String JSDOMGlobalObject::agentClusterID() const
 {
     // Service workers may run in process but they need to be in a separate agent cluster.
     if (is<ServiceWorkerGlobalScope>(scriptExecutionContext()))
-        return makeString(Process::identifier().toUInt64(), "-serviceworker");
+        return makeString(Process::identifier().toUInt64(), "-serviceworker"_s);
     if (is<SharedWorkerGlobalScope>(scriptExecutionContext()))
-        return makeString(Process::identifier().toUInt64(), "-sharedworker");
+        return makeString(Process::identifier().toUInt64(), "-sharedworker"_s);
     return defaultAgentClusterID();
 }
 

@@ -25,7 +25,7 @@ enum class WebCore::LockBackForwardList : bool;
 enum class WebKit::NavigatingToAppBoundDomain : bool;
 
 [RValue] struct WebKit::LoadParameters {
-    String publicSuffix;
+    WebCore::PublicSuffix publicSuffix;
     uint64_t navigationID;
     std::optional<WebCore::FrameIdentifier> frameIdentifier;
     [EncodeRequestBody] WebCore::ResourceRequest request;
@@ -46,6 +46,7 @@ enum class WebKit::NavigatingToAppBoundDomain : bool;
     WebCore::SubstituteData::SessionHistoryVisibility sessionHistoryVisibility
     String clientRedirectSourceForHistory;
     WebCore::SandboxFlags effectiveSandboxFlags;
+    std::optional<WebCore::OwnerPermissionsPolicyData> ownerPermissionsPolicy;
     std::optional<WebKit::NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain;
     std::optional<WebKit::NetworkResourceLoadIdentifier> existingNetworkResourceLoadIdentifierToResume;
     bool isServiceWorkerLoad;

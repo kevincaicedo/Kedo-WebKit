@@ -45,6 +45,7 @@ class HTMLMediaElement;
 class MediaControlTextTrackContainerElement;
 class TextTrack;
 class TextTrackList;
+class TextTrackRepresentation;
 class VoidCallback;
 
 class MediaControlsHost final : public RefCounted<MediaControlsHost>, public CanMakeWeakPtr<MediaControlsHost> {
@@ -74,18 +75,23 @@ public:
     void setSelectedTextTrack(TextTrack*);
     Element* textTrackContainer();
     void updateTextTrackContainer();
+    TextTrackRepresentation* textTrackRepresentation() const;
     bool allowsInlineMediaPlayback() const;
     bool supportsFullscreen() const;
     bool isVideoLayerInline() const;
     bool isInMediaDocument() const;
     bool userGestureRequired() const;
     bool shouldForceControlsDisplay() const;
+    bool supportsSeeking() const;
+    bool inWindowFullscreen() const;
+    bool supportsRewind() const;
 
     enum class ForceUpdate : bool { No, Yes };
     void updateCaptionDisplaySizes(ForceUpdate = ForceUpdate::No);
     void updateTextTrackRepresentationImageIfNeeded();
     void enteredFullscreen();
     void exitedFullscreen();
+    void requiresTextTrackRepresentationChanged();
 
     String externalDeviceDisplayName() const;
 
@@ -109,11 +115,17 @@ public:
     std::optional<SourceType> sourceType() const;
 #endif // ENABLE(MODERN_MEDIA_CONTROLS)
 
+    void presentationModeChanged();
+
 private:
     explicit MediaControlsHost(HTMLMediaElement&);
 
+    void savePreviouslySelectedTextTrackIfNecessary();
+    void restorePreviouslySelectedTextTrackIfNecessary();
+
     WeakPtr<HTMLMediaElement> m_mediaElement;
     RefPtr<MediaControlTextTrackContainerElement> m_textTrackContainer;
+    RefPtr<TextTrack> m_previouslySelectedTextTrack;
 
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
     RefPtr<VoidCallback> m_showMediaControlsContextMenuCallback;

@@ -27,6 +27,7 @@
 #include "CSSParser.h"
 #include "CSSPropertyNames.h"
 #include "CSSPropertyParser.h"
+#include "ColorBlending.h"
 #include "ComputedStyleExtractor.h"
 #include "ContentData.h"
 #include "CursorList.h"
@@ -432,6 +433,11 @@ void RenderStyle::copyPseudoElementsFrom(const RenderStyle& other)
 
     for (auto& pseudoElementStyle : other.m_cachedPseudoStyles->styles)
         addCachedPseudoStyle(makeUnique<RenderStyle>(cloneIncludingPseudoElements(*pseudoElementStyle)));
+}
+
+void RenderStyle::copyPseudoElementBitsFrom(const RenderStyle& other)
+{
+    m_nonInheritedFlags.pseudoBits = other.m_nonInheritedFlags.pseudoBits;
 }
 
 bool RenderStyle::operator==(const RenderStyle& other) const
@@ -1416,11 +1422,7 @@ bool RenderStyle::outOfFlowPositionStyleDidChange(const RenderStyle* other) cons
     // https://drafts.csswg.org/css-scroll-anchoring/#suppression-triggers
     // Determine if there is a style change that causes an element to become or stop
     // being absolutely or fixed positioned
-    if (other && m_nonInheritedData.ptr() != other->m_nonInheritedData.ptr()) {
-        if (hasOutOfFlowPosition() != other->hasOutOfFlowPosition())
-            return true;
-    }
-    return false;
+    return other && hasOutOfFlowPosition() != other->hasOutOfFlowPosition();
 }
 
 StyleDifference RenderStyle::diff(const RenderStyle& other, OptionSet<StyleDifferenceContextSensitiveProperty>& changedContextSensitiveProperties) const
@@ -1912,6 +1914,10 @@ void RenderStyle::conservativelyCollectChangedAnimatableProperties(const RenderS
             changingProperties.m_properties.set(CSSPropertyViewTransitionName);
         if (first.contentVisibility != second.contentVisibility)
             changingProperties.m_properties.set(CSSPropertyContentVisibility);
+        if (first.anchorNames != second.anchorNames)
+            changingProperties.m_properties.set(CSSPropertyAnchorName);
+        if (first.positionAnchor != second.positionAnchor)
+            changingProperties.m_properties.set(CSSPropertyPositionAnchor);
 
         // Non animated styles are followings.
         // customProperties
@@ -2278,14 +2284,13 @@ void RenderStyle::setHasAttrContent()
 
 bool RenderStyle::affectedByTransformOrigin() const
 {
-    if (m_nonInheritedData->rareData->rotate && !m_nonInheritedData->rareData->rotate->isIdentity())
+    if (rotate() && !rotate()->isIdentity())
         return true;
 
-    if (m_nonInheritedData->rareData->scale && !m_nonInheritedData->rareData->scale->isIdentity())
+    if (scale() && !scale()->isIdentity())
         return true;
 
-    auto& transformOperations = m_nonInheritedData->miscData->transform->operations;
-    if (transformOperations.affectedByTransformOrigin())
+    if (transform().affectedByTransformOrigin())
         return true;
 
     if (offsetPath())
@@ -2362,21 +2367,22 @@ void RenderStyle::applyCSSTransform(TransformationMatrix& transform, const Trans
     // 2. Translate by the computed X, Y, and Z values of transform-origin.
     // (implemented in applyTransformOrigin)
     auto& boundingBox = operationData.boundingBox;
+
     // 3. Translate by the computed X, Y, and Z values of translate.
     if (options.contains(RenderStyle::TransformOperationOption::Translate)) {
-        if (TransformOperation* translate = m_nonInheritedData->rareData->translate.get())
+        if (auto* translate = this->translate())
             translate->apply(transform, boundingBox.size());
     }
 
     // 4. Rotate by the computed <angle> about the specified axis of rotate.
     if (options.contains(RenderStyle::TransformOperationOption::Rotate)) {
-        if (TransformOperation* rotate = m_nonInheritedData->rareData->rotate.get())
+        if (auto* rotate = this->rotate())
             rotate->apply(transform, boundingBox.size());
     }
 
     // 5. Scale by the computed X, Y, and Z values of scale.
     if (options.contains(RenderStyle::TransformOperationOption::Scale)) {
-        if (TransformOperation* scale = m_nonInheritedData->rareData->scale.get())
+        if (auto* scale = this->scale())
             scale->apply(transform, boundingBox.size());
     }
 
@@ -2385,9 +2391,7 @@ void RenderStyle::applyCSSTransform(TransformationMatrix& transform, const Trans
         MotionPath::applyMotionPathTransform(*this, operationData, transform);
 
     // 7. Multiply by each of the transform functions in transform from left to right.
-    auto& transformOperations = m_nonInheritedData->miscData->transform->operations;
-    for (auto& operation : transformOperations.operations())
-        operation->apply(transform, boundingBox.size());
+    this->transform().apply(transform, boundingBox.size());
 
     // 8. Translate by the negated computed X, Y and Z values of transform-origin.
     // (implemented in unapplyTransformOrigin)
@@ -2397,9 +2401,8 @@ void RenderStyle::setPageScaleTransform(float scale)
 {
     if (scale == 1)
         return;
-    TransformOperations transform;
-    transform.operations().append(ScaleTransformOperation::create(scale, scale, TransformOperation::Type::Scale));
-    setTransform(transform);
+
+    setTransform(TransformOperations { ScaleTransformOperation::create(scale, scale, TransformOperation::Type::Scale) });
     setTransformOriginX(Length(0, LengthType::Fixed));
     setTransformOriginY(Length(0, LengthType::Fixed));
 }
@@ -3092,15 +3095,22 @@ Color RenderStyle::colorWithColorFilter(const StyleColor& color) const
     return colorByApplyingColorFilter(colorResolvingCurrentColor(color));
 }
 
-Color RenderStyle::usedAccentColor() const
+Color RenderStyle::usedAccentColor(OptionSet<StyleColorOptions> styleColorOptions) const
 {
     if (hasAutoAccentColor())
         return { };
 
-    if (hasAppleColorFilter())
-        return colorByApplyingColorFilter(colorResolvingCurrentColor(accentColor()));
+    auto resolvedAccentColor = colorResolvingCurrentColor(accentColor());
 
-    return colorResolvingCurrentColor(accentColor());
+    if (!resolvedAccentColor.isOpaque()) {
+        auto computedCanvasColor = RenderTheme::singleton().systemColor(CSSValueCanvas, styleColorOptions);
+        resolvedAccentColor = blendSourceOver(computedCanvasColor, resolvedAccentColor);
+    }
+
+    if (hasAppleColorFilter())
+        return colorByApplyingColorFilter(resolvedAccentColor);
+
+    return resolvedAccentColor;
 }
 
 Color RenderStyle::usedScrollbarThumbColor() const

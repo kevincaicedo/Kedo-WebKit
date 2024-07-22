@@ -78,7 +78,6 @@ enum class FontVisibility : bool { Visible, Invisible };
 enum class FontIsOrientationFallback : bool { No, Yes };
 
 #if USE(CORE_TEXT)
-bool fontHasTable(CTFontRef, unsigned tableTag);
 bool fontHasEitherTable(CTFontRef, unsigned tableTag1, unsigned tableTag2);
 #endif
 
@@ -209,7 +208,7 @@ public:
     bool shouldNotBeUsedForArabic() const { return m_shouldNotBeUsedForArabic; };
 #endif
 #if USE(CORE_TEXT)
-    CTFontRef getCTFont() const { return m_platformData.font(); }
+    CTFontRef getCTFont() const { return m_platformData.ctFont(); }
     RetainPtr<CFDictionaryRef> getCFStringAttributes(bool enableKerning, FontOrientation, const AtomString& locale) const;
     bool supportsSmallCaps() const;
     bool supportsAllSmallCaps() const;

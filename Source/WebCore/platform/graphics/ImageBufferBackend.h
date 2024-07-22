@@ -28,6 +28,7 @@
 #include "CopyImageOptions.h"
 #include "DestinationColorSpace.h"
 #include "FloatRect.h"
+#include "GraphicsLayerContentsDisplayDelegate.h"
 #include "GraphicsTypesGL.h"
 #include "ImageBufferAllocator.h"
 #include "ImageBufferBackendParameters.h"
@@ -103,13 +104,11 @@ public:
         RenderingMode renderingMode;
         AffineTransform baseTransform;
         size_t memoryCost;
-        size_t externalMemoryCost;
     };
 
     WEBCORE_EXPORT virtual ~ImageBufferBackend();
 
     WEBCORE_EXPORT static size_t calculateMemoryCost(const IntSize& backendSize, unsigned bytesPerRow);
-    static size_t calculateExternalMemoryCost(const Parameters&) { return 0; }
     WEBCORE_EXPORT static AffineTransform calculateBaseTransform(const Parameters&);
 
     virtual GraphicsContext& context() = 0;
@@ -153,6 +152,8 @@ public:
 
     virtual ImageBufferBackendSharing* toBackendSharing() { return nullptr; }
 
+    virtual RefPtr<GraphicsLayerContentsDisplayDelegate> layerContentsDisplayDelegate() const { return nullptr; }
+
     const Parameters& parameters() { return m_parameters; }
 
     WEBCORE_EXPORT virtual String debugDescription() const = 0;
@@ -165,10 +166,10 @@ protected:
     IntSize size() const { return m_parameters.backendSize; };
     float resolutionScale() const { return m_parameters.resolutionScale; }
     const DestinationColorSpace& colorSpace() const { return m_parameters.colorSpace; }
-    PixelFormat pixelFormat() const { return m_parameters.pixelFormat; }
+    ImageBufferPixelFormat pixelFormat() const { return m_parameters.pixelFormat; }
 
-    WEBCORE_EXPORT void getPixelBuffer(const IntRect& srcRect, void* data, PixelBuffer& destination);
-    WEBCORE_EXPORT void putPixelBuffer(const PixelBuffer&, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat, void* destination);
+    WEBCORE_EXPORT void getPixelBuffer(const IntRect& srcRect, const uint8_t* data, PixelBuffer& destination);
+    WEBCORE_EXPORT void putPixelBuffer(const PixelBuffer&, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat, uint8_t* destination);
 
     Parameters m_parameters;
 };

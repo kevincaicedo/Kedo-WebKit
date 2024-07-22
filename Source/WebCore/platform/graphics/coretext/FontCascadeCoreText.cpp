@@ -368,12 +368,12 @@ void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, const G
         Color fillColor = context.fillColor();
         Color shadowFillColor = shadow->color.colorWithAlphaMultipliedBy(fillColor.alphaAsFloat());
         context.setFillColor(shadowFillColor);
-        float shadowTextX = point.x() + shadow->offset.width();
-        // If shadows are ignoring transforms, then we haven't applied the Y coordinate flip yet, so down is negative.
-        float shadowTextY = point.y() + shadow->offset.height() * (context.shadowsIgnoreTransforms() ? -1 : 1);
-        showGlyphsWithAdvances(FloatPoint(shadowTextX, shadowTextY), font, cgContext, glyphs, advances, numGlyphs, textMatrix);
-        if (syntheticBoldOffset)
-            showGlyphsWithAdvances(FloatPoint(shadowTextX + syntheticBoldOffset, shadowTextY), font, cgContext, glyphs, advances, numGlyphs, textMatrix);
+        auto shadowTextOffset = point + context.platformShadowOffset(shadow->offset);
+        showGlyphsWithAdvances(shadowTextOffset, font, cgContext, glyphs, advances, numGlyphs, textMatrix);
+        if (syntheticBoldOffset) {
+            shadowTextOffset.move(syntheticBoldOffset, 0);
+            showGlyphsWithAdvances(shadowTextOffset, font, cgContext, glyphs, advances, numGlyphs, textMatrix);
+        }
         context.setFillColor(fillColor);
     }
 
@@ -397,7 +397,7 @@ void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, const G
 bool FontCascade::primaryFontIsSystemFont() const
 {
     const auto& fontData = primaryFont();
-    return isSystemFont(fontData.platformData().ctFont());
+    return isSystemFont(fontData.getCTFont());
 }
 
 const Font* FontCascade::fontForCombiningCharacterSequence(StringView stringView) const
@@ -422,7 +422,7 @@ const Font* FontCascade::fontForCombiningCharacterSequence(StringView stringView
 
     for (unsigned i = 0; !fallbackRangesAt(i).isNull(); ++i) {
         auto& fontRanges = fallbackRangesAt(i);
-        if (fontRanges.isGeneric() && isPrivateUseAreaCharacter(baseCharacter))
+        if (fontRanges.isGenericFontFamily() && isPrivateUseAreaCharacter(baseCharacter))
             continue;
         const Font* font = fontRanges.fontForCharacter(baseCharacter);
         if (!font)

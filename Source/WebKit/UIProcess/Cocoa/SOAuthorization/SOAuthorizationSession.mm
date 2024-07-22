@@ -35,6 +35,7 @@
 #import "APIUIClient.h"
 #import "Logging.h"
 #import "SOAuthorizationLoadPolicy.h"
+#import "UIKitUtilities.h"
 #import "WKSOAuthorizationDelegate.h"
 #import "WKUIDelegatePrivate.h"
 #import "WKWebViewInternal.h"
@@ -44,6 +45,7 @@
 #import <WebCore/ContentSecurityPolicy.h>
 #import <WebCore/HTTPParsers.h>
 #import <WebCore/ResourceResponse.h>
+#import <WebCore/RuntimeApplicationChecks.h>
 #import <WebCore/SecurityOrigin.h>
 #import <pal/cocoa/AppSSOSoftLink.h>
 #import <wtf/BlockPtr.h>
@@ -252,7 +254,8 @@ void SOAuthorizationSession::continueStartAfterDecidePolicy(const SOAuthorizatio
     [m_soAuthorization setAuthorizationOptions:authorizationOptions];
 
 #if PLATFORM(VISION)
-    if (![[m_page->cocoaView() UIDelegate] respondsToSelector:@selector(_presentingViewControllerForWebView:)])
+    // rdar://130904577 - Investigate supporting embedded authorization view controller on visionOS.
+    if (![[m_page->cocoaView() UIDelegate] respondsToSelector:@selector(_presentingViewControllerForWebView:)] || IOSApplication::isSafariViewService())
         [m_soAuthorization setEnableEmbeddedAuthorizationViewController:NO];
 #endif
 
@@ -398,7 +401,7 @@ void SOAuthorizationSession::presentViewController(SOAuthorizationViewController
     UIViewController *presentingViewController = m_page->uiClient().presentingViewController();
 #if !PLATFORM(VISION)
     if (!presentingViewController)
-        presentingViewController = [m_page->cocoaView() window].rootViewController;
+        presentingViewController = [m_page->cocoaView() _wk_viewControllerForFullScreenPresentation];
 #endif
     if (!presentingViewController) {
         uiCallback(NO, adoptNS([[NSError alloc] initWithDomain:SOErrorDomain code:kSOErrorAuthorizationPresentationFailed userInfo:nil]).get());

@@ -118,7 +118,7 @@ void WebSWServerConnection::resolveUnregistrationJobInClient(ServiceWorkerJobIde
 {
     ASSERT(m_unregisterJobs.contains(jobIdentifier));
     if (auto completionHandler = m_unregisterJobs.take(jobIdentifier)) {
-#if ENABLE(BUILT_IN_NOTIFICATIONS)
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
         if (!session()) {
             completionHandler(unregistrationResult);
             return;
@@ -203,7 +203,8 @@ void WebSWServerConnection::controlClient(const NetworkResourceLoadParameters& p
     });
 
     auto ancestorOrigins = map(parameters.frameAncestorOrigins, [](auto& origin) { return origin->toString(); });
-    ServiceWorkerClientData data { clientIdentifier, clientType, ServiceWorkerClientFrameType::None, request.url(), URL(), parameters.webPageID, parameters.webFrameID, request.isAppInitiated() ? WebCore::LastNavigationWasAppInitiated::Yes : WebCore::LastNavigationWasAppInitiated::No, false, false, 0, WTFMove(ancestorOrigins) };
+    auto advancedPrivacyProtections = server().advancedPrivacyProtectionsFromClient(registration.key().clientOrigin());
+    ServiceWorkerClientData data { clientIdentifier, clientType, ServiceWorkerClientFrameType::None, request.url(), URL(), parameters.webPageID, parameters.webFrameID, request.isAppInitiated() ? WebCore::LastNavigationWasAppInitiated::Yes : WebCore::LastNavigationWasAppInitiated::No, advancedPrivacyProtections, false, false, 0, WTFMove(ancestorOrigins) };
 
     registerServiceWorkerClientInternal(ClientOrigin { registration.key().topOrigin(), SecurityOriginData::fromURLWithoutStrictOpaqueness(request.url()) }, WTFMove(data), registration.identifier(), request.httpUserAgent(), WebCore::SWServer::IsBeingCreatedClient::Yes);
 }
@@ -538,7 +539,7 @@ void WebSWServerConnection::updateThrottleState()
 
 void WebSWServerConnection::subscribeToPushService(WebCore::ServiceWorkerRegistrationIdentifier registrationIdentifier, Vector<uint8_t>&& applicationServerKey, CompletionHandler<void(Expected<PushSubscriptionData, ExceptionData>&&)>&& completionHandler)
 {
-#if !ENABLE(BUILT_IN_NOTIFICATIONS)
+#if !ENABLE(WEB_PUSH_NOTIFICATIONS)
     UNUSED_PARAM(registrationIdentifier);
     UNUSED_PARAM(applicationServerKey);
     completionHandler(makeUnexpected(ExceptionData { ExceptionCode::AbortError, "Push service not implemented"_s }));
@@ -567,7 +568,7 @@ void WebSWServerConnection::subscribeToPushService(WebCore::ServiceWorkerRegistr
 
 void WebSWServerConnection::unsubscribeFromPushService(WebCore::ServiceWorkerRegistrationIdentifier registrationIdentifier, WebCore::PushSubscriptionIdentifier subscriptionIdentifier, CompletionHandler<void(Expected<bool, ExceptionData>&&)>&& completionHandler)
 {
-#if !ENABLE(BUILT_IN_NOTIFICATIONS)
+#if !ENABLE(WEB_PUSH_NOTIFICATIONS)
     UNUSED_PARAM(registrationIdentifier);
     UNUSED_PARAM(subscriptionIdentifier);
 
@@ -590,7 +591,7 @@ void WebSWServerConnection::unsubscribeFromPushService(WebCore::ServiceWorkerReg
 
 void WebSWServerConnection::getPushSubscription(WebCore::ServiceWorkerRegistrationIdentifier registrationIdentifier, CompletionHandler<void(Expected<std::optional<PushSubscriptionData>, ExceptionData>&&)>&& completionHandler)
 {
-#if !ENABLE(BUILT_IN_NOTIFICATIONS)
+#if !ENABLE(WEB_PUSH_NOTIFICATIONS)
     UNUSED_PARAM(registrationIdentifier);
 
     completionHandler(std::optional<PushSubscriptionData>(std::nullopt));
@@ -612,7 +613,7 @@ void WebSWServerConnection::getPushSubscription(WebCore::ServiceWorkerRegistrati
 
 void WebSWServerConnection::getPushPermissionState(WebCore::ServiceWorkerRegistrationIdentifier registrationIdentifier, CompletionHandler<void(Expected<uint8_t, ExceptionData>&&)>&& completionHandler)
 {
-#if !ENABLE(BUILT_IN_NOTIFICATIONS)
+#if !ENABLE(WEB_PUSH_NOTIFICATIONS)
     UNUSED_PARAM(registrationIdentifier);
 
     completionHandler(static_cast<uint8_t>(PushPermissionState::Denied));

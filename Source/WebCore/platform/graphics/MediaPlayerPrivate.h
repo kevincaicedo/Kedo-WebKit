@@ -119,7 +119,7 @@ public:
     virtual bool hasVideo() const = 0;
     virtual bool hasAudio() const = 0;
 
-    virtual void setPageIsVisible(bool, String&& sceneIdentifier = ""_s) = 0;
+    virtual void setPageIsVisible(bool) = 0;
     virtual void setVisibleForCanvas(bool visible) { setPageIsVisible(visible); }
     virtual void setVisibleInViewport(bool) { }
 
@@ -150,7 +150,7 @@ public:
     virtual void setPitchCorrectionAlgorithm(MediaPlayer::PitchCorrectionAlgorithm) { }
 
     // Indicates whether playback is currently paused indefinitely: such as having been paused
-    // explictly by the HTMLMediaElement or through remote media playback control.
+    // explicitly by the HTMLMediaElement or through remote media playback control.
     // This excludes video potentially playing but having stalled.
     virtual bool paused() const = 0;
 
@@ -281,7 +281,6 @@ public:
     virtual void setShouldContinueAfterKeyNeeded(bool) { }
 #endif
 
-    virtual bool requiresTextTrackRepresentation() const { return false; }
     virtual void setTextTrackRepresentation(TextTrackRepresentation*) { }
     virtual void syncTextTrackBounds() { };
     virtual void tracksChanged() { };
@@ -353,12 +352,14 @@ public:
 
     virtual void renderVideoWillBeDestroyed() { }
 
+    virtual void mediaPlayerWillBeDestroyed() { }
+
     virtual void isLoopingChanged() { }
 
     virtual void setShouldCheckHardwareSupport(bool value) { m_shouldCheckHardwareSupport = value; }
     bool shouldCheckHardwareSupport() const { return m_shouldCheckHardwareSupport; }
 
-    virtual void setVideoReceiverEndpoint(const VideoReceiverEndpoint&) { }
+    virtual void setVideoTarget(const PlatformVideoTarget&) { }
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
     virtual const String& defaultSpatialTrackingLabel() const { return emptyString(); }
@@ -368,6 +369,10 @@ public:
 #endif
 
     virtual void isInFullscreenOrPictureInPictureChanged(bool) { }
+
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    virtual bool supportsLinearMediaPlayer() const { return false; }
+#endif
 
 protected:
     mutable PlatformTimeRanges m_seekable;

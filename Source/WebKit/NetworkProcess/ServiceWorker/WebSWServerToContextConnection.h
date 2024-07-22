@@ -88,6 +88,8 @@ public:
 
     WebCore::ProcessIdentifier webProcessIdentifier() const final;
     NetworkProcess& networkProcess();
+    void didFinishInstall(const std::optional<WebCore::ServiceWorkerJobDataIdentifier>&, WebCore::ServiceWorkerIdentifier, bool wasSuccessful);
+    void didFinishActivation(WebCore::ServiceWorkerIdentifier);
 
 private:
     // IPC::MessageSender
@@ -98,7 +100,7 @@ private:
     void skipWaiting(uint64_t requestIdentifier, WebCore::ServiceWorkerIdentifier);
 
     // Messages to the SW host WebProcess
-    void installServiceWorkerContext(const WebCore::ServiceWorkerContextData&, const WebCore::ServiceWorkerData&, const String& userAgent, WebCore::WorkerThreadMode) final;
+    void installServiceWorkerContext(const WebCore::ServiceWorkerContextData&, const WebCore::ServiceWorkerData&, const String& userAgent, WebCore::WorkerThreadMode, OptionSet<WebCore::AdvancedPrivacyProtections>) final;
     void updateAppInitiatedValue(WebCore::ServiceWorkerIdentifier, WebCore::LastNavigationWasAppInitiated) final;
     void fireInstallEvent(WebCore::ServiceWorkerIdentifier) final;
     void fireActivateEvent(WebCore::ServiceWorkerIdentifier) final;
@@ -123,7 +125,7 @@ private:
     void setInspectable(WebCore::ServiceWorkerIsInspectable) final;
 
     WeakRef<NetworkConnectionToWebProcess> m_connection;
-    HashMap<WebCore::FetchIdentifier, WeakRef<ServiceWorkerFetchTask>> m_ongoingFetches;
+    HashMap<WebCore::FetchIdentifier, WeakPtr<ServiceWorkerFetchTask>> m_ongoingFetches;
     HashMap<WebCore::FetchIdentifier, ThreadSafeWeakPtr<ServiceWorkerDownloadTask>> m_ongoingDownloads;
     bool m_isThrottleable { true };
     WebPageProxyIdentifier m_webPageProxyID;

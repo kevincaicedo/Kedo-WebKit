@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2023-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -52,7 +52,6 @@ struct TextMarkerData {
     unsigned treeID;
     unsigned objectID;
 
-    Node* node; // FIXME: This should use a smart pointer.
     unsigned offset;
     Position::AnchorType anchorType;
     Affinity affinity;
@@ -63,14 +62,14 @@ struct TextMarkerData {
 
     // Constructors of TextMarkerData must zero the struct's block of memory because platform client code may rely on a byte-comparison to determine instances equality.
     // Members initialization alone is not enough to guaranty that all bytes in the struct memeory are initialized, and may cause random inequalities when doing byte-comparisons.
-    // For an exampel of such byte-comparison, see the TestRunner WTR::AccessibilityTextMarker::isEqual.
+    // For an example of such byte-comparison, see the TestRunner WTR::AccessibilityTextMarker::isEqual.
     TextMarkerData()
     {
         memset(static_cast<void*>(this), 0, sizeof(*this));
     }
 
     TextMarkerData(AXID axTreeID, AXID axObjectID,
-        Node* nodeParam = nullptr, unsigned offsetParam = 0,
+        unsigned offsetParam = 0,
         Position::AnchorType anchorTypeParam = Position::PositionIsOffsetInAnchor,
         Affinity affinityParam = Affinity::Downstream,
         unsigned charStart = 0, unsigned charOffset = 0, bool ignoredParam = false)
@@ -78,7 +77,6 @@ struct TextMarkerData {
         memset(static_cast<void*>(this), 0, sizeof(*this));
         treeID = axTreeID.toUInt64();
         objectID = axObjectID.toUInt64();
-        node = nodeParam;
         offset = offsetParam;
         anchorType = anchorTypeParam;
         affinity = affinityParam;
@@ -87,8 +85,10 @@ struct TextMarkerData {
         ignored = ignoredParam;
     }
 
-    TextMarkerData(AXObjectCache&, Node*, const VisiblePosition&, int charStart = 0, int charOffset = 0, bool ignoredParam = false);
+    TextMarkerData(AXObjectCache&, const VisiblePosition&, int charStart = 0, int charOffset = 0, bool ignoredParam = false);
     TextMarkerData(AXObjectCache&, const CharacterOffset&, bool ignoredParam = false);
+
+    friend bool operator==(const TextMarkerData&, const TextMarkerData&) = default;
 
     AXID axTreeID() const
     {
@@ -99,14 +99,12 @@ struct TextMarkerData {
     {
         return ObjectIdentifier<AXIDType>(objectID);
     }
-private:
-    void initializeAXIDs(AXObjectCache&, Node*);
 };
 
 #if PLATFORM(MAC)
 using PlatformTextMarkerData = AXTextMarkerRef;
 #elif PLATFORM(IOS_FAMILY)
-using PlatformTextMarkerData = NSData *;;
+using PlatformTextMarkerData = NSData *;
 #endif
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(AXTextMarker);
@@ -122,17 +120,18 @@ public:
         : m_data(data)
     { }
     AXTextMarker(TextMarkerData&& data)
-        : m_data(data)
+        : m_data(WTFMove(data))
     { }
 #if PLATFORM(COCOA)
     AXTextMarker(PlatformTextMarkerData);
 #endif
     AXTextMarker(AXID treeID, AXID objectID, unsigned offset)
-        : m_data({ treeID, objectID, nullptr, offset, Position::PositionIsOffsetInAnchor, Affinity::Downstream, 0, offset })
+        : m_data({ treeID, objectID, offset, Position::PositionIsOffsetInAnchor, Affinity::Downstream, 0, offset })
     { }
     AXTextMarker() = default;
 
     operator bool() const { return !isNull(); }
+    bool isEqual(const AXTextMarker& other) const { return m_data == other.m_data; }
     operator VisiblePosition() const;
     operator CharacterOffset() const;
     std::optional<BoundaryPoint> boundaryPoint() const;
@@ -143,8 +142,8 @@ public:
     operator PlatformTextMarkerData() const { return platformData().autorelease(); }
 #endif
 
-    AXID treeID() const { return m_data.axTreeID(); }
-    AXID objectID() const { return m_data.axObjectID(); }
+    AXID treeID() const { return AXID { m_data.treeID }; }
+    AXID objectID() const { return AXID { m_data.objectID }; }
     unsigned offset() const { return m_data.offset; }
     bool isNull() const { return !treeID().isValid() || !objectID().isValid(); }
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
@@ -153,14 +152,9 @@ public:
 #endif
     RefPtr<AXCoreObject> object() const;
     bool isValid() const { return object(); }
-
-    Node* node() const;
     bool isIgnored() const { return m_data.ignored; }
 
     String debugDescription() const;
-
-    // Sets m_data.node when the marker was created with a PlatformTextMarkerData that lacks the node pointer because it was created off the main thread.
-    void setNodeIfNeeded() const;
 
 #if ENABLE(AX_THREAD_TEXT_APIS)
     AXTextMarker toTextRunMarker(std::optional<AXID> stopAtID = std::nullopt) const;
@@ -215,6 +209,9 @@ private:
 
 class AXTextMarkerRange {
     WTF_MAKE_FAST_ALLOCATED;
+    friend bool operator==(const AXTextMarkerRange&, const AXTextMarkerRange&);
+    friend bool operator<(const AXTextMarkerRange&, const AXTextMarkerRange&);
+    friend bool operator>(const AXTextMarkerRange&, const AXTextMarkerRange&);
 public:
     // Constructors.
     AXTextMarkerRange(const VisiblePositionRange&);
@@ -224,6 +221,7 @@ public:
 #if PLATFORM(MAC)
     AXTextMarkerRange(AXTextMarkerRangeRef);
 #endif
+    AXTextMarkerRange(AXID treeID, AXID objectID, const CharacterRange&);
     AXTextMarkerRange(AXID treeID, AXID objectID, unsigned offset, unsigned length);
     AXTextMarkerRange() = default;
 
@@ -258,10 +256,45 @@ private:
     AXTextMarker m_end;
 };
 
-inline Node* AXTextMarker::node() const
+inline AXTextMarkerRange::AXTextMarkerRange(AXID treeID, AXID objectID, const CharacterRange& range)
+    : AXTextMarkerRange(treeID, objectID, range.location, range.location + range.length)
+{ }
+
+inline bool operator==(const AXTextMarker& marker1, const AXTextMarker& marker2)
 {
-    ASSERT(isMainThread());
-    return m_data.node;
+    return marker1.isEqual(marker2);
+}
+
+inline bool operator==(const AXTextMarkerRange& range1, const AXTextMarkerRange& range2)
+{
+    return range1.m_start == range2.m_start && range1.m_end == range2.m_end;
+}
+
+inline bool operator!=(const AXTextMarkerRange& range1, const AXTextMarkerRange& range2)
+{
+    return !(range1 == range2);
+}
+
+inline bool operator<(const AXTextMarkerRange& range1, const AXTextMarkerRange& range2)
+{
+    return is_lt(partialOrder(range1.m_start, range2.m_start))
+        || is_lt(partialOrder(range1.m_end, range2.m_end));
+}
+
+inline bool operator>(const AXTextMarkerRange& range1, const AXTextMarkerRange& range2)
+{
+    return is_gt(partialOrder(range1.m_start, range2.m_start))
+        || is_gt(partialOrder(range1.m_end, range2.m_end));
+}
+
+inline bool operator<=(const AXTextMarkerRange& range1, const AXTextMarkerRange& range2)
+{
+    return range1 == range2 || range1 < range2;
+}
+
+inline bool operator>=(const AXTextMarkerRange& range1, const AXTextMarkerRange& range2)
+{
+    return range1 == range2 || range1 > range2;
 }
 
 } // namespace WebCore

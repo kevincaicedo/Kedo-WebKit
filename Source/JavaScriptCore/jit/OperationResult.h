@@ -28,6 +28,7 @@
 #include "JITOperationValidation.h"
 #include "ThrowScope.h"
 
+#include <type_traits>
 #include <wtf/FunctionTraits.h>
 #include <wtf/StdLibExtras.h>
 
@@ -40,23 +41,20 @@ concept canMakeExceptionOperationResult =
 #if CPU(ARM64)
     && !std::is_floating_point_v<T> // The ARM64 ABI says that this should be returned in x0 instead of d0. Seems unlikely it's worth it to do the extra fmov.
 #endif
-// FIXME: We could enable Windows when we switch to sysv_abi via clang-cl there.
-#if !(CPU(ARM64) || CPU(X86_64)) || OS(WINDOWS)
+#if !(CPU(ARM64) || CPU(X86_64))
     && false // We don't have enough return registers on 32-bit (ARM64_32 seems to work) (didn't test RISCV64)
 #endif
     && sizeof(T) <= sizeof(CPURegister);
 
-struct ExceptionOperationResultBase { };
-
 template<typename T>
-struct ExceptionOperationResult : public ExceptionOperationResultBase {
+struct ExceptionOperationResult {
     using ResultType = T;
     T value;
     Exception* exception;
 };
 
 template<>
-struct ExceptionOperationResult<void> : public ExceptionOperationResultBase {
+struct ExceptionOperationResult<void> {
     using ResultType = void;
     Exception* exception;
 };
@@ -64,14 +62,25 @@ struct ExceptionOperationResult<void> : public ExceptionOperationResultBase {
 template<typename OperationType>
 concept OperationHasResult = FunctionTraits<OperationType>::hasResult && !std::is_same_v<typename FunctionTraits<OperationType>::ResultType, ExceptionOperationResult<void>>;
 
-template<typename T>
-concept isExceptionOperationResult = std::is_base_of_v<ExceptionOperationResultBase, T>;
+// Note we need this because e.g. `requires (!OperationHasResult<int>)` will pass the requirement as the SFINAE in `OperationHasResult<int>`
+// means the concept returns false and the `!` makes it true.
+template<typename OperationType>
+concept OperationIsVoid = !FunctionTraits<OperationType>::hasResult || std::is_same_v<typename FunctionTraits<OperationType>::ResultType, ExceptionOperationResult<void>>;
 
-// Note: We always return an exception in a register if the operation's return type is void on all platforms.
+template<typename T>
+struct IsExceptionOperationResult : std::false_type { };
+
+template<typename T>
+struct IsExceptionOperationResult<ExceptionOperationResult<T>> : std::true_type { };
+
+template<typename T>
+concept isExceptionOperationResult = IsExceptionOperationResult<T>::value;
+
+// Note: We always return an exception in a register if the operation's return type is void on all platforms (assuming it throws).
 template<typename T>
 using OperationReturnType = std::conditional_t<(std::is_same_v<T, void> || canMakeExceptionOperationResult<T>), ExceptionOperationResult<T>, T>;
 
-// This class exists so we can cast ExceptionOperationImplicitResult<From> to ExceptionOperationResult<To> implicity while ExceptionOperationResult remains POD.
+// This class exists so we can cast ExceptionOperationImplicitResult<From> to ExceptionOperationResult<To> implicitly while ExceptionOperationResult remains POD.
 // FIXME: we could use __atribute__((trivial_abi)) when we no longer support MSVC.
 template<typename From>
 struct ExceptionOperationImplicitResult {

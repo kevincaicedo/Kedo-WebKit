@@ -57,7 +57,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     return std::filesystem::u8path(path.utf8().data());
 ALLOW_DEPRECATED_DECLARATIONS_END
 #else
-    return { std::u8string(reinterpret_cast<const char8_t*>(path.utf8().data())) };
+    return { std::u8string(byteCast<char8_t>(path.utf8().data())) };
 #endif
 }
 
@@ -267,12 +267,12 @@ bool appendFileContentsToFileHandle(const String& path, PlatformFileHandle& targ
     });
 
     do {
-        int readBytes = readFromFile(source, buffer.data(), bufferSize);
+        int readBytes = readFromFile(source, buffer.mutableSpan());
 
         if (readBytes < 0)
             return false;
 
-        if (writeToFile(target, buffer.data(), readBytes) != readBytes)
+        if (writeToFile(target, buffer.span().first(readBytes)) != readBytes)
             return false;
 
         if (readBytes < bufferSize)
@@ -464,7 +464,7 @@ MappedFileData createMappedFileData(const String& path, size_t bytesSize, Platfo
 
 void finalizeMappedFileData(MappedFileData& mappedFileData, size_t bytesSize)
 {
-    void* map = const_cast<void*>(mappedFileData.data());
+    auto* map = mappedFileData.mutableSpan().data();
 #if OS(WINDOWS)
     DWORD oldProtection;
     VirtualProtect(map, bytesSize, FILE_MAP_READ, &oldProtection);
@@ -484,12 +484,11 @@ MappedFileData mapToFile(const String& path, size_t bytesSize, Function<void(con
     if (!mappedFile)
         return { };
 
-    void* map = const_cast<void*>(mappedFile.data());
-    uint8_t* mapData = static_cast<uint8_t*>(map);
+    auto mapData = mappedFile.mutableSpan();
 
     apply([&mapData](std::span<const uint8_t> chunk) {
-        memcpy(mapData, chunk.data(), chunk.size());
-        mapData += chunk.size();
+        memcpySpan(mapData.first(chunk.size()), chunk);
+        mapData = mapData.subspan(chunk.size());
         return true;
     });
 
@@ -510,7 +509,7 @@ std::optional<Salt> readOrMakeSalt(const String& path)
     if (FileSystem::fileExists(path)) {
         auto file = FileSystem::openFile(path, FileSystem::FileOpenMode::Read);
         Salt salt;
-        auto bytesRead = static_cast<std::size_t>(FileSystem::readFromFile(file, salt.data(), salt.size()));
+        auto bytesRead = static_cast<std::size_t>(FileSystem::readFromFile(file, salt));
         FileSystem::closeFile(file);
         if (bytesRead == salt.size())
             return salt;
@@ -524,7 +523,7 @@ std::optional<Salt> readOrMakeSalt(const String& path)
     if (!FileSystem::isHandleValid(file))
         return { };
 
-    bool success = static_cast<std::size_t>(FileSystem::writeToFile(file, salt.data(), salt.size())) == salt.size();
+    bool success = static_cast<std::size_t>(FileSystem::writeToFile(file, salt)) == salt.size();
     FileSystem::closeFile(file);
     if (!success)
         return { };
@@ -549,7 +548,7 @@ std::optional<Vector<uint8_t>> readEntireFile(PlatformFileHandle handle)
     size_t totalBytesRead = 0;
     int bytesRead;
 
-    while ((bytesRead = FileSystem::readFromFile(handle, buffer.data() + totalBytesRead, bytesToRead - totalBytesRead)) > 0)
+    while ((bytesRead = FileSystem::readFromFile(handle, buffer.mutableSpan().subspan(totalBytesRead))) > 0)
         totalBytesRead += bytesRead;
 
     if (totalBytesRead != bytesToRead)
@@ -577,7 +576,7 @@ int overwriteEntireFile(const String& path, std::span<const uint8_t> span)
     if (!FileSystem::isHandleValid(fileHandle))
         return -1;
 
-    return FileSystem::writeToFile(fileHandle, span.data(), span.size());
+    return FileSystem::writeToFile(fileHandle, span);
 }
 
 void deleteAllFilesModifiedSince(const String& directory, WallTime time)

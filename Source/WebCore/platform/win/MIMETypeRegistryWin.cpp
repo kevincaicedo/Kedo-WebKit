@@ -30,12 +30,13 @@
 #include <wtf/HashMap.h>
 #include <wtf/MainThread.h>
 #include <wtf/WindowsExtras.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 static String mimeTypeForExtensionFromRegistry(const String& extension)
 {
-    String ext = "." + extension;
+    auto ext = makeString('.', extension);
     WCHAR contentTypeStr[256];
     DWORD contentTypeStrLen = sizeof(contentTypeStr);
     DWORD keyType;
@@ -50,7 +51,7 @@ static String mimeTypeForExtensionFromRegistry(const String& extension)
 
 String MIMETypeRegistry::preferredExtensionForMIMEType(const String& type)
 {
-    String path = "MIME\\Database\\Content Type\\" + type;
+    auto path = makeString("MIME\\Database\\Content Type\\"_s, type);
     WCHAR extStr[MAX_PATH];
     DWORD extStrLen = sizeof(extStr);
     DWORD keyType;

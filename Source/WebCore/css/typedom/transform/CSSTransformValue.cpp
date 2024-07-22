@@ -46,6 +46,7 @@
 #include "ExceptionOr.h"
 #include <wtf/Algorithms.h>
 #include <wtf/IsoMallocInlines.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -126,7 +127,7 @@ RefPtr<CSSTransformComponent> CSSTransformValue::item(size_t index)
 ExceptionOr<Ref<CSSTransformComponent>> CSSTransformValue::setItem(size_t index, Ref<CSSTransformComponent>&& value)
 {
     if (index > m_components.size())
-        return Exception { ExceptionCode::RangeError, makeString("Index ", index, " exceeds the range of CSSTransformValue.") };
+        return Exception { ExceptionCode::RangeError, makeString("Index "_s, index, " exceeds the range of CSSTransformValue."_s) };
 
     if (index == m_components.size())
         m_components.append(WTFMove(value));
@@ -170,11 +171,7 @@ CSSTransformValue::CSSTransformValue(Vector<Ref<CSSTransformComponent>>&& transf
 void CSSTransformValue::serialize(StringBuilder& builder, OptionSet<SerializationArguments>) const
 {
     // https://drafts.css-houdini.org/css-typed-om/#serialize-a-csstransformvalue
-    for (size_t i = 0; i < m_components.size(); ++i) {
-        if (i)
-            builder.append(' ');
-        m_components[i]->serialize(builder);
-    }
+    builder.append(interleave(m_components, [](auto& builder, auto& transform) { transform->serialize(builder); }, ' '));
 }
 
 RefPtr<CSSValue> CSSTransformValue::toCSSValue() const

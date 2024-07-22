@@ -39,6 +39,7 @@
 #include "WasmTypeDefinition.h"
 #include <wtf/Assertions.h>
 #include <wtf/Expected.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC { namespace Wasm {
 
@@ -679,6 +680,7 @@ public:
     PartialResult WARN_UNUSED_RETURN addCallRef(const TypeDefinition&, Vector<ExpressionType>&, ResultList&) CONST_EXPR_STUB
     PartialResult WARN_UNUSED_RETURN addUnreachable() CONST_EXPR_STUB
     PartialResult WARN_UNUSED_RETURN addCrash() CONST_EXPR_STUB
+    bool usesSIMD() { return false; }
     void notifyFunctionUsesSIMD() { }
     PartialResult WARN_UNUSED_RETURN addSIMDLoad(ExpressionType, uint32_t, ExpressionType&) CONST_EXPR_STUB
     PartialResult WARN_UNUSED_RETURN addSIMDStore(ExpressionType, ExpressionType, uint32_t) CONST_EXPR_STUB

@@ -41,6 +41,7 @@
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/SetForScope.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -56,7 +57,7 @@ static String urlForLoggingTrack(const URL& url)
     
     if (url.string().length() < maximumURLLengthForLogging)
         return url.string();
-    return makeString(StringView(url.string()).left(maximumURLLengthForLogging), "...");
+    return makeString(StringView(url.string()).left(maximumURLLengthForLogging), "..."_s);
 }
 
 #endif
