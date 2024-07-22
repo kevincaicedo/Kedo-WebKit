@@ -38,6 +38,8 @@ public:
     DECLARE_EXPORT_INFO;
 
     JSAPIModuleLoader api_moduleLoader;
+    JSUncaughtExceptionAtEventLoop uncaughtExceptionAtEventLoop;
+    JSUncaughtExceptionHandler uncaughtExceptionHandler;
     HashSet<String> m_syntheticModuleKeys;
 
     static constexpr bool needsDestruction = true;
