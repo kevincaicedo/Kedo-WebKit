@@ -571,6 +571,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     API/ObjCCallbackFunction.h
     API/ObjcRuntimeExtras.h
     API/OpaqueJSString.h
+    API/InspectorAPI.h
 
     assembler/ARM64Assembler.h
     assembler/ARM64Registers.h

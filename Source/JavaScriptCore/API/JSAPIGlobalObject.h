@@ -26,6 +26,11 @@
 #pragma once
 
 #include "JSGlobalObject.h"
+#include "InspectorAPI.h"
+#include <inspector/InspectorFrontendChannel.h>
+#include <memory>
+
+namespace Inspector { class FrontendChannel; }
 
 OBJC_CLASS JSScript;
 
@@ -54,9 +59,8 @@ public:
 
     static void reportUncaughtExceptionAtEventLoop(JSGlobalObject*, Exception*);
 
-    JSValue loadAndEvaluateJSScriptModule(const JSLockHolder&, JSScript *);
+    JSValue loadAndEvaluateJSScriptModule(const JSLockHolder&, JSScript*);
 
-    // Synthetic Module related functions.
     void registerSyntheticModuleKey(String key)
     {
         m_syntheticModuleKeys.add(key);
@@ -71,6 +75,16 @@ public:
     {
         return m_syntheticModuleKeys.contains(key);
     }
+
+    void setInspectorCallback(InspectorMessageCallback callback) { m_inspectorCallback = callback; }
+    InspectorMessageCallback inspectorCallback() const { return m_inspectorCallback; }
+
+    void setFrontendChannel(std::unique_ptr<Inspector::FrontendChannel> channel) { m_frontendChannel = std::move(channel); }
+    Inspector::FrontendChannel* frontendChannel() const { return m_frontendChannel.get(); }
+    void clearFrontendChannel() { m_frontendChannel = nullptr; }
+
+    void setPauseEventCallback(InspectorPauseEventCallback callback) { m_pauseEventCallback = callback; }
+    InspectorPauseEventCallback pauseEventCallback() const { return m_pauseEventCallback; }
 
 private:
     static const GlobalObjectMethodTable* globalObjectMethodTable();
@@ -88,6 +102,11 @@ private:
                api_moduleLoader.moduleLoaderFetch != nullptr &&
                api_moduleLoader.moduleLoaderCreateImportMetaProperties != nullptr;
     }
+
+    InspectorMessageCallback m_inspectorCallback { nullptr };
+    std::unique_ptr<Inspector::FrontendChannel> m_frontendChannel;
+
+    InspectorPauseEventCallback m_pauseEventCallback { nullptr };
 };
 
 }

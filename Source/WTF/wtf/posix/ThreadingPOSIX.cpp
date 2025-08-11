@@ -9,13 +9,13 @@
  * are met:
  *
  * 1.  Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer. 
+ *     notice, this list of conditions and the following disclaimer.
  * 2.  Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution. 
+ *     documentation and/or other materials provided with the distribution.
  * 3.  Neither the name of Apple Inc. ("Apple") nor the names of
  *     its contributors may be used to endorse or promote products derived
- *     from this software without specific prior written permission. 
+ *     from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -384,7 +384,8 @@ void Thread::setThreadTimeConstraints(MonotonicTime period, MonotonicTime nomina
     policy.computation = nominalComputation.toMachAbsoluteTime();
     policy.constraint = constraint.toMachAbsoluteTime();
     policy.preemptible = isPremptable;
-    if (auto error = thread_policy_set(machThread(), THREAD_TIME_CONSTRAINT_POLICY, (thread_policy_t)&policy, THREAD_TIME_CONSTRAINT_POLICY_COUNT))
+    auto error = thread_policy_set(machThread(), THREAD_TIME_CONSTRAINT_POLICY, (thread_policy_t)&policy, THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+    if (error)
         LOG_ERROR("Thread %p failed to set time constraints with error %d", this, error);
 #else
     ASSERT_NOT_REACHED();
@@ -646,7 +647,7 @@ ThreadCondition::~ThreadCondition()
 {
     pthread_cond_destroy(&m_condition);
 }
-    
+
 void ThreadCondition::wait(Mutex& mutex)
 {
     int result = pthread_cond_wait(&m_condition, &mutex.impl());

@@ -31,6 +31,9 @@
 #include "JSFunction.h"
 #include "JSNativeStdFunction.h"
 #include "CallFrame.h"
+#include "JSModuleRecord.h"
+#include "JSModuleNamespaceObject.h"
+#include "JSMap.h"
 
 #include "APICast.h"
 #include "Completion.h"
@@ -125,7 +128,7 @@ void JSLoadAndEvaluateModuleFromSource(JSContextRef ctx, JSStringRef module, JSS
     auto sourceURL = sourceURLString ? URL({ }, sourceURLString->string()) : URL();
     SourceCode source = makeSource(module->string(), SourceOrigin { sourceURL }, SourceTaintedOrigin::Untainted, sourceURL.string(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()));
     JSInternalPromise* promise = loadAndEvaluateModule(globalObject, source, jsUndefined());
-    
+
     JSFunction* fulfillHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [](JSGlobalObject*, CallFrame* callFrame) {
         return JSValue::encode(callFrame->argument(0));
     });
@@ -134,7 +137,7 @@ void JSLoadAndEvaluateModuleFromSource(JSContextRef ctx, JSStringRef module, JSS
         *exception = toRef(globalObject, callFrame->argument(0));
         return JSValue::encode(callFrame->argument(0));
     });
-    
+
     vm.drainMicrotasks();
     promise->then(globalObject, fulfillHandler, rejectHandler);
     vm.drainMicrotasks();
@@ -151,7 +154,7 @@ void JSLoadModule(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception
     JSLockHolder locker(vm);
 
     JSInternalPromise* promise = loadModule(globalObject, Identifier::fromString(vm, moduleKey->string()), jsUndefined(), jsUndefined());
-    
+
     JSFunction* fulfillHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [](JSGlobalObject*, CallFrame* callFrame) {
         return JSValue::encode(callFrame->argument(0));
     });
@@ -160,7 +163,7 @@ void JSLoadModule(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception
         *exception = toRef(globalObject, callFrame->argument(0));
         return JSValue::encode(callFrame->argument(0));
     });
-    
+
     vm.drainMicrotasks();
     promise->then(globalObject, fulfillHandler, rejectHandler);
     vm.drainMicrotasks();
@@ -181,7 +184,7 @@ void JSLoadModuleFromSource(JSContextRef ctx, JSStringRef module, JSStringRef so
     auto sourceURL = sourceURLString ? URL({ }, sourceURLString->string()) : URL();
     SourceCode source = makeSource(module->string(), SourceOrigin { sourceURL }, SourceTaintedOrigin::Untainted, sourceURL.string(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()));
     JSInternalPromise* promise = loadModule(globalObject, source, jsUndefined());
-    
+
     JSFunction* fulfillHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [](JSGlobalObject*, CallFrame* callFrame) {
         return JSValue::encode(callFrame->argument(0));
     });
@@ -190,7 +193,7 @@ void JSLoadModuleFromSource(JSContextRef ctx, JSStringRef module, JSStringRef so
         *exception = toRef(globalObject, callFrame->argument(0));
         return JSValue::encode(callFrame->argument(0));
     });
-    
+
     vm.drainMicrotasks();
     promise->then(globalObject, fulfillHandler, rejectHandler);
     vm.drainMicrotasks();
@@ -208,7 +211,7 @@ JSValueRef JSLinkAndEvaluateModule(JSContextRef ctx, JSStringRef moduleKey)
     JSLockHolder locker(vm);
 
     JSValue returnValue = linkAndEvaluateModule(globalObject, Identifier::fromString(vm, moduleKey->string()), jsUndefined());
-    
+
     return toRef(globalObject, returnValue);
 }
 
@@ -238,7 +241,7 @@ void JSLoadAndEvaluateModule(JSContextRef ctx, JSStringRef filename, JSValueRef*
     JSLockHolder locker(vm);
 
     JSInternalPromise* promise = loadAndEvaluateModule(globalObject, filename->string(), jsUndefined(), jsUndefined());
-    
+
     JSFunction* fulfillHandler = JSNativeStdFunction::create(vm, globalObject, 1, String(), [](JSGlobalObject*, CallFrame* callFrame) {
         return JSValue::encode(callFrame->argument(0));
     });
@@ -252,7 +255,7 @@ void JSLoadAndEvaluateModule(JSContextRef ctx, JSStringRef filename, JSValueRef*
         }
         return JSValue::encode(callFrame->argument(0));
     });
-    
+
     vm.drainMicrotasks();
     promise->then(globalObject, fulfillHandler, rejectHandler);
     vm.drainMicrotasks();
@@ -272,7 +275,7 @@ bool JSCheckScriptSyntax(JSContextRef ctx, JSStringRef script, JSStringRef sourc
 
     auto sourceURL = sourceURLString ? URL({ }, sourceURLString->string()) : URL();
     SourceCode source = makeSource(script->string(), SourceOrigin { sourceURL }, SourceTaintedOrigin::Untainted, sourceURL.string(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()));
-    
+
     JSValue syntaxException;
     bool isValidSyntax = checkSyntax(globalObject, source, &syntaxException);
 
