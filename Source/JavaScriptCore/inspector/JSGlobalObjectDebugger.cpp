@@ -28,6 +28,8 @@
 
 #include "JSGlobalObject.h"
 #include "JSLock.h"
+#include "APICast.h"
+#include "JSAPIGlobalObject.h"
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -63,12 +65,35 @@ void JSGlobalObjectDebugger::runEventLoopWhilePaused()
 {
     JSC::Debugger::runEventLoopWhilePaused();
 
+    JSC::JSAPIGlobalObject* apiGlobal = jsDynamicCast<JSC::JSAPIGlobalObject*>(&m_globalObject);
+    JSContextRef contextRef = toRef(&m_globalObject);
+
+    // Invoke pause-event callback with Paused event
+    if (apiGlobal) {
+        if (auto callback = apiGlobal->pauseEventCallback()) {
+            callback(contextRef, InspectorPauseEventPaused);
+        }
+    }
+
     // Drop all locks so another thread can work in the VM while we are nested.
     JSC::JSLock::DropAllLocks dropAllLocks(&m_globalObject.vm());
 
     while (!m_doneProcessingDebuggerEvents) {
+        if (apiGlobal) {
+            if (auto callback = apiGlobal->pauseEventCallback()) {
+                callback(contextRef, InspectorPauseEventTick);
+            }
+        }
+
+        // Process the run loop to handle platform events
         if (RunLoop::cycle(JSGlobalObjectDebugger::runLoopMode()) == RunLoop::CycleResult::Stop)
             break;
+    }
+
+    if (apiGlobal) {
+        if (auto callback = apiGlobal->pauseEventCallback()) {
+            callback(contextRef, InspectorPauseEventResumed);
+        }
     }
 }
 

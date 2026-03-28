@@ -26,6 +26,11 @@
 #pragma once
 
 #include "JSGlobalObject.h"
+#include "InspectorAPI.h"
+#include <inspector/InspectorFrontendChannel.h>
+#include <memory>
+
+namespace Inspector { class FrontendChannel; }
 
 OBJC_CLASS JSScript;
 
@@ -36,6 +41,11 @@ public:
     using Base = JSGlobalObject;
 
     DECLARE_EXPORT_INFO;
+
+    JSAPIModuleLoader api_moduleLoader;
+    JSUncaughtExceptionAtEventLoop uncaughtExceptionAtEventLoop;
+    JSUncaughtExceptionHandler uncaughtExceptionHandler;
+    HashSet<String> m_syntheticModuleKeys;
 
     static constexpr bool needsDestruction = true;
     template<typename CellType, SubspaceAccess mode>
@@ -49,7 +59,32 @@ public:
 
     static void reportUncaughtExceptionAtEventLoop(JSGlobalObject*, Exception*);
 
-    JSValue loadAndEvaluateJSScriptModule(const JSLockHolder&, JSScript *);
+    JSValue loadAndEvaluateJSScriptModule(const JSLockHolder&, JSScript*);
+
+    void registerSyntheticModuleKey(String key)
+    {
+        m_syntheticModuleKeys.add(key);
+    }
+
+    void unregisterSyntheticModuleKey(String key)
+    {
+        m_syntheticModuleKeys.remove(key);
+    }
+
+    bool isSyntheticModuleKey(String key)
+    {
+        return m_syntheticModuleKeys.contains(key);
+    }
+
+    void setInspectorCallback(InspectorMessageCallback callback) { m_inspectorCallback = callback; }
+    InspectorMessageCallback inspectorCallback() const { return m_inspectorCallback; }
+
+    void setFrontendChannel(std::unique_ptr<Inspector::FrontendChannel> channel) { m_frontendChannel = std::move(channel); }
+    Inspector::FrontendChannel* frontendChannel() const { return m_frontendChannel.get(); }
+    void clearFrontendChannel() { m_frontendChannel = nullptr; }
+
+    void setPauseEventCallback(InspectorPauseEventCallback callback) { m_pauseEventCallback = callback; }
+    InspectorPauseEventCallback pauseEventCallback() const { return m_pauseEventCallback; }
 
 private:
     static const GlobalObjectMethodTable* globalObjectMethodTable();
@@ -60,6 +95,18 @@ private:
     static JSInternalPromise* moduleLoaderFetch(JSGlobalObject*, JSModuleLoader*, JSValue, JSValue, JSValue);
     static JSObject* moduleLoaderCreateImportMetaProperties(JSGlobalObject*, JSModuleLoader*, JSValue, JSModuleRecord*, JSValue);
     static JSValue moduleLoaderEvaluate(JSGlobalObject*, JSModuleLoader*, JSValue, JSValue, JSValue, JSValue, JSValue);
+
+    bool isApiModuleLoaderValid() const {
+        return api_moduleLoader.moduleLoaderResolve != nullptr &&
+               api_moduleLoader.moduleLoaderEvaluate != nullptr &&
+               api_moduleLoader.moduleLoaderFetch != nullptr &&
+               api_moduleLoader.moduleLoaderCreateImportMetaProperties != nullptr;
+    }
+
+    InspectorMessageCallback m_inspectorCallback { nullptr };
+    std::unique_ptr<Inspector::FrontendChannel> m_frontendChannel;
+
+    InspectorPauseEventCallback m_pauseEventCallback { nullptr };
 };
 
 }

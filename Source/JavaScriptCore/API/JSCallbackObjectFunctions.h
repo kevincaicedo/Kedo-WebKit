@@ -21,7 +21,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
@@ -87,7 +87,7 @@ JSCallbackObject<Parent>::~JSCallbackObject()
     vm.currentlyDestructingCallbackObject = nullptr;
     vm.currentlyDestructingCallbackObjectClassInfo = nullptr;
 }
-    
+
 template <class Parent>
 void JSCallbackObject<Parent>::finishCreation(JSGlobalObject* globalObject)
 {
@@ -112,7 +112,7 @@ void JSCallbackObject<Parent>::init(JSGlobalObject* globalObject)
 {
     ASSERT(globalObject);
     VM& vm = getVM(globalObject);
-    
+
     bool hasConvertToType = false;
     Vector<JSObjectInitializeCallback, 16> initRoutines;
     JSClassRef jsClass = classRef();
@@ -128,14 +128,14 @@ void JSCallbackObject<Parent>::init(JSGlobalObject* globalObject)
             JSFunction::create(vm, globalObject, 1, "[Symbol.toPrimitive]"_s, customToPrimitive, ImplementationVisibility::Public),
             static_cast<unsigned>(PropertyAttribute::DontEnum));
     }
-    
+
     // initialize from base to derived
     for (int i = static_cast<int>(initRoutines.size()) - 1; i >= 0; i--) {
         JSLock::DropAllLocks dropAllLocks(globalObject);
         JSObjectInitializeCallback initialize = initRoutines[i];
         initialize(toRef(globalObject), toRef(jsCast<JSObject*>(this)));
     }
-    
+
     m_classInfo = this->classInfo();
 }
 
@@ -149,7 +149,7 @@ bool JSCallbackObject<Parent>::getOwnPropertySlot(JSObject* object, JSGlobalObje
     JSContextRef ctx = toRef(globalObject);
     JSObjectRef thisRef = toRef(jsCast<JSObject*>(thisObject));
     RefPtr<OpaqueJSString> propertyNameRef;
-    
+
     if (StringImpl* name = propertyName.uid()) {
         unsigned attributes = PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum;
         for (JSClassRef jsClass = thisObject->classRef(); jsClass; jsClass = jsClass->parentClass) {
@@ -181,7 +181,7 @@ bool JSCallbackObject<Parent>::getOwnPropertySlot(JSObject* object, JSGlobalObje
                     return true;
                 }
             }
-            
+
             if (OpaqueJSClassStaticValuesTable* staticValues = jsClass->staticValues(globalObject)) {
                 if (staticValues->contains(name)) {
                     JSValue value = thisObject->getStaticValue(globalObject, propertyName);
@@ -192,7 +192,7 @@ bool JSCallbackObject<Parent>::getOwnPropertySlot(JSObject* object, JSGlobalObje
                     }
                 }
             }
-            
+
             if (OpaqueJSClassStaticFunctionsTable* staticFunctions = jsClass->staticFunctions(globalObject)) {
                 if (staticFunctions->contains(name)) {
                     slot.setCustom(thisObject, attributes, getStaticFunctionGetter());
@@ -255,7 +255,7 @@ EncodedJSValue JSCallbackObject<Parent>::customToPrimitive(JSGlobalObject* globa
             }
         }
     }
-    
+
     RELEASE_AND_RETURN(scope, JSValue::encode(thisObject->ordinaryToPrimitive(globalObject, hint)));
 }
 
@@ -273,7 +273,7 @@ bool JSCallbackObject<Parent>::put(JSCell* cell, JSGlobalObject* globalObject, P
 
     if (UNLIKELY(isThisValueAltered(slot, thisObject)))
         RELEASE_AND_RETURN(scope, Parent::put(thisObject, globalObject, propertyName, value, slot));
-    
+
     if (StringImpl* name = propertyName.uid()) {
         for (JSClassRef jsClass = thisObject->classRef(); jsClass; jsClass = jsClass->parentClass) {
             if (JSObjectSetPropertyCallback setProperty = jsClass->setProperty) {
@@ -290,7 +290,7 @@ bool JSCallbackObject<Parent>::put(JSCell* cell, JSGlobalObject* globalObject, P
                 if (result || exception)
                     return result;
             }
-            
+
             if (OpaqueJSClassStaticValuesTable* staticValues = jsClass->staticValues(globalObject)) {
                 if (StaticValueEntry* entry = staticValues->get(name)) {
                     if (entry->attributes & kJSPropertyAttributeReadOnly)
@@ -309,7 +309,7 @@ bool JSCallbackObject<Parent>::put(JSCell* cell, JSGlobalObject* globalObject, P
                     }
                 }
             }
-            
+
             if (OpaqueJSClassStaticFunctionsTable* staticFunctions = jsClass->staticFunctions(globalObject)) {
                 if (StaticFunctionEntry* entry = staticFunctions->get(name)) {
                     PropertySlot getSlot(thisObject, PropertySlot::InternalMethodType::VMInquiry, &vm);
@@ -399,7 +399,7 @@ bool JSCallbackObject<Parent>::deleteProperty(JSCell* cell, JSGlobalObject* glob
     JSContextRef ctx = toRef(globalObject);
     JSObjectRef thisRef = toRef(jsCast<JSObject*>(thisObject));
     RefPtr<OpaqueJSString> propertyNameRef;
-    
+
     if (StringImpl* name = propertyName.uid()) {
         for (JSClassRef jsClass = thisObject->classRef(); jsClass; jsClass = jsClass->parentClass) {
             if (JSObjectDeletePropertyCallback deleteProperty = jsClass->deleteProperty) {
@@ -416,7 +416,7 @@ bool JSCallbackObject<Parent>::deleteProperty(JSCell* cell, JSGlobalObject* glob
                 if (result || exception)
                     return true;
             }
-            
+
             if (OpaqueJSClassStaticValuesTable* staticValues = jsClass->staticValues(globalObject)) {
                 if (StaticValueEntry* entry = staticValues->get(name)) {
                     if (entry->attributes & kJSPropertyAttributeDontDelete)
@@ -424,7 +424,7 @@ bool JSCallbackObject<Parent>::deleteProperty(JSCell* cell, JSGlobalObject* glob
                     return true;
                 }
             }
-            
+
             if (OpaqueJSClassStaticFunctionsTable* staticFunctions = jsClass->staticFunctions(globalObject)) {
                 if (StaticFunctionEntry* entry = staticFunctions->get(name)) {
                     if (entry->attributes & kJSPropertyAttributeDontDelete)
@@ -474,7 +474,7 @@ EncodedJSValue JSCallbackObject<Parent>::constructImpl(JSGlobalObject* globalObj
     JSObject* constructor = callFrame->jsCallee();
     JSContextRef execRef = toRef(globalObject);
     JSObjectRef constructorRef = toRef(constructor);
-    
+
     for (JSClassRef jsClass = jsCast<JSCallbackObject<Parent>*>(constructor)->classRef(); jsClass; jsClass = jsClass->parentClass) {
         if (JSObjectCallAsConstructorCallback callAsConstructor = jsClass->callAsConstructor) {
             size_t argumentCount = callFrame->argumentCount();
@@ -494,7 +494,7 @@ EncodedJSValue JSCallbackObject<Parent>::constructImpl(JSGlobalObject* globalObj
             return JSValue::encode(result);
         }
     }
-    
+
     RELEASE_ASSERT_NOT_REACHED(); // getConstructData should prevent us from reaching here
     return JSValue::encode(JSValue());
 }
@@ -508,7 +508,7 @@ bool JSCallbackObject<Parent>::customHasInstance(JSObject* object, JSGlobalObjec
     JSCallbackObject* thisObject = jsCast<JSCallbackObject*>(object);
     JSContextRef execRef = toRef(globalObject);
     JSObjectRef thisRef = toRef(jsCast<JSObject*>(thisObject));
-    
+
     for (JSClassRef jsClass = thisObject->classRef(); jsClass; jsClass = jsClass->parentClass) {
         if (JSObjectHasInstanceCallback hasInstance = jsClass->hasInstance) {
             JSValueRef valueRef = toRef(globalObject, value);
@@ -551,7 +551,7 @@ EncodedJSValue JSCallbackObject<Parent>::callImpl(JSGlobalObject* globalObject, 
     JSContextRef execRef = toRef(globalObject);
     JSObjectRef functionRef = toRef(callFrame->jsCallee());
     JSObjectRef thisObjRef = toRef(jsCast<JSObject*>(callFrame->thisValue().toThis(globalObject, ECMAMode::sloppy())));
-    
+
     for (JSClassRef jsClass = jsCast<JSCallbackObject<Parent>*>(toJS(functionRef))->classRef(); jsClass; jsClass = jsClass->parentClass) {
         if (JSObjectCallAsFunctionCallback callAsFunction = jsClass->callAsFunction) {
             size_t argumentCount = callFrame->argumentCount();
@@ -572,7 +572,7 @@ EncodedJSValue JSCallbackObject<Parent>::callImpl(JSGlobalObject* globalObject, 
             return JSValue::encode(result);
         }
     }
-    
+
     RELEASE_ASSERT_NOT_REACHED(); // getCallData should prevent us from reaching here
     return JSValue::encode(JSValue());
 }
@@ -584,13 +584,13 @@ void JSCallbackObject<Parent>::getOwnSpecialPropertyNames(JSObject* object, JSGl
     JSCallbackObject* thisObject = jsCast<JSCallbackObject*>(object);
     JSContextRef execRef = toRef(globalObject);
     JSObjectRef thisRef = toRef(jsCast<JSObject*>(thisObject));
-    
+
     for (JSClassRef jsClass = thisObject->classRef(); jsClass; jsClass = jsClass->parentClass) {
         if (JSObjectGetPropertyNamesCallback getPropertyNames = jsClass->getPropertyNames) {
             JSLock::DropAllLocks dropAllLocks(globalObject);
             getPropertyNames(execRef, thisRef, toRef(&propertyNames));
         }
-        
+
         if (OpaqueJSClassStaticValuesTable* staticValues = jsClass->staticValues(globalObject)) {
             typedef OpaqueJSClassStaticValuesTable::const_iterator iterator;
             iterator end = staticValues->end();
@@ -603,7 +603,7 @@ void JSCallbackObject<Parent>::getOwnSpecialPropertyNames(JSObject* object, JSGl
                 }
             }
         }
-        
+
         if (OpaqueJSClassStaticFunctionsTable* staticFunctions = jsClass->staticFunctions(globalObject)) {
             typedef OpaqueJSClassStaticFunctionsTable::const_iterator iterator;
             iterator end = staticFunctions->end();
@@ -648,7 +648,7 @@ JSValue JSCallbackObject<Parent>::getStaticValue(JSGlobalObject* globalObject, P
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSObjectRef thisRef = toRef(jsCast<JSObject*>(this));
-    
+
     if (StringImpl* name = propertyName.uid()) {
         for (JSClassRef jsClass = classRef(); jsClass; jsClass = jsClass->parentClass) {
             if (OpaqueJSClassStaticValuesTable* staticValues = jsClass->staticValues(globalObject)) {
@@ -682,7 +682,7 @@ EncodedJSValue JSCallbackObject<Parent>::staticFunctionGetterImpl(JSGlobalObject
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSCallbackObject* thisObj = asCallbackObject(thisValue);
-    
+
     // Check for cached or override property.
     PropertySlot slot2(thisObj, PropertySlot::InternalMethodType::VMInquiry, &vm);
     bool found = Parent::getOwnPropertySlot(thisObj, globalObject, propertyName, slot2);
@@ -715,10 +715,10 @@ EncodedJSValue JSCallbackObject<Parent>::callbackGetterImpl(JSGlobalObject* glob
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSCallbackObject* thisObj = asCallbackObject(thisValue);
-    
+
     JSObjectRef thisRef = toRef(jsCast<JSObject*>(thisObj));
     RefPtr<OpaqueJSString> propertyNameRef;
-    
+
     if (StringImpl* name = propertyName.uid()) {
         for (JSClassRef jsClass = thisObj->classRef(); jsClass; jsClass = jsClass->parentClass) {
             if (JSObjectGetPropertyCallback getProperty = jsClass->getProperty) {

@@ -44,6 +44,7 @@ API/JSWeakPrivate.cpp
 API/JSWeakValue.cpp
 API/MarkedJSValueRefArray.cpp
 API/OpaqueJSString.cpp
+API/InspectorAPI.cpp
 
 assembler/AbstractMacroAssembler.cpp
 assembler/AssemblerBuffer.cpp

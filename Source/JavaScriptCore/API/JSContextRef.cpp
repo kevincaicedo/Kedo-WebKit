@@ -203,6 +203,28 @@ JSContextGroupRef JSContextGetGroup(JSContextRef ctx)
     return toRef(&globalObject->vm());
 }
 
+void JSContextSetSharedData(JSContextRef ctx, void* data)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    
+    JSGlobalObject* globalObject = toJS(ctx);
+    globalObject->sharedData = data;
+}
+
+void* JSContextGetSharedData(JSContextRef ctx)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+    
+    JSGlobalObject* globalObject = toJS(ctx);
+    return globalObject->sharedData;
+}
+
 JSGlobalContextRef JSContextGetGlobalContext(JSContextRef ctx)
 {
     if (!ctx) {
@@ -293,6 +315,30 @@ void JSGlobalContextSetUnhandledRejectionCallback(JSGlobalContextRef ctx, JSObje
     }
 
     globalObject->setUnhandledRejectionCallback(vm, object);
+}
+
+void JSGlobalContextSetUncaughtExceptionAtEventLoopCallback(JSGlobalContextRef ctx, JSUncaughtExceptionAtEventLoop callback)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    JSAPIGlobalObject* thisObject = jsCast<JSAPIGlobalObject*>(globalObject);
+    thisObject->uncaughtExceptionAtEventLoop = callback;
+}
+
+void JSGlobalContextSetUncaughtExceptionHandler(JSGlobalContextRef ctx, JSUncaughtExceptionHandler handler)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    JSAPIGlobalObject* thisObject = jsCast<JSAPIGlobalObject*>(globalObject);
+    thisObject->uncaughtExceptionHandler = handler;
 }
 
 void JSGlobalContextSetEvalEnabled(JSGlobalContextRef ctx, bool enabled, JSStringRef message)
