@@ -940,6 +940,7 @@ JSGlobalObject::JSGlobalObject(VM& vm, Structure* structure, const GlobalObjectM
 
 JSGlobalObject::~JSGlobalObject()
 {
+    sharedData = nullptr;
     clearWeakTickets();
 #if ENABLE(REMOTE_INSPECTOR)
     protect(inspectorController())->globalObjectDestroyed();
