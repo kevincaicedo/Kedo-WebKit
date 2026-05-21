@@ -28,16 +28,13 @@
 #include "JSModuleLoader.h"
 #include "ProgramExecutable.h"
 
-#include "APICast.h"
 #include "BuiltinNames.h"
 #include "Completion.h"
 #include "GlobalObjectMethodTable.h"
 #include "JSCInlines.h"
-#include "JSAPIGlobalObject.h"
 #include "JSModuleNamespaceObject.h"
 #include "JSModuleRecord.h"
 #include "JSPromise.h"
-#include "PropertyNameArray.h"
 #include "JSSourceCode.h"
 #include "JSWebAssembly.h"
 #include "Microtask.h"
@@ -348,6 +345,16 @@ void JSModuleLoader::provideFetch(JSGlobalObject* globalObject, const Identifier
         entry->provideFetch(globalObject, jsSourceCode); // can throw
 }
 
+bool JSModuleLoader::provideModule(JSGlobalObject* globalObject, const Identifier& key, ScriptFetchParameters::Type type, AbstractModuleRecord* moduleRecord)
+{
+    ModuleRegistryEntry* entry = ensureRegistered(globalObject, key, type);
+    if (entry->status() != ModuleRegistryEntry::Status::New)
+        return false;
+
+    entry->provideModule(globalObject, moduleRecord); // can throw
+    return true;
+}
+
 JSPromise* JSModuleLoader::loadModule(JSGlobalObject* globalObject, const Identifier& specifier, RefPtr<ScriptFetchParameters> parameters, RefPtr<ScriptFetcher> scriptFetcher, bool evaluate, bool dynamic, bool useImportMap)
 {
     VM& vm = globalObject->vm();
@@ -395,13 +402,25 @@ JSPromise* JSModuleLoader::linkAndEvaluateModule(JSGlobalObject* globalObject, c
     ModuleRegistryEntry* entry = ensureRegistered(globalObject, moduleKey, type);
     RETURN_IF_EXCEPTION(scope, nullptr);
 
-    AbstractModuleRecord* record = entry->record();
-    ASSERT(record);
-
     JSValue error = entry->error(globalObject);
     RETURN_IF_EXCEPTION(scope, nullptr);
     if (error) {
         scope.throwException(globalObject, error);
+        return nullptr;
+    }
+
+    if (JSPromise* loadPromise = entry->loadPromise()) {
+        AbstractModuleRecord::ModuleRequest request { moduleKey, ScriptFetchParameters::create(type) };
+        auto* context = ModuleLoadingContext::create(vm, request, WTF::move(scriptFetcher), /* evaluate */ true, /* dynamic */ false, /* useImportMap */ false);
+        JSPromise* resultPromise = JSPromise::create(vm, globalObject->promiseStructure());
+        resultPromise->markAsHandled();
+        loadPromise->performPromiseThenWithInternalMicrotask(vm, globalObject, InternalMicrotask::ModuleLoadLinkEvaluateSettled, resultPromise, context);
+        return resultPromise;
+    }
+
+    AbstractModuleRecord* record = entry->record();
+    if (!record) {
+        throwTypeError(globalObject, scope, "Cannot link and evaluate a module before it has finished loading"_s);
         return nullptr;
     }
 
@@ -663,6 +682,12 @@ JSPromise* JSModuleLoader::hostLoadImportedModule(JSGlobalObject* globalObject, 
             finishLoadingImportedModule(globalObject, referrer, moduleRequest, payload, Exception::create(vm, fetchError), scriptFetcher);
             RETURN_IF_EXCEPTION(scope, nullptr);
             return JSPromise::rejectedPromise(globalObject, fetchError);
+        }
+
+        if (AbstractModuleRecord* moduleRecord = mapEntry->record()) {
+            finishLoadingImportedModule(globalObject, referrer, moduleRequest, payload, moduleRecord, scriptFetcher);
+            RETURN_IF_EXCEPTION(scope, nullptr);
+            return JSPromise::resolvedPromise(globalObject, moduleRecord);
         }
 
         JSPromise* promise = mapEntry->loadPromise();
@@ -1015,55 +1040,6 @@ JSPromise* JSModuleLoader::makeModule(JSGlobalObject* globalObject, const Identi
 
     JSPromise* promise = JSPromise::create(vm, globalObject->promiseStructure());
     promise->markAsHandled();
-
-    if (auto* apiGlobalObject = dynamicDowncast<JSAPIGlobalObject>(globalObject); apiGlobalObject && apiGlobalObject->isSyntheticModuleKey(moduleKey.string())) {
-        if (!apiGlobalObject->hasAPIModuleLoaderEvaluate()) {
-            promise->reject(vm, globalObject, createError(globalObject, makeString("Synthetic module '"_s, moduleKey.string(), "' does not have an evaluate callback."_s)));
-            RELEASE_AND_RETURN(scope, promise);
-        }
-
-        JSValue keyValue = identifierToJSValue(vm, moduleKey);
-        RETURN_IF_EXCEPTION(scope, promise->rejectWithCaughtException(globalObject, scope));
-
-        JSContextRef contextRef = toRef(globalObject);
-        JSValueRef resultRef = apiGlobalObject->api_moduleLoader.moduleLoaderEvaluate(contextRef, toRef(globalObject, keyValue));
-        RETURN_IF_EXCEPTION(scope, promise->rejectWithCaughtException(globalObject, scope));
-        JSValue value = resultRef ? toJS(globalObject, resultRef) : jsUndefined();
-
-        if (!value.isObject()) {
-            promise->reject(vm, globalObject, createError(globalObject, "Synthetic module evaluate callback must return an object"_s));
-            RELEASE_AND_RETURN(scope, promise);
-        }
-
-        Vector<Identifier, 4> exportNames;
-        MarkedArgumentBuffer exportValues;
-
-        JSObject* exportObject = uncheckedDowncast<JSObject>(value);
-        PropertyNameArrayBuilder propertyNames(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude);
-        JSObject::getOwnPropertyNames(exportObject, globalObject, propertyNames, DontEnumPropertiesMode::Exclude);
-        RETURN_IF_EXCEPTION(scope, promise->rejectWithCaughtException(globalObject, scope));
-
-        for (const auto& propertyName : propertyNames) {
-            JSValue exportValue = exportObject->get(globalObject, propertyName);
-            RETURN_IF_EXCEPTION(scope, promise->rejectWithCaughtException(globalObject, scope));
-
-            if (propertyName.string() == "default"_s) {
-                exportNames.append(vm.propertyNames->defaultKeyword);
-                exportValues.appendWithCrashOnOverflow(exportValue);
-                continue;
-            }
-
-            exportNames.append(propertyName);
-            exportValues.appendWithCrashOnOverflow(exportValue);
-        }
-
-        auto* moduleRecord = SyntheticModuleRecord::createWithExportNamesAndValues(globalObject, moduleKey, exportNames, exportValues);
-        RETURN_IF_EXCEPTION(scope, promise->rejectWithCaughtException(globalObject, scope));
-
-        scope.release();
-        promise->fulfill(vm, globalObject, moduleRecord);
-        return promise;
-    }
 
     const SourceCode& sourceCode = jsSourceCode->sourceCode();
 

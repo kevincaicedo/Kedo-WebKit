@@ -67,32 +67,25 @@ void JSGlobalObjectDebugger::runEventLoopWhilePaused()
 
     JSC::JSAPIGlobalObject* apiGlobal = dynamicDowncast<JSC::JSAPIGlobalObject>(&m_globalObject);
     JSContextRef contextRef = toRef(&m_globalObject);
+    InspectorPauseEventCallback callback = apiGlobal ? apiGlobal->pauseEventCallback() : nullptr;
 
-    // Invoke pause-event callback with Paused event
-    if (apiGlobal) {
-        if (auto callback = apiGlobal->pauseEventCallback()) {
-            callback(contextRef, InspectorPauseEventPaused);
-        }
-    }
-
-    // Drop all locks so another thread can work in the VM while we are nested.
+    // Copy the host callback before dropping the JS lock. The callback slot is
+    // mutated under JSLock by the C API setter/disconnect paths.
     JSC::JSLock::DropAllLocks dropAllLocks(&m_globalObject.vm());
 
+    if (callback)
+        callback(contextRef, InspectorPauseEventPaused);
+
     while (!m_doneProcessingDebuggerEvents) {
-        if (apiGlobal) {
-            if (auto callback = apiGlobal->pauseEventCallback())
-                callback(contextRef, InspectorPauseEventTick);
-        }
+        if (callback)
+            callback(contextRef, InspectorPauseEventTick);
 
         if (RunLoop::cycle(JSGlobalObjectDebugger::runLoopModeSingleton()) == RunLoop::CycleResult::Stop)
             break;
     }
 
-    if (apiGlobal) {
-        if (auto callback = apiGlobal->pauseEventCallback()) {
-            callback(contextRef, InspectorPauseEventResumed);
-        }
-    }
+    if (callback)
+        callback(contextRef, InspectorPauseEventResumed);
 }
 
 RunLoopMode JSGlobalObjectDebugger::runLoopModeSingleton()

@@ -84,6 +84,7 @@ public:
     // APIs to control the module loader.
     void provideFetch(JSGlobalObject*, const Identifier& key, ScriptFetchParameters::Type, SourceCode&&);
     void provideFetch(JSGlobalObject*, const Identifier& key, ScriptFetchParameters::Type, JSSourceCode*);
+    bool provideModule(JSGlobalObject*, const Identifier& key, ScriptFetchParameters::Type, AbstractModuleRecord*);
     JSPromise* loadModule(JSGlobalObject*, const Identifier& moduleName, RefPtr<ScriptFetchParameters>, RefPtr<ScriptFetcher>, bool evaluate, bool dynamic, bool useImportMap);
     JSPromise* linkAndEvaluateModule(JSGlobalObject*, const Identifier& moduleKey, RefPtr<ScriptFetchParameters>, RefPtr<ScriptFetcher>);
     JSPromise* requestImportModule(JSGlobalObject*, const Identifier& moduleName, const Identifier& referrer, RefPtr<ScriptFetchParameters>, RefPtr<ScriptFetcher>);

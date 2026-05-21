@@ -2,6 +2,7 @@
 #define InspectorAPI_h
 
 #include <JavaScriptCore/JSContextRef.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -9,9 +10,15 @@ extern "C" {
 
 /**
  * Callback function type for receiving inspector messages.
- * @param message The JSON message from the inspector backend.
+ *
+ * The message pointer is borrowed and valid only for the duration of the
+ * callback. Embedders that need to keep it must copy exactly messageLength
+ * bytes before returning.
+ *
+ * @param message The UTF-8 JSON message from the inspector backend.
+ * @param messageLength The number of bytes in message, excluding any trailing NUL.
  */
-typedef void (*InspectorMessageCallback)(const char* message);
+typedef void (*InspectorMessageCallback)(const char* message, size_t messageLength);
 
 /**
  * Enum representing the type of debugger pause-loop event.
@@ -27,6 +34,10 @@ typedef enum {
 
 /**
  * Callback function type for debugger pause-loop events (paused/resumed/tick).
+ * The callback runs on the JavaScriptCore thread while execution is inside the
+ * debugger pause loop. It must return quickly. Embedders should use it to pump
+ * already-queued inspector commands or notify an external queue; do not release
+ * the context, destroy the VM, or run arbitrary JavaScript from this callback.
  *
  * @param ctx The JavaScript context (JSContextRef).
  * @param event The event type (Paused, Resumed, or Tick).
@@ -47,6 +58,7 @@ JS_EXPORT void JSInspectorSetCallback(JSGlobalContextRef context, InspectorMessa
 /**
  * Sends a message to the inspector backend.
  * The message should be a valid JSON string following the WebKit Inspector Protocol.
+ * The message is copied before this function returns.
  *
  * @param context The JavaScript context.
  * @param message The JSON message to send to the inspector.
@@ -55,7 +67,9 @@ JS_EXPORT void JSInspectorSendMessage(JSGlobalContextRef context, const char* me
 
 /**
  * Disconnects the inspector frontend from the given context.
- * This should be called before releasing a context that has an active inspector connection.
+ * Releasing a context with an active direct inspector frontend also disconnects
+ * it during global object teardown, but callers may use this function for an
+ * explicit earlier shutdown.
  * After calling this function, no more inspector callbacks will be received for this context.
  *
  * @param context The JavaScript context to disconnect from the inspector.
@@ -79,6 +93,9 @@ JS_EXPORT bool JSInspectorIsConnected(JSGlobalContextRef context);
  * - During the paused state nested run loop (event = InspectorPauseEventTick)
  *
  * The context (JSContextRef) is passed directly to the callback.
+ * The callback pointer is copied while the VM lock is held before the paused
+ * nested run loop drops the lock. The callback must not destroy the context or
+ * run arbitrary JavaScript; use it only to pump or queue debugger commands.
  *
  * @param context The JavaScript context to configure.
  * @param callback The pause-loop event callback, or NULL to disable.

@@ -244,6 +244,21 @@ void ModuleRegistryEntry::provideFetch(JSGlobalObject* globalObject, JSSourceCod
     m_fetchPromise->fulfill(vm, globalObject, jsSourceCode);
 }
 
+void ModuleRegistryEntry::provideModule(JSGlobalObject* globalObject, AbstractModuleRecord* moduleRecord)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    ASSERT(m_status == Status::New);
+
+    ensureModulePromise(globalObject);
+    RETURN_IF_EXCEPTION(scope, void());
+
+    scope.release();
+    m_status = Status::Fetching;
+    m_fetchPromise->fulfill(vm, globalObject, moduleRecord);
+}
+
 void ModuleRegistryEntry::fetchComplete(JSGlobalObject* globalObject, AbstractModuleRecord* record)
 {
     if (m_status == Status::FetchFailed) {

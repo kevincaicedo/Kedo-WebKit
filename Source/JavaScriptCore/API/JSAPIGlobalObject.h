@@ -29,7 +29,6 @@
 #include "JSBase.h"
 #include "JSGlobalObject.h"
 #include <inspector/InspectorFrontendChannel.h>
-#include <wtf/HashSet.h>
 #include <wtf/RefPtr.h>
 #include <memory>
 #include <utility>
@@ -49,11 +48,6 @@ public:
 
     DECLARE_EXPORT_INFO;
 
-    JSAPIModuleLoader api_moduleLoader { };
-    JSUncaughtExceptionAtEventLoop uncaughtExceptionAtEventLoop { nullptr };
-    JSUncaughtExceptionHandler uncaughtExceptionHandler { nullptr };
-    HashSet<String> m_syntheticModuleKeys;
-
     static constexpr DestructionMode needsDestruction = NeedsDestruction;
     template<typename CellType, SubspaceAccess mode>
     static GCClient::IsoSubspace* subspaceFor(VM& vm)
@@ -63,30 +57,28 @@ public:
 
     static JSAPIGlobalObject* create(VM&, Structure*);
     static Structure* createStructure(VM&, JSValue prototype);
+    static void destroy(JSCell*);
 
     static void reportUncaughtExceptionAtEventLoop(JSGlobalObject*, Exception*);
 
+    ~JSAPIGlobalObject();
+
     JSValue loadAndEvaluateJSScriptModule(const JSLockHolder&, JSScript*);
 
-    void registerSyntheticModuleKey(const String& key)
-    {
-        m_syntheticModuleKeys.add(key);
-    }
+    void setAPIModuleLoader(JSAPIModuleLoader moduleLoader) { m_apiModuleLoader = moduleLoader; }
+    const JSAPIModuleLoader& apiModuleLoader() const { return m_apiModuleLoader; }
 
-    void unregisterSyntheticModuleKey(const String& key)
-    {
-        m_syntheticModuleKeys.remove(key);
-    }
+    bool hasAPIModuleLoaderResolve() const { return !!m_apiModuleLoader.moduleLoaderResolve; }
+    bool hasAPIModuleLoaderEvaluate() const { return !!m_apiModuleLoader.moduleLoaderEvaluate; }
+    bool hasAPIModuleLoaderFetch() const { return !!m_apiModuleLoader.moduleLoaderFetch; }
+    bool hasAPIModuleLoaderFetchSource() const { return !!m_apiModuleLoader.moduleLoaderFetchSource; }
+    bool hasAPIModuleLoaderCreateImportMetaProperties() const { return !!m_apiModuleLoader.moduleLoaderCreateImportMetaProperties; }
 
-    bool isSyntheticModuleKey(const String& key) const
-    {
-        return m_syntheticModuleKeys.contains(key);
-    }
+    void setUncaughtExceptionAtEventLoop(JSUncaughtExceptionAtEventLoop callback) { m_uncaughtExceptionAtEventLoop = callback; }
+    JSUncaughtExceptionAtEventLoop uncaughtExceptionAtEventLoop() const { return m_uncaughtExceptionAtEventLoop; }
 
-    bool hasAPIModuleLoaderResolve() const { return !!api_moduleLoader.moduleLoaderResolve; }
-    bool hasAPIModuleLoaderEvaluate() const { return !!api_moduleLoader.moduleLoaderEvaluate; }
-    bool hasAPIModuleLoaderFetch() const { return !!api_moduleLoader.moduleLoaderFetch; }
-    bool hasAPIModuleLoaderCreateImportMetaProperties() const { return !!api_moduleLoader.moduleLoaderCreateImportMetaProperties; }
+    void setUncaughtExceptionHandler(JSUncaughtExceptionHandler handler) { m_uncaughtExceptionHandler = handler; }
+    JSUncaughtExceptionHandler uncaughtExceptionHandler() const { return m_uncaughtExceptionHandler; }
 
     void setInspectorCallback(InspectorMessageCallback callback) { m_inspectorCallback = callback; }
     InspectorMessageCallback inspectorCallback() const { return m_inspectorCallback; }
@@ -94,6 +86,7 @@ public:
     void setFrontendChannel(std::unique_ptr<Inspector::FrontendChannel> channel) { m_frontendChannel = std::move(channel); }
     Inspector::FrontendChannel* frontendChannel() const { return m_frontendChannel.get(); }
     void clearFrontendChannel() { m_frontendChannel = nullptr; }
+    void disconnectInspectorFrontend();
 
     void setPauseEventCallback(InspectorPauseEventCallback callback) { m_pauseEventCallback = callback; }
     InspectorPauseEventCallback pauseEventCallback() const { return m_pauseEventCallback; }
@@ -107,6 +100,10 @@ private:
     static JSPromise* moduleLoaderFetch(JSGlobalObject*, JSModuleLoader*, JSValue, RefPtr<ScriptFetchParameters>, RefPtr<ScriptFetcher>);
     static JSObject* moduleLoaderCreateImportMetaProperties(JSGlobalObject*, JSModuleLoader*, JSValue, JSModuleRecord*, RefPtr<ScriptFetcher>);
     static JSValue moduleLoaderEvaluate(JSGlobalObject*, JSModuleLoader*, JSValue, JSValue, RefPtr<ScriptFetcher>, JSValue, JSValue);
+
+    JSAPIModuleLoader m_apiModuleLoader { };
+    JSUncaughtExceptionAtEventLoop m_uncaughtExceptionAtEventLoop { nullptr };
+    JSUncaughtExceptionHandler m_uncaughtExceptionHandler { nullptr };
 
     InspectorMessageCallback m_inspectorCallback { nullptr };
     std::unique_ptr<Inspector::FrontendChannel> m_frontendChannel;

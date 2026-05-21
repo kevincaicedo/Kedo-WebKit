@@ -563,36 +563,6 @@ JSC_DEFINE_HOST_FUNCTION(globalFuncParseFloat, (JSGlobalObject* globalObject, Ca
     return JSValue::encode(jsNumber(parseFloat(view)));
 }
 
-// Encode string to Uint8Array
-JSC_DEFINE_HOST_FUNCTION(globalFuncUFT8Encoding, (JSGlobalObject* globalObject, CallFrame* callFrame))
-{
-    VM& vm = globalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    JSValue value = callFrame->argument(0);
-
-    String string = value.toWTFString(globalObject);
-    RETURN_IF_EXCEPTION(scope, { });
-
-    auto expectedUtf8 = string.tryGetUTF8([&](std::span<const char8_t> span) {
-        return spanReinterpretCast<const uint8_t>(span);
-    });
-    if (!expectedUtf8) {
-        if (expectedUtf8.error() == UTF8ConversionError::OutOfMemory)
-            return JSValue::encode(throwOutOfMemoryError(globalObject, scope));
-        return JSValue::encode(throwTypeError(globalObject, scope, "Cannot convert the value to UTF-8"_s));
-    }
-
-    auto utf8 = expectedUtf8.value();
-    auto content = Uint8Array::tryCreate(utf8.data(), utf8.size());
-    if (!content)
-        return JSValue::encode(throwOutOfMemoryError(globalObject, scope));
-    Structure* structure = globalObject->typedArrayStructure(TypeUint8, content->isResizableOrGrowableShared());
-    JSObject* result = JSUint8Array::create(vm, structure, WTF::move(content));
-
-    return JSValue::encode(result);
-}
-
 JSC_DEFINE_HOST_FUNCTION(globalFuncDecodeURI, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     static constexpr auto doNotUnescapeWhenDecodingURI = makeLatin1CharacterBitSet(

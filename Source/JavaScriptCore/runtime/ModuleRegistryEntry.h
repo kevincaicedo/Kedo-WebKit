@@ -88,6 +88,7 @@ public:
 
     void provideFetch(JSGlobalObject*, SourceCode&&);
     void provideFetch(JSGlobalObject*, JSSourceCode*);
+    void provideModule(JSGlobalObject*, AbstractModuleRecord*);
     void fetchComplete(JSGlobalObject*, AbstractModuleRecord*);
 
 private:

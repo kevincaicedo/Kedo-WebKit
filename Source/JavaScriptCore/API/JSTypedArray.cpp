@@ -258,7 +258,10 @@ void* JSObjectGetTypedArrayBytesPtr(JSContextRef ctx, JSObjectRef objectRef, JSV
         }
 
         setException(ctx, exception, createOutOfMemoryError(globalObject));
+        return nullptr;
     }
+
+    setException(ctx, exception, createTypeError(globalObject, "JSObjectGetTypedArrayBytesPtr expects object to be a Typed Array object"_s));
     return nullptr;
 }
 
@@ -270,6 +273,11 @@ void* JSValueGetTypedArrayBytesPtrFromValue(JSContextRef ctx, JSValueRef valueRe
     JSLockHolder locker(vm);
 
     JSValue value = toJS(globalObject, valueRef);
+    if (!value.isObject()) {
+        setException(ctx, exception, createTypeError(globalObject, "JSValueGetTypedArrayBytesPtrFromValue expects value to be a Typed Array object"_s));
+        return nullptr;
+    }
+
     JSObject* object = value.getObject();
 
     if (JSArrayBufferView* typedArray = dynamicDowncast<JSArrayBufferView>(object)) {
@@ -283,7 +291,10 @@ void* JSValueGetTypedArrayBytesPtrFromValue(JSContextRef ctx, JSValueRef valueRe
         }
 
         setException(ctx, exception, createOutOfMemoryError(globalObject));
+        return nullptr;
     }
+
+    setException(ctx, exception, createTypeError(globalObject, "JSValueGetTypedArrayBytesPtrFromValue expects value to be a Typed Array object"_s));
     return nullptr;
 }
 
@@ -303,33 +314,45 @@ bool JSObjectIsDetachedBuffer(JSContextRef ctx, JSObjectRef objectRef, JSValueRe
     return thisObject->impl()->isDetached();
 }
 
-size_t JSObjectGetTypedArrayLength(JSContextRef, JSObjectRef objectRef, JSValueRef*)
+size_t JSObjectGetTypedArrayLength(JSContextRef ctx, JSObjectRef objectRef, JSValueRef* exception)
 {
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
     JSObject* object = toJS(objectRef);
 
     if (JSArrayBufferView* typedArray = dynamicDowncast<JSArrayBufferView>(object))
         return typedArray->length();
 
+    setException(ctx, exception, createTypeError(globalObject, "JSObjectGetTypedArrayLength expects object to be a Typed Array object"_s));
     return 0;
 }
 
-size_t JSObjectGetTypedArrayByteLength(JSContextRef, JSObjectRef objectRef, JSValueRef*)
+size_t JSObjectGetTypedArrayByteLength(JSContextRef ctx, JSObjectRef objectRef, JSValueRef* exception)
 {
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
     JSObject* object = toJS(objectRef);
 
     if (JSArrayBufferView* typedArray = dynamicDowncast<JSArrayBufferView>(object))
         return typedArray->byteLength();
 
+    setException(ctx, exception, createTypeError(globalObject, "JSObjectGetTypedArrayByteLength expects object to be a Typed Array object"_s));
     return 0;
 }
 
-size_t JSObjectGetTypedArrayByteOffset(JSContextRef, JSObjectRef objectRef, JSValueRef*)
+size_t JSObjectGetTypedArrayByteOffset(JSContextRef ctx, JSObjectRef objectRef, JSValueRef* exception)
 {
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
     JSObject* object = toJS(objectRef);
 
     if (JSArrayBufferView* typedArray = dynamicDowncast<JSArrayBufferView>(object))
         return typedArray->byteOffset();
 
+    setException(ctx, exception, createTypeError(globalObject, "JSObjectGetTypedArrayByteOffset expects object to be a Typed Array object"_s));
     return 0;
 }
 
@@ -346,8 +369,10 @@ JSObjectRef JSObjectGetTypedArrayBuffer(JSContextRef ctx, JSObjectRef objectRef,
             return toRef(vm.m_typedArrayController->toJS(globalObject, typedArray->realm(), *buffer));
 
         setException(ctx, exception, createOutOfMemoryError(globalObject));
+        return nullptr;
     }
 
+    setException(ctx, exception, createTypeError(globalObject, "JSObjectGetTypedArrayBuffer expects object to be a Typed Array object"_s));
     return nullptr;
 }
 
@@ -370,7 +395,7 @@ JSObjectRef JSObjectMakeArrayBufferWithBytesNoCopy(JSContextRef ctx, void* bytes
     return toRef(jsBuffer);
 }
 
-JSValueRef JSValueFastUFT8Encoding(JSContextRef ctx, JSValueRef value, JSValueRef* exception)
+JSValueRef JSValueCreateUTF8ArrayBuffer(JSContextRef ctx, JSValueRef value, JSValueRef* exception)
 {
     JSGlobalObject* globalObject = toJS(ctx);
     VM& vm = globalObject->vm();
@@ -419,6 +444,7 @@ void* JSObjectGetArrayBufferBytesPtr(JSContextRef ctx, JSObjectRef objectRef, JS
         buffer->pinAndLock();
         return buffer->data();
     }
+    setException(ctx, exception, createTypeError(globalObject, "JSObjectGetArrayBufferBytesPtr expects object to be an Array Buffer object"_s));
     return nullptr;
 }
 
@@ -431,8 +457,11 @@ inline static bool isLinkedBeforeTypedArrayLengthQuirk()
 inline static bool isLinkedBeforeTypedArrayLengthQuirk() { return false; }
 #endif
 
-size_t JSObjectGetArrayBufferByteLength(JSContextRef, JSObjectRef objectRef, JSValueRef*)
+size_t JSObjectGetArrayBufferByteLength(JSContextRef ctx, JSObjectRef objectRef, JSValueRef* exception)
 {
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
     JSObject* object = toJS(objectRef);
 
     if (!object) {
@@ -445,7 +474,8 @@ size_t JSObjectGetArrayBufferByteLength(JSContextRef, JSObjectRef objectRef, JSV
 
     if (JSArrayBuffer* jsBuffer = dynamicDowncast<JSArrayBuffer>(object))
         return jsBuffer->impl()->byteLength();
-    
+
+    setException(ctx, exception, createTypeError(globalObject, "JSObjectGetArrayBufferByteLength expects object to be an Array Buffer object"_s));
     return 0;
 }
 

@@ -229,7 +229,9 @@ void JSContextSetSharedData(JSContextRef ctx, void* data)
     }
 
     JSGlobalObject* globalObject = toJS(ctx);
-    globalObject->sharedData = data;
+    VM& vm = globalObject->vm();
+    JSLockHolder lock(vm);
+    globalObject->setAPISharedData(data);
 }
 
 void* JSContextGetSharedData(JSContextRef ctx)
@@ -240,7 +242,9 @@ void* JSContextGetSharedData(JSContextRef ctx)
     }
 
     JSGlobalObject* globalObject = toJS(ctx);
-    return globalObject->sharedData;
+    VM& vm = globalObject->vm();
+    JSLockHolder lock(vm);
+    return globalObject->apiSharedData();
 }
 
 JSGlobalContextRef JSContextGetGlobalContext(JSContextRef ctx)
@@ -326,9 +330,10 @@ void JSGlobalContextSetUnhandledRejectionCallback(JSGlobalContextRef ctx, JSObje
     VM& vm = globalObject->vm();
     JSLockHolder locker(vm);
 
-    JSObject* object = toJS(function);
-    if (!object->isCallable()) {
-        *exception = toRef(createTypeError(globalObject));
+    JSObject* object = function ? toJS(function) : nullptr;
+    if (!object || !object->isCallable()) {
+        if (exception)
+            *exception = toRef(createTypeError(globalObject));
         return;
     }
 
@@ -343,8 +348,16 @@ void JSGlobalContextSetUncaughtExceptionAtEventLoopCallback(JSGlobalContextRef c
     }
 
     JSGlobalObject* globalObject = toJS(ctx);
-    JSAPIGlobalObject* thisObject = uncheckedDowncast<JSAPIGlobalObject>(globalObject);
-    thisObject->uncaughtExceptionAtEventLoop = callback;
+    VM& vm = globalObject->vm();
+    JSLockHolder lock(vm);
+
+    auto* apiGlobalObject = dynamicDowncast<JSAPIGlobalObject>(globalObject);
+    if (!apiGlobalObject) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    apiGlobalObject->setUncaughtExceptionAtEventLoop(callback);
 }
 
 void JSGlobalContextSetUncaughtExceptionHandler(JSGlobalContextRef ctx, JSUncaughtExceptionHandler handler)
@@ -355,8 +368,16 @@ void JSGlobalContextSetUncaughtExceptionHandler(JSGlobalContextRef ctx, JSUncaug
     }
 
     JSGlobalObject* globalObject = toJS(ctx);
-    JSAPIGlobalObject* thisObject = uncheckedDowncast<JSAPIGlobalObject>(globalObject);
-    thisObject->uncaughtExceptionHandler = handler;
+    VM& vm = globalObject->vm();
+    JSLockHolder lock(vm);
+
+    auto* apiGlobalObject = dynamicDowncast<JSAPIGlobalObject>(globalObject);
+    if (!apiGlobalObject) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    apiGlobalObject->setUncaughtExceptionHandler(handler);
 }
 
 void JSGlobalContextSetEvalEnabled(JSGlobalContextRef ctx, bool enabled, JSStringRef message)

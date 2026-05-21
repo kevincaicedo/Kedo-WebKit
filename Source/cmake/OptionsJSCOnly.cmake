@@ -24,11 +24,6 @@ if (ENABLE_REMOTE_INSPECTOR)
 endif ()
 if (NOT WIN32)
     WEBKIT_OPTION_DEFINE(ENABLE_FUZZILLI "Whether to build JavaScriptCore with support for Fuzzilli." PUBLIC OFF)
-else ()
-    # FIXME: Enable FTL on Windows. https://bugs.webkit.org/show_bug.cgi?id=145366
-    WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_FTL_JIT PRIVATE OFF)
-    # FIXME: Port bmalloc to Windows. https://bugs.webkit.org/show_bug.cgi?id=143310
-    WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_SYSTEM_MALLOC PRIVATE ON)
 endif ()
 WEBKIT_OPTION_DEFINE(ENABLE_JSC_GLIB_API "Whether to enable the JavaScriptCore GLib API." PUBLIC OFF)
 WEBKIT_OPTION_DEFINE(USE_SYSTEM_UNIFDEF "Whether to use a system-provided unifdef" PRIVATE OFF)

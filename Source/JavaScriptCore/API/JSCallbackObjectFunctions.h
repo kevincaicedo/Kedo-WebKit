@@ -476,7 +476,7 @@ EncodedJSValue JSCallbackObject<Parent>::constructImpl(JSGlobalObject* globalObj
     JSObject* constructor = callFrame->jsCallee();
     JSContextRef execRef = toRef(globalObject);
     JSObjectRef constructorRef = toRef(constructor);
-    
+
     for (JSClassRef jsClass = uncheckedDowncast<JSCallbackObject<Parent>>(constructor)->classRef(); jsClass; jsClass = jsClass->parentClass) {
         if (JSObjectCallAsConstructorCallback callAsConstructor = jsClass->callAsConstructor) {
 #if CPU(ADDRESS64)
@@ -562,7 +562,7 @@ EncodedJSValue JSCallbackObject<Parent>::callImpl(JSGlobalObject* globalObject, 
     JSContextRef execRef = toRef(globalObject);
     JSObjectRef functionRef = toRef(callFrame->jsCallee());
     JSObjectRef thisObjRef = toRef(uncheckedDowncast<JSObject>(callFrame->thisValue().toThis(globalObject, ECMAMode::sloppy())));
-    
+
     for (JSClassRef jsClass = uncheckedDowncast<JSCallbackObject<Parent>>(toJS(functionRef))->classRef(); jsClass; jsClass = jsClass->parentClass) {
         if (JSObjectCallAsFunctionCallback callAsFunction = jsClass->callAsFunction) {
 #if CPU(ADDRESS64)
@@ -734,7 +734,7 @@ EncodedJSValue JSCallbackObject<Parent>::callbackGetterImpl(JSGlobalObject* glob
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSCallbackObject* thisObj = asCallbackObject(thisValue);
-    
+
     JSObjectRef thisRef = toRef(static_cast<JSObject*>(thisObj));
     RefPtr<OpaqueJSString> propertyNameRef;
 

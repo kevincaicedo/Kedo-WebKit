@@ -92,7 +92,7 @@ JS_EXPORT JSObjectRef JSObjectMakeTypedArrayWithArrayBufferAndOffset(JSContextRe
  @param ctx          The execution context to use.
  @param object       The Typed Array object whose backing store pointer to return.
  @param exception    A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
- @result             A pointer to the raw data buffer that serves as object's backing store or NULL if object is not a Typed Array object.
+ @result             A pointer to the raw data buffer that serves as object's backing store or NULL if object is not a Typed Array object or an exception is thrown.
  @discussion         The pointer returned by this function is temporary and is not guaranteed to remain valid across JavaScriptCore API calls.
  */
 JS_EXPORT void* JSObjectGetTypedArrayBytesPtr(JSContextRef ctx, JSObjectRef object, JSValueRef* exception) JSC_API_AVAILABLE(macos(10.12), ios(10.0));
@@ -105,7 +105,7 @@ JS_EXPORT void* JSObjectGetTypedArrayBytesPtr(JSContextRef ctx, JSObjectRef obje
  @param exception    A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
  @param offset       A pointer to a size_t in which to store the byte offset of the Typed Array object.
  @param length       A pointer to a size_t in which to store the byte length of the Typed Array object.
- @result             A pointer to the raw data buffer that serves as object's backing store or NULL if object is not a Typed Array object.
+ @result             A pointer to the raw data buffer that serves as object's backing store or NULL if value is not a Typed Array object or an exception is thrown.
  @discussion         The pointer returned by this function is temporary and is not guaranteed to remain valid across JavaScriptCore API calls.
  */
 JS_EXPORT void* JSValueGetTypedArrayBytesPtrFromValue(JSContextRef ctx, JSValueRef value, JSValueRef* exception, size_t* offset, size_t* length) JSC_API_AVAILABLE(macos(10.12), ios(10.0));
@@ -116,7 +116,7 @@ JS_EXPORT void* JSValueGetTypedArrayBytesPtrFromValue(JSContextRef ctx, JSValueR
  @param ctx          The execution context to use.
  @param object       The Typed Array object whose length to return.
  @param exception    A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
- @result             The length of the Typed Array object or 0 if the object is not a Typed Array object.
+ @result             The length of the Typed Array object or 0 if an exception is thrown. A TypeError is stored in exception when object is not a Typed Array object.
  */
 JS_EXPORT size_t JSObjectGetTypedArrayLength(JSContextRef ctx, JSObjectRef object, JSValueRef* exception) JSC_API_AVAILABLE(macos(10.12), ios(10.0));
 
@@ -126,7 +126,7 @@ JS_EXPORT size_t JSObjectGetTypedArrayLength(JSContextRef ctx, JSObjectRef objec
  @param ctx          The execution context to use.
  @param object       The Typed Array object whose byte length to return.
  @param exception    A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
- @result             The byte length of the Typed Array object or 0 if the object is not a Typed Array object.
+ @result             The byte length of the Typed Array object or 0 if an exception is thrown. A TypeError is stored in exception when object is not a Typed Array object.
  */
 JS_EXPORT size_t JSObjectGetTypedArrayByteLength(JSContextRef ctx, JSObjectRef object, JSValueRef* exception) JSC_API_AVAILABLE(macos(10.12), ios(10.0));
 
@@ -136,7 +136,7 @@ JS_EXPORT size_t JSObjectGetTypedArrayByteLength(JSContextRef ctx, JSObjectRef o
  @param ctx          The execution context to use.
  @param object       The Typed Array object whose byte offset to return.
  @param exception    A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
- @result             The byte offset of the Typed Array object or 0 if the object is not a Typed Array object.
+ @result             The byte offset of the Typed Array object or 0 if an exception is thrown. A TypeError is stored in exception when object is not a Typed Array object.
  */
 JS_EXPORT size_t JSObjectGetTypedArrayByteOffset(JSContextRef ctx, JSObjectRef object, JSValueRef* exception) JSC_API_AVAILABLE(macos(10.12), ios(10.0));
 
@@ -146,7 +146,7 @@ JS_EXPORT size_t JSObjectGetTypedArrayByteOffset(JSContextRef ctx, JSObjectRef o
  @param ctx          The execution context to use.
  @param object       The JSObjectRef whose Typed Array type data pointer to obtain.
  @param exception    A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
- @result             A JSObjectRef with a JSTypedArrayType of kJSTypedArrayTypeArrayBuffer or NULL if object is not a Typed Array.
+ @result             A JSObjectRef with a JSTypedArrayType of kJSTypedArrayTypeArrayBuffer or NULL if object is not a Typed Array or an exception is thrown.
  */
 JS_EXPORT JSObjectRef JSObjectGetTypedArrayBuffer(JSContextRef ctx, JSObjectRef object, JSValueRef* exception) JSC_API_AVAILABLE(macos(10.12), ios(10.0));
 
@@ -168,14 +168,13 @@ JS_EXPORT JSObjectRef JSObjectMakeArrayBufferWithBytesNoCopy(JSContextRef ctx, v
 
 /*!
  @function
- @abstract           Returns a pointer to the data buffer that serves as the backing store for a JavaScript Array Buffer object.
+ @abstract           Creates an ArrayBuffer containing the UTF-8 bytes for a JavaScript value after string conversion.
  @param ctx          The execution context to use.
- @param value        The Array Buffer object whose internal backing store pointer to return.
+ @param value        The JavaScript value to convert to a string and encode as UTF-8.
  @param exception    A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
- @result             A pointer to the raw data buffer that serves as object's backing store or NULL if object is not an Array Buffer object.
- @discussion         The pointer returned by this function is temporary and is not guaranteed to remain valid across JavaScriptCore API calls.
+ @result             An ArrayBuffer containing UTF-8 bytes, or NULL if conversion or allocation fails.
 */
-JS_EXPORT JSValueRef JSValueFastUFT8Encoding(JSContextRef ctx, JSValueRef value, JSValueRef* exception) JSC_API_AVAILABLE(macos(10.12), ios(10.0));
+JS_EXPORT JSValueRef JSValueCreateUTF8ArrayBuffer(JSContextRef ctx, JSValueRef value, JSValueRef* exception) JSC_API_AVAILABLE(macos(10.12), ios(10.0));
 
 /*!
  @function
@@ -192,7 +191,7 @@ JS_EXPORT bool JSObjectIsDetachedBuffer(JSContextRef ctx, JSObjectRef objectRef,
  @abstract         Returns a pointer to the data buffer that serves as the backing store for a JavaScript Typed Array object.
  @param object     The Array Buffer object whose internal backing store pointer to return.
  @param exception  A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
- @result           A pointer to the raw data buffer that serves as object's backing store or NULL if object is not an Array Buffer object.
+ @result           A pointer to the raw data buffer that serves as object's backing store or NULL if object is not an Array Buffer object or an exception is thrown.
  @discussion       The pointer returned by this function is temporary and is not guaranteed to remain valid across JavaScriptCore API calls.
  */
 JS_EXPORT void* JSObjectGetArrayBufferBytesPtr(JSContextRef ctx, JSObjectRef object, JSValueRef* exception) JSC_API_AVAILABLE(macos(10.12), ios(10.0));
@@ -203,7 +202,7 @@ JS_EXPORT void* JSObjectGetArrayBufferBytesPtr(JSContextRef ctx, JSObjectRef obj
  @param ctx        The execution context to use.
  @param object     The JS Arary Buffer object whose length in bytes to return.
  @param exception  A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
- @result           The number of bytes stored in the data object.
+ @result           The number of bytes stored in the data object or 0 if an exception is thrown. A TypeError is stored in exception when object is not an Array Buffer object.
  */
 JS_EXPORT size_t JSObjectGetArrayBufferByteLength(JSContextRef ctx, JSObjectRef object, JSValueRef* exception) JSC_API_AVAILABLE(macos(10.12), ios(10.0));
 

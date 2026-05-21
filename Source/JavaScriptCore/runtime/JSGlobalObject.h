@@ -241,8 +241,11 @@ private:
 public:
     template<typename T> using Initializer = typename LazyProperty<JSGlobalObject, T>::Initializer;
 
+    void* apiSharedData() const { return m_apiSharedData; }
+    void setAPISharedData(void* data) { m_apiSharedData = data; }
+    void clearAPISharedData() { m_apiSharedData = nullptr; }
+
     WriteBarrier<JSObject> m_globalThis;
-    void* sharedData { nullptr };
 
     WriteBarrier<JSGlobalLexicalEnvironment> m_globalLexicalEnvironment;
     WriteBarrier<JSScope> m_globalScopeExtension;
@@ -1302,6 +1305,7 @@ private:
 #ifdef JSC_GLIB_API_ENABLED
     std::unique_ptr<WrapperMap> m_wrapperMap;
 #endif
+    void* m_apiSharedData { nullptr };
 };
 
 inline JSObject* JSScope::globalThis()

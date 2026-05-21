@@ -450,6 +450,31 @@ JS_EXPORT JSObjectRef JSObjectMakeArray(JSContextRef ctx, size_t argumentCount, 
 
 /*!
  @function
+ @abstract Gets the length of an exact JavaScript Array object without materializing the "length" property as a JSValue.
+ @param ctx The execution context to use.
+ @param object The Array object whose length to read.
+ @param length A pointer to receive the array length.
+ @param exception A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
+ @result true if object is an exact Array and length was written, otherwise false.
+ @discussion This intentionally rejects proxies and array-like objects. Use JSObjectGetProperty for observable JavaScript property semantics.
+ */
+JS_EXPORT bool JSObjectGetArrayLength(JSContextRef ctx, JSObjectRef object, size_t* length, JSValueRef* exception);
+
+/*!
+ @function
+ @abstract Pushes a value onto an exact JavaScript Array object and returns the new length.
+ @param ctx The execution context to use.
+ @param object The Array object to mutate.
+ @param value The value to append.
+ @param newLength A pointer to receive the new array length. Pass NULL if you do not need it.
+ @param exception A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
+ @result true if object is an exact Array and the value was appended, otherwise false.
+ @discussion This intentionally rejects proxies and array-like objects. Use ordinary property/method calls for observable JavaScript Array.prototype.push semantics.
+ */
+JS_EXPORT bool JSObjectArrayPush(JSContextRef ctx, JSObjectRef object, JSValueRef value, size_t* newLength, JSValueRef* exception);
+
+/*!
+ @function
  @abstract Creates a JavaScript Date object, as if by invoking the built-in Date constructor.
  @param ctx The execution context to use.
  @param argumentCount An integer count of the number of arguments in arguments.
@@ -635,7 +660,7 @@ JS_EXPORT bool JSObjectDeletePropertyForKey(JSContextRef ctx, JSObjectRef object
  @param object The JSObject to implement the async iterable protocol on.
  @param value A zero-argument function that returns an object, conforming to the async iterator protocol.
  @param attributes A logically ORed set of JSPropertyAttributes to give to the property.
- @param exception A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
+ @param exception A pointer to a JSValueRef in which to store an exception, including NULL object/value inputs. Pass NULL if you do not care to store an exception.
  */
 JS_EXPORT void JSObjectSetAsyncIterator(JSContextRef ctx, JSObjectRef object, JSValueRef value, JSPropertyAttributes attributes, JSValueRef* exception) JSC_API_AVAILABLE(macos(10.15), ios(13.0));
 
@@ -646,7 +671,7 @@ JS_EXPORT void JSObjectSetAsyncIterator(JSContextRef ctx, JSObjectRef object, JS
  @param object The JSObject to implement the iterator protocol on.
  @param value A zero-argument function that returns an object, conforming to the iterator protocol.
  @param attributes A logically ORed set of JSPropertyAttributes to give to the property.
- @param exception A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
+ @param exception A pointer to a JSValueRef in which to store an exception, including NULL object/value inputs. Pass NULL if you do not care to store an exception.
  */
 JS_EXPORT void JSObjectSetIterator(JSContextRef ctx, JSObjectRef object, JSValueRef value, JSPropertyAttributes attributes, JSValueRef* exception) JSC_API_AVAILABLE(macos(10.15), ios(13.0));
 
@@ -673,6 +698,20 @@ JS_EXPORT JSValueRef JSObjectGetPropertyAtIndex(JSContextRef ctx, JSObjectRef ob
 @discussion Calling JSObjectSetPropertyAtIndex is equivalent to calling JSObjectSetProperty with a string containing propertyIndex, but JSObjectSetPropertyAtIndex provides optimized access to numeric properties.
 */
 JS_EXPORT void JSObjectSetPropertyAtIndex(JSContextRef ctx, JSObjectRef object, unsigned propertyIndex, JSValueRef value, JSValueRef* exception);
+
+/*!
+@function
+@abstract Gets a named property from an object, verifies it is callable, and calls it with object as "this."
+@param ctx The execution context to use.
+@param object The object whose method should be called.
+@param methodName A JSString containing the method property name.
+@param argumentCount An integer count of the number of arguments in arguments.
+@param arguments A JSValue array of arguments to pass to the method. Pass NULL if argumentCount is 0.
+@param exception A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
+@result The JSValue that results from calling the method, or NULL if an exception is thrown or the property is not callable.
+@discussion This performs the same observable property lookup as JavaScript method calls while avoiding an extra C API round trip for embedders.
+*/
+JS_EXPORT JSValueRef JSObjectCallMethod(JSContextRef ctx, JSObjectRef object, JSStringRef methodName, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception);
 
 /*!
 @function

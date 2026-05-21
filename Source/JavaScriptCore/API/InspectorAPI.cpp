@@ -9,6 +9,7 @@
 #include "JSGlobalObject.h"
 #include "JSGlobalObjectDebuggable.h"
 #include "JSCInlines.h"
+#include "JSLock.h"
 #include "JSRemoteInspector.h"
 #include "JSRemoteInspectorServer.h"
 
@@ -32,8 +33,10 @@ private:
     FrontendChannel::ConnectionType connectionType() const override { return FrontendChannel::ConnectionType::Remote; }
     void sendMessageToFrontend(const WTF::String& message) override
     {
-        if (auto callback = m_global.inspectorCallback())
-            callback(message.utf8().data());
+        if (auto callback = m_global.inspectorCallback()) {
+            auto utf8 = message.utf8();
+            callback(utf8.data(), utf8.length());
+        }
     }
     JSC::JSAPIGlobalObject& m_global;
 };
@@ -51,25 +54,22 @@ void JSInspectorSetCallback(JSGlobalContextRef context, InspectorMessageCallback
     if (!globalObject)
         return;
 
-    JSC::JSAPIGlobalObject* apiGlobal = uncheckedDowncast<JSC::JSAPIGlobalObject>(globalObject);
+    JSC::VM& vm = globalObject->vm();
+    JSC::JSLockHolder locker(vm);
+
+    JSC::JSAPIGlobalObject* apiGlobal = dynamicDowncast<JSC::JSAPIGlobalObject>(globalObject);
     if (!apiGlobal)
         return;
 
-    apiGlobal->setInspectorCallback(callback);
-
-    // Disconnect existing frontend if present
-    if (auto* existingChannel = apiGlobal->frontendChannel()) {
-        globalObject->inspectorDebuggable().disconnect(*existingChannel);
-        apiGlobal->clearFrontendChannel();
-    }
+    apiGlobal->disconnectInspectorFrontend();
 
     if (callback) {
+        apiGlobal->setInspectorCallback(callback);
         auto channel = std::make_unique<Inspector::RustFrontendChannel>(*apiGlobal);
         globalObject->inspectorDebuggable().connect(*channel, false, false);
         apiGlobal->setFrontendChannel(std::move(channel));
+        globalObject->setInspectable(true);
     }
-
-    JSGlobalContextSetInspectable(context, callback != nullptr);
 
     // Note: We intentionally don't call JSRemoteInspectorStart() here because
     // it starts a global remote inspector server that is not needed for direct frontend channel communication.
@@ -84,6 +84,13 @@ void JSInspectorSendMessage(JSGlobalContextRef context, const char* message)
     if (!globalObject)
         return;
 
+    JSC::VM& vm = globalObject->vm();
+    JSC::JSLockHolder locker(vm);
+
+    JSC::JSAPIGlobalObject* apiGlobal = dynamicDowncast<JSC::JSAPIGlobalObject>(globalObject);
+    if (!apiGlobal)
+        return;
+
     globalObject->inspectorDebuggable().dispatchMessageFromRemote(WTF::String::fromUTF8(message));
 }
 
@@ -96,21 +103,14 @@ void JSInspectorDisconnect(JSGlobalContextRef context)
     if (!globalObject)
         return;
 
-    JSC::JSAPIGlobalObject* apiGlobal = uncheckedDowncast<JSC::JSAPIGlobalObject>(globalObject);
+    JSC::VM& vm = globalObject->vm();
+    JSC::JSLockHolder locker(vm);
+
+    JSC::JSAPIGlobalObject* apiGlobal = dynamicDowncast<JSC::JSAPIGlobalObject>(globalObject);
     if (!apiGlobal)
         return;
 
-    if (auto* channel = apiGlobal->frontendChannel()) {
-        globalObject->inspectorDebuggable().disconnect(*channel);
-        apiGlobal->clearFrontendChannel();
-    }
-
-    // Clear the message callback
-    apiGlobal->setInspectorCallback(nullptr);
-    apiGlobal->setPauseEventCallback(nullptr);
-
-    // Mark as not inspectable
-    JSGlobalContextSetInspectable(context, false);
+    apiGlobal->disconnectInspectorFrontend();
 }
 
 bool JSInspectorIsConnected(JSGlobalContextRef context)
@@ -122,7 +122,10 @@ bool JSInspectorIsConnected(JSGlobalContextRef context)
     if (!globalObject)
         return false;
 
-    JSC::JSAPIGlobalObject* apiGlobal = uncheckedDowncast<JSC::JSAPIGlobalObject>(globalObject);
+    JSC::VM& vm = globalObject->vm();
+    JSC::JSLockHolder locker(vm);
+
+    JSC::JSAPIGlobalObject* apiGlobal = dynamicDowncast<JSC::JSAPIGlobalObject>(globalObject);
     if (!apiGlobal)
         return false;
 
@@ -140,7 +143,10 @@ void JSInspectorSetPauseEventCallback(
     if (!globalObject)
         return;
 
-    JSC::JSAPIGlobalObject* apiGlobal = uncheckedDowncast<JSC::JSAPIGlobalObject>(globalObject);
+    JSC::VM& vm = globalObject->vm();
+    JSC::JSLockHolder locker(vm);
+
+    JSC::JSAPIGlobalObject* apiGlobal = dynamicDowncast<JSC::JSAPIGlobalObject>(globalObject);
     if (!apiGlobal)
         return;
 

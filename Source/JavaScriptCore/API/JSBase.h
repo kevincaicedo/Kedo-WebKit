@@ -31,6 +31,7 @@
 #endif
 
 #include <stddef.h> /* for size_t */
+#include <stdint.h> /* for uint8_t */
 
 #ifdef __OBJC__
 #import <Foundation/Foundation.h>
@@ -69,6 +70,9 @@ typedef const struct OpaqueJSValue* JSValueRef;
 
 /*! @typedef JSObjectRef A JavaScript object. A JSObject is a JSValue. */
 typedef struct OpaqueJSValue* JSObjectRef;
+
+/*! @typedef JSModuleSourceRef A fetched module source object. */
+typedef struct OpaqueJSModuleSource* JSModuleSourceRef;
 
 /* Clang's __has_declspec_attribute emulation */
 /* https://clang.llvm.org/docs/LanguageExtensions.html#has-declspec-attribute */
@@ -116,10 +120,10 @@ typedef JSStringRef
 
 /*!
 @typedef JSModuleLoaderEvaluate
-@abstract The callback invoked when evaluating a module.
+@abstract Reserved legacy callback slot. Synthetic modules should be created with JSSyntheticModuleCreate.
 @param ctx The execution context to use.
 @param key A JSValue containing the module specifier to evaluate.
-@result A JSObject containing the synthetic module exports. String-named own properties are exported; symbols are ignored.
+@result A JSValue reserved for legacy embedders.
 */
 typedef JSValueRef
 (*JSModuleLoaderEvaluate) (JSContextRef ctx, JSValueRef key);
@@ -129,12 +133,24 @@ typedef JSValueRef
 @abstract The callback invoked when fetching a module.
 @param ctx The execution context to use.
 @param key A JSValue containing the module specifier to fetch.
-@param attributesValue Reserved for future import-attributes support. Currently undefined for API callbacks.
+@param attributesValue A JSValue string describing the requested import type. It is "json" for JSON imports, "javascript" for JavaScript imports, "webassembly" for WebAssembly imports, and undefined when no type is available.
 @param scriptFetcher Reserved for future script fetcher support. Currently undefined for API callbacks.
 @result A JSStringRef containing the fetched module.
 */
 typedef JSStringRef
 (*JSModuleLoaderFetch) (JSContextRef ctx, JSValueRef key, JSValueRef attributesValue, JSValueRef scriptFetcher);
+
+/*!
+@typedef JSModuleLoaderFetchSource
+@abstract The callback invoked when fetching a typed module source.
+@param ctx The execution context to use.
+@param key A JSValue containing the module specifier to fetch.
+@param attributesValue A JSValue string describing the requested import type. It is "json" for JSON imports, "javascript" for JavaScript imports, "webassembly" for WebAssembly imports, and undefined when no type is available.
+@param scriptFetcher Reserved for future script fetcher support. Currently undefined for API callbacks.
+@result A JSModuleSourceRef containing the fetched module. Ownership is transferred to JavaScriptCore when returned from this callback.
+*/
+typedef JSModuleSourceRef
+(*JSModuleLoaderFetchSource) (JSContextRef ctx, JSValueRef key, JSValueRef attributesValue, JSValueRef scriptFetcher);
 
 /*!
 @typedef JSModuleLoaderCreateImportMetaProperties
@@ -151,16 +167,50 @@ typedef JSObjectRef
 @struct JSAPIModuleLoader
 @abstract The callbacks used to load and evaluate modules.
 @field moduleLoaderResolve The callback used to resolve a module specifier.
-@field moduleLoaderEvaluate The callback used to evaluate a module.
-@field moduleLoaderFetch The callback used to fetch a module.
+@field moduleLoaderEvaluate Reserved legacy callback slot. Prefer JSSyntheticModuleCreate for synthetic modules.
+@field moduleLoaderFetch Legacy callback used to fetch text modules. It cannot return WebAssembly bytes.
+@field moduleLoaderFetchSource Preferred callback used to fetch typed JavaScript, JSON, or WebAssembly module sources.
+@field moduleLoaderCreateImportMetaProperties The callback used to create import.meta properties.
 */
 typedef struct {
-    bool disableBuiltinFileSystemLoader;
     JSModuleLoaderResolve moduleLoaderResolve;
     JSModuleLoaderEvaluate moduleLoaderEvaluate;
     JSModuleLoaderFetch moduleLoaderFetch;
+    JSModuleLoaderFetchSource moduleLoaderFetchSource;
     JSModuleLoaderCreateImportMetaProperties moduleLoaderCreateImportMetaProperties;
 } JSAPIModuleLoader;
+
+/*!
+@function JSModuleSourceCreateJavaScript
+@abstract Creates a JavaScript module source object by copying the provided string.
+@param source A JSString containing JavaScript module source text.
+@result A module source object, or NULL when source is NULL. Release with JSModuleSourceRelease unless returning it from JSModuleLoaderFetchSource.
+*/
+JS_EXPORT JSModuleSourceRef JSModuleSourceCreateJavaScript(JSStringRef source);
+
+/*!
+@function JSModuleSourceCreateJSON
+@abstract Creates a JSON module source object by copying the provided string.
+@param source A JSString containing raw JSON module source text.
+@result A module source object, or NULL when source is NULL. Release with JSModuleSourceRelease unless returning it from JSModuleLoaderFetchSource.
+*/
+JS_EXPORT JSModuleSourceRef JSModuleSourceCreateJSON(JSStringRef source);
+
+/*!
+@function JSModuleSourceCreateWebAssembly
+@abstract Creates a WebAssembly module source object by copying the provided bytes.
+@param bytes A pointer to WebAssembly binary bytes. May be NULL only when byteLength is zero.
+@param byteLength The number of bytes to copy.
+@result A module source object, or NULL when bytes is NULL and byteLength is non-zero. Release with JSModuleSourceRelease unless returning it from JSModuleLoaderFetchSource.
+*/
+JS_EXPORT JSModuleSourceRef JSModuleSourceCreateWebAssembly(const uint8_t* bytes, size_t byteLength);
+
+/*!
+@function JSModuleSourceRelease
+@abstract Releases a module source object created with JSModuleSourceCreateJavaScript, JSModuleSourceCreateJSON, or JSModuleSourceCreateWebAssembly.
+@param source The source object to release. Passing NULL is allowed.
+*/
+JS_EXPORT void JSModuleSourceRelease(JSModuleSourceRef source);
 
 /*!
 @typedef JSUncaughtExceptionAtEventLoop
@@ -174,6 +224,7 @@ typedef void (*JSUncaughtExceptionAtEventLoop) (JSContextRef ctx, JSValueRef exc
 @typedef JSUncaughtExceptionHandler
 @abstract The callback invoked when an exception is not caught.
 @param ctx The execution context to use.
+@param filename Reserved source-name slot. JavaScriptCore passes an empty string when no source name is available.
 @param exception A JSValue containing the uncaught exception.
 */
 typedef void (*JSUncaughtExceptionHandler) (JSContextRef ctx, JSStringRef filename, JSValueRef exception);
@@ -185,6 +236,14 @@ typedef void (*JSUncaughtExceptionHandler) (JSContextRef ctx, JSStringRef filena
 @param moduleLoader A JSAPIModuleLoader structure containing the callbacks to use.
 */
 JS_EXPORT void JSSetAPIModuleLoader(JSContextRef ctx, JSAPIModuleLoader moduleLoader);
+
+/*!
+@function JSModuleLoaderSetCallbacks
+@abstract Sets the module loader callbacks used by module operations.
+@param ctx The execution context to use.
+@param moduleLoader A JSAPIModuleLoader structure containing the callbacks to use.
+*/
+JS_EXPORT void JSModuleLoaderSetCallbacks(JSContextRef ctx, JSAPIModuleLoader moduleLoader);
 
 /* Script Evaluation */
 
@@ -204,47 +263,102 @@ JS_EXPORT JSValueRef JSEvaluateScript(JSContextRef ctx, JSStringRef script, JSOb
 /* Module Evaluation */
 
 /*!
-@function JSLoadAndEvaluateModule
-@abstract Evaluates a file containing JavaScript Code.
+@function JSModuleLoadAndEvaluate
+@abstract Starts loading, linking, and evaluating a module by key using the registered API module loader callbacks.
 @param ctx The execution context to use.
-@param filename A JSString containing the path to the module to evaluate.
+@param moduleKey A JSString containing the resolved module key to evaluate.
+@param exception A pointer to a JSValueRef in which to store a startup exception, if any. Pass NULL if you do not care to store an exception.
+@result A Promise for module evaluation, or NULL if evaluation could not start.
 */
-JS_EXPORT void JSLoadAndEvaluateModule(JSContextRef ctx, JSStringRef filename, JSValueRef* exception);
+JS_EXPORT JSValueRef JSModuleLoadAndEvaluate(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception);
 
 /*!
-@function JSLoadAndEvaluateModuleFromSource
-@abstract Evaluates a string of JavaScript as a module.
+@function JSLoadAndEvaluateModule
+@abstract Deprecated compatibility wrapper for JSModuleLoadAndEvaluate. It starts module work and does not drain microtasks.
+@param ctx The execution context to use.
+@param moduleKey A JSString containing the resolved module key to evaluate.
+@param exception A pointer to a JSValueRef in which to store a startup exception, if any. Pass NULL if you do not care to store an exception.
+*/
+JS_EXPORT void JSLoadAndEvaluateModule(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception);
+
+/*!
+@function JSModuleLoadAndEvaluateFromSource
+@abstract Starts loading, linking, and evaluating a string of JavaScript as a module.
 @param ctx The execution context to use.
 @param module A JSString containing the module code to evaluate.
 @param sourceURLString A JSString containing a URL for the script's source file. This is used by debuggers and when reporting exceptions. Pass NULL if you do not care to include source file information.
 @param startingLineNumber An integer value specifying the script's starting line number in the file located at sourceURL. This is only used when reporting exceptions. The value is one-based, so the first line is line 1 and invalid values are clamped to 1.
 @param exception A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
+@result A Promise for module evaluation, or NULL if evaluation could not start.
+*/
+JS_EXPORT JSValueRef JSModuleLoadAndEvaluateFromSource(JSContextRef ctx, JSStringRef module, JSStringRef sourceURLString, int startingLineNumber, JSValueRef* exception);
+
+/*!
+@function JSLoadAndEvaluateModuleFromSource
+@abstract Deprecated compatibility wrapper for JSModuleLoadAndEvaluateFromSource. It starts module work and does not drain microtasks.
+@param ctx The execution context to use.
+@param module A JSString containing the module code to evaluate.
+@param sourceURLString A JSString containing a URL for the script's source file. This is used by debuggers and when reporting exceptions. Pass NULL if you do not care to include source file information.
+@param startingLineNumber An integer value specifying the script's starting line number in the file located at sourceURL. This is only used when reporting exceptions. The value is one-based, so the first line is line 1 and invalid values are clamped to 1.
+@param exception A pointer to a JSValueRef in which to store a startup exception, if any. Pass NULL if you do not care to store an exception.
 */
 JS_EXPORT void JSLoadAndEvaluateModuleFromSource(JSContextRef ctx, JSStringRef module, JSStringRef sourceURLString, int startingLineNumber, JSValueRef* exception);
 
 /*!
-@function JSLoadModule
-@abstract Loads a module.
+@function JSModuleLoad
+@abstract Starts loading a module.
 @param ctx The execution context to use.
 @param moduleKey A JSString containing the module key to load.
-@param exception A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
+@param exception A pointer to a JSValueRef in which to store a startup exception, if any. Pass NULL if you do not care to store an exception.
+@result A Promise for module loading, or NULL if loading could not start.
+*/
+JS_EXPORT JSValueRef JSModuleLoad(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception);
+
+/*!
+@function JSLoadModule
+@abstract Deprecated compatibility wrapper for JSModuleLoad. It starts module work and does not drain microtasks.
+@param ctx The execution context to use.
+@param moduleKey A JSString containing the module key to load.
+@param exception A pointer to a JSValueRef in which to store a startup exception, if any. Pass NULL if you do not care to store an exception.
 */
 JS_EXPORT void JSLoadModule(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception);
 
 /*!
-@function JSLoadModuleFromSource
-@abstract Loads a module from a string of JavaScript.
+@function JSModuleLoadFromSource
+@abstract Starts loading a module from a string of JavaScript.
 @param ctx The execution context to use.
 @param module A JSString containing the module code to load.
 @param sourceURLString A JSString containing a URL for the script's source file. This is used by debuggers and when reporting exceptions. Pass NULL if you do not care to include source file information.
 @param startingLineNumber An integer value specifying the script's starting line number in the file located at sourceURL. This is only used when reporting exceptions. The value is one-based, so the first line is line 1 and invalid values are clamped to 1.
-@param exception A pointer to a JSValueRef in which to store an exception, if any. Pass NULL if you do not care to store an exception.
+@param exception A pointer to a JSValueRef in which to store a startup exception, if any. Pass NULL if you do not care to store an exception.
+@result A Promise for module loading, or NULL if loading could not start.
+*/
+JS_EXPORT JSValueRef JSModuleLoadFromSource(JSContextRef ctx, JSStringRef module, JSStringRef sourceURLString, int startingLineNumber, JSValueRef* exception);
+
+/*!
+@function JSLoadModuleFromSource
+@abstract Deprecated compatibility wrapper for JSModuleLoadFromSource. It starts module work and does not drain microtasks.
+@param ctx The execution context to use.
+@param module A JSString containing the module code to load.
+@param sourceURLString A JSString containing a URL for the script's source file. This is used by debuggers and when reporting exceptions. Pass NULL if you do not care to include source file information.
+@param startingLineNumber An integer value specifying the script's starting line number in the file located at sourceURL. This is only used when reporting exceptions. The value is one-based, so the first line is line 1 and invalid values are clamped to 1.
+@param exception A pointer to a JSValueRef in which to store a startup exception, if any. Pass NULL if you do not care to store an exception.
 */
 JS_EXPORT void JSLoadModuleFromSource(JSContextRef ctx, JSStringRef module, JSStringRef sourceURLString, int startingLineNumber, JSValueRef* exception);
 
 /*!
+@function JSModuleLinkAndEvaluate
+@abstract Starts linking and evaluating a loaded module.
+@param ctx The execution context to use.
+@param moduleKey A JSString containing the module key to link and evaluate.
+@param exception A pointer to a JSValueRef in which to store a startup exception, if any. Pass NULL if you do not care to store an exception.
+@result A Promise for module evaluation, or NULL if evaluation could not start.
+*/
+JS_EXPORT JSValueRef JSModuleLinkAndEvaluate(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception);
+
+/*!
 @function JSLinkAndEvaluateModule
-@abstract Links and evaluates a module.
+@abstract Deprecated compatibility wrapper for JSModuleLinkAndEvaluate.
 @param ctx The execution context to use.
 @param moduleKey A JSString containing the module key to link and evaluate.
 @result A Promise for module evaluation, or NULL if evaluation could not start.
@@ -261,13 +375,31 @@ JS_EXPORT JSValueRef JSLinkAndEvaluateModule(JSContextRef ctx, JSStringRef modul
 typedef void (*JSModuleEvaluationCallback)(JSContextRef ctx, JSValueRef moduleNamespaceObject, JSValueRef exception);
 
 /*!
-@function JSSetSyntheticModuleKeys
-@abstract Sets the synthetic module keys.
+@function JSSyntheticModuleCreate
+@abstract Creates and registers a synthetic module with explicit exports.
 @param ctx The execution context to use.
-@param argumentCount The number of keys.
-@param keys An array of caller-owned JSString values containing the keys. The strings are not retained or released by this function.
+@param moduleKey The module key to register.
+@param exportCount The number of exports.
+@param exportNames Caller-owned JSString values containing export names. The strings are copied.
+@param exportValues Caller-owned JSValue values containing export values. The values are retained by the created module record.
+@param exception A pointer to a JSValueRef in which to store a creation exception, if any. Pass NULL if you do not care to store an exception.
+@result The created synthetic module record, or NULL if creation failed.
 */
-JS_EXPORT void JSSetSyntheticModuleKeys(JSContextRef ctx, size_t argumentCount, const JSStringRef keys[]);
+JS_EXPORT JSValueRef JSSyntheticModuleCreate(JSContextRef ctx, JSStringRef moduleKey, size_t exportCount, const JSStringRef exportNames[], const JSValueRef exportValues[], JSValueRef* exception);
+
+/*!
+@function JSRunMicrotasks
+@abstract Runs pending JavaScript microtasks for the context's VM. This is an explicit host pump and module APIs do not call it implicitly.
+@param ctx The execution context to use.
+*/
+JS_EXPORT void JSRunMicrotasks(JSContextRef ctx);
+
+/*!
+@function JSRunDeferredWork
+@abstract Runs pending JavaScriptCore deferred work for the context's VM. This includes async WebAssembly compilation completions. Do not call while already executing JavaScriptCore callbacks.
+@param ctx The execution context to use.
+*/
+JS_EXPORT void JSRunDeferredWork(JSContextRef ctx);
 
 /*!
 @function JSCheckScriptSyntax
