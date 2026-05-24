@@ -88,6 +88,11 @@ JSGlobalObjectInspectorController::~JSGlobalObjectInspectorController()
     if (m_augmentingClient)
         m_augmentingClient->inspectorControllerDestroyed();
 #endif
+
+    m_consoleClient = nullptr;
+    m_inspectorAgent = nullptr;
+    m_debuggerAgent = nullptr;
+    m_consoleAgent = nullptr;
 }
 
 void JSGlobalObjectInspectorController::globalObjectDestroyed()
@@ -95,6 +100,11 @@ void JSGlobalObjectInspectorController::globalObjectDestroyed()
     ASSERT(!m_frontendRouter->hasFrontends());
 
     m_injectedScriptManager->disconnect();
+
+    m_consoleClient = nullptr;
+    m_inspectorAgent = nullptr;
+    m_debuggerAgent = nullptr;
+    m_consoleAgent = nullptr;
 
     m_agents.discardValues();
 

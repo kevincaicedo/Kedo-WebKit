@@ -196,6 +196,56 @@ JSObjectRef JSObjectMakeArray(JSContextRef ctx, size_t argumentCount, const JSVa
     return toRef(result);
 }
 
+bool JSObjectGetArrayLength(JSContextRef ctx, JSObjectRef objectRef, size_t* length, JSValueRef* exception)
+{
+    if (!ctx || !objectRef || !length) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+
+    JSObject* object = toJS(objectRef);
+    auto* array = dynamicDowncast<JSArray>(object);
+    if (!array) {
+        setException(ctx, exception, createTypeError(globalObject, "JSObjectGetArrayLength expects object to be an Array object"_s));
+        return false;
+    }
+
+    *length = array->length();
+    return true;
+}
+
+bool JSObjectArrayPush(JSContextRef ctx, JSObjectRef objectRef, JSValueRef valueRef, size_t* newLength, JSValueRef* exception)
+{
+    if (!ctx || !objectRef || !valueRef) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+
+    JSObject* object = toJS(objectRef);
+    auto* array = dynamicDowncast<JSArray>(object);
+    if (!array) {
+        setException(ctx, exception, createTypeError(globalObject, "JSObjectArrayPush expects object to be an Array object"_s));
+        return false;
+    }
+
+    array->push(globalObject, toJS(globalObject, valueRef));
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return false;
+
+    if (newLength)
+        *newLength = array->length();
+    return true;
+}
+
 JSObjectRef JSObjectMakeDate(JSContextRef ctx, size_t argumentCount, const JSValueRef arguments[],  JSValueRef* exception)
 {
     if (!ctx) {
@@ -240,6 +290,26 @@ JSObjectRef JSObjectMakeError(JSContextRef ctx, size_t argumentCount, const JSVa
     JSValue options = argumentCount > 1 ? toJS(globalObject, arguments[1]) : jsUndefined();
     Structure* errorStructure = globalObject->errorStructure();
     JSObject* result = ErrorInstance::create(globalObject, errorStructure, message, options);
+
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        result = nullptr;
+
+    return toRef(result);
+}
+
+JSObjectRef JSObjectMakeTypeError(JSContextRef ctx, JSStringRef message, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+
+    JSObject* result = createTypeError(globalObject, message ? message->string() : String());
 
     if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
         result = nullptr;
@@ -466,6 +536,62 @@ void JSObjectSetPropertyForKey(JSContextRef ctx, JSObjectRef object, JSValueRef 
     handleExceptionIfNeeded(scope, ctx, exception);
 }
 
+void JSObjectSetAsyncIterator(JSContextRef ctx, JSObjectRef object, JSValueRef value, JSPropertyAttributes attributes, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+
+    if (!object || !value) {
+        setException(ctx, exception, createTypeError(globalObject, "JSObjectSetAsyncIterator expects non-null object and value"_s));
+        return;
+    }
+
+    JSObject* jsObject = toJS(object);
+    JSValue jsValue = toJS(globalObject, value);
+
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return;
+
+    jsObject->putDirect(vm, vm.propertyNames->asyncIteratorSymbol, jsValue, attributes);
+
+    handleExceptionIfNeeded(scope, ctx, exception);
+}
+
+void JSObjectSetIterator(JSContextRef ctx, JSObjectRef object, JSValueRef value, JSPropertyAttributes attributes, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+
+    if (!object || !value) {
+        setException(ctx, exception, createTypeError(globalObject, "JSObjectSetIterator expects non-null object and value"_s));
+        return;
+    }
+
+    JSObject* jsObject = toJS(object);
+    JSValue jsValue = toJS(globalObject, value);
+
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return;
+
+    jsObject->putDirect(vm, vm.propertyNames->iteratorSymbol, jsValue, attributes);
+
+    handleExceptionIfNeeded(scope, ctx, exception);
+}
+
 bool JSObjectDeletePropertyForKey(JSContextRef ctx, JSObjectRef object, JSValueRef key, JSValueRef* exception)
 {
     if (!ctx) {
@@ -526,6 +652,45 @@ void JSObjectSetPropertyAtIndex(JSContextRef ctx, JSObjectRef object, unsigned p
     handleExceptionIfNeeded(scope, ctx, exception);
 }
 
+JSValueRef JSObjectCallMethod(JSContextRef ctx, JSObjectRef objectRef, JSStringRef methodName, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
+{
+    if (!ctx || !objectRef || !methodName) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+
+    JSObject* object = toJS(objectRef);
+    CallData callData;
+    JSValue method = object->getMethod(globalObject, callData, methodName->identifier(&vm), "Object method property should be callable"_s);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return nullptr;
+    if (method.isUndefined()) {
+        setException(ctx, exception, createTypeError(globalObject, "Object method property should be callable"_s));
+        return nullptr;
+    }
+
+    MarkedArgumentBuffer argList;
+    argList.ensureCapacity(argumentCount);
+    for (size_t i = 0; i < argumentCount; i++)
+        argList.append(toJS(globalObject, arguments[i]));
+    if (argList.hasOverflowed()) [[unlikely]] {
+        auto throwScope = DECLARE_THROW_SCOPE(vm);
+        throwOutOfMemoryError(globalObject, throwScope);
+        handleExceptionIfNeeded(scope, ctx, exception);
+        return nullptr;
+    }
+
+    JSValueRef result = toRef(globalObject, profiledCall(globalObject, ProfilingReason::API, method, callData, object, argList));
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        result = nullptr;
+    return result;
+}
+
 bool JSObjectDeleteProperty(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception)
 {
     if (!ctx) {
@@ -560,6 +725,10 @@ static const ClassInfo* classInfoPrivate(JSObject* jsObject)
 void* JSObjectGetPrivate(JSObjectRef object)
 {
     JSObject* jsObject = uncheckedToJS(object);
+
+    // check if jsObject is null
+    if (!jsObject)
+        return nullptr;
 
     const ClassInfo* classInfo = classInfoPrivate(jsObject);
     

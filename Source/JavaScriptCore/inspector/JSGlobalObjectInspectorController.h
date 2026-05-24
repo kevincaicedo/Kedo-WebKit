@@ -125,20 +125,19 @@ private:
 
     JSC::JSGlobalObject& m_globalObject;
     const UniqueRef<InjectedScriptManager> m_injectedScriptManager;
-    std::unique_ptr<JSGlobalObjectConsoleClient> m_consoleClient;
     const Ref<WTF::Stopwatch> m_executionStopwatch;
     std::unique_ptr<JSGlobalObjectDebugger> m_debugger;
-
-    InspectorConsoleAgent* m_consoleAgent { nullptr };
-
-    // Lazy, but also on-demand agents.
-    CheckedPtr<InspectorAgent> m_inspectorAgent;
-    InspectorDebuggerAgent* m_debuggerAgent { nullptr };
 
     const Ref<FrontendRouter> m_frontendRouter;
     const Ref<BackendDispatcher> m_backendDispatcher;
 
     AgentRegistry m_agents;
+
+    // These are aliases into m_agents and must be destroyed before m_agents.
+    std::unique_ptr<JSGlobalObjectConsoleClient> m_consoleClient;
+    InspectorConsoleAgent* m_consoleAgent { nullptr };
+    CheckedPtr<InspectorAgent> m_inspectorAgent;
+    InspectorDebuggerAgent* m_debuggerAgent { nullptr };
 
     // Used to keep the JSGlobalObject and VM alive while we are debugging it.
     JSC::Strong<JSC::JSGlobalObject> m_strongGlobalObject;

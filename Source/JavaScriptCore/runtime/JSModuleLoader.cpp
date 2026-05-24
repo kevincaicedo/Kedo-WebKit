@@ -345,6 +345,16 @@ void JSModuleLoader::provideFetch(JSGlobalObject* globalObject, const Identifier
         entry->provideFetch(globalObject, jsSourceCode); // can throw
 }
 
+bool JSModuleLoader::provideModule(JSGlobalObject* globalObject, const Identifier& key, ScriptFetchParameters::Type type, AbstractModuleRecord* moduleRecord)
+{
+    ModuleRegistryEntry* entry = ensureRegistered(globalObject, key, type);
+    if (entry->status() != ModuleRegistryEntry::Status::New)
+        return false;
+
+    entry->provideModule(globalObject, moduleRecord); // can throw
+    return true;
+}
+
 JSPromise* JSModuleLoader::loadModule(JSGlobalObject* globalObject, const Identifier& specifier, RefPtr<ScriptFetchParameters> parameters, RefPtr<ScriptFetcher> scriptFetcher, bool evaluate, bool dynamic, bool useImportMap)
 {
     VM& vm = globalObject->vm();
@@ -392,13 +402,25 @@ JSPromise* JSModuleLoader::linkAndEvaluateModule(JSGlobalObject* globalObject, c
     ModuleRegistryEntry* entry = ensureRegistered(globalObject, moduleKey, type);
     RETURN_IF_EXCEPTION(scope, nullptr);
 
-    AbstractModuleRecord* record = entry->record();
-    ASSERT(record);
-
     JSValue error = entry->error(globalObject);
     RETURN_IF_EXCEPTION(scope, nullptr);
     if (error) {
         scope.throwException(globalObject, error);
+        return nullptr;
+    }
+
+    if (JSPromise* loadPromise = entry->loadPromise()) {
+        AbstractModuleRecord::ModuleRequest request { moduleKey, ScriptFetchParameters::create(type) };
+        auto* context = ModuleLoadingContext::create(vm, request, WTF::move(scriptFetcher), /* evaluate */ true, /* dynamic */ false, /* useImportMap */ false);
+        JSPromise* resultPromise = JSPromise::create(vm, globalObject->promiseStructure());
+        resultPromise->markAsHandled();
+        loadPromise->performPromiseThenWithInternalMicrotask(vm, globalObject, InternalMicrotask::ModuleLoadLinkEvaluateSettled, resultPromise, context);
+        return resultPromise;
+    }
+
+    AbstractModuleRecord* record = entry->record();
+    if (!record) {
+        throwTypeError(globalObject, scope, "Cannot link and evaluate a module before it has finished loading"_s);
         return nullptr;
     }
 
@@ -660,6 +682,12 @@ JSPromise* JSModuleLoader::hostLoadImportedModule(JSGlobalObject* globalObject, 
             finishLoadingImportedModule(globalObject, referrer, moduleRequest, payload, Exception::create(vm, fetchError), scriptFetcher);
             RETURN_IF_EXCEPTION(scope, nullptr);
             return JSPromise::rejectedPromise(globalObject, fetchError);
+        }
+
+        if (AbstractModuleRecord* moduleRecord = mapEntry->record()) {
+            finishLoadingImportedModule(globalObject, referrer, moduleRequest, payload, moduleRecord, scriptFetcher);
+            RETURN_IF_EXCEPTION(scope, nullptr);
+            return JSPromise::resolvedPromise(globalObject, moduleRecord);
         }
 
         JSPromise* promise = mapEntry->loadPromise();
@@ -1010,10 +1038,10 @@ JSPromise* JSModuleLoader::makeModule(JSGlobalObject* globalObject, const Identi
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    const SourceCode& sourceCode = jsSourceCode->sourceCode();
-
     JSPromise* promise = JSPromise::create(vm, globalObject->promiseStructure());
     promise->markAsHandled();
+
+    const SourceCode& sourceCode = jsSourceCode->sourceCode();
 
 #if ENABLE(WEBASSEMBLY)
     if (sourceCode.provider()->sourceType() == SourceProviderSourceType::WebAssembly)

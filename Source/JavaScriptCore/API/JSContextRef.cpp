@@ -40,6 +40,7 @@
 #include "StackVisitor.h"
 #include "StrongInlines.h"
 #include "Watchdog.h"
+#include <wtf/MainThread.h>
 #include <wtf/text/StringBuilder.h>
 
 #if ENABLE(REMOTE_INSPECTOR)
@@ -59,6 +60,18 @@ static constexpr int32_t webkitFirstVersionWithConcurrentGlobalContexts = 0x2100
 #endif
 
 using namespace JSC;
+
+#if OS(LINUX)
+namespace {
+
+__attribute__((constructor)) static void initializeJSCAPIMainThread()
+{
+    // JSC C API embedders may enter from worker threads before any WebKit process initializer runs.
+    WTF::initializeMainThread();
+}
+
+} // namespace
+#endif
 
 // From the API's perspective, a context group remains alive iff
 //     (a) it has been JSContextGroupRetained
@@ -208,6 +221,32 @@ JSContextGroupRef JSContextGetGroup(JSContextRef ctx)
     return toRef(&globalObject->vm());
 }
 
+void JSContextSetSharedData(JSContextRef ctx, void* data)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder lock(vm);
+    globalObject->setAPISharedData(data);
+}
+
+void* JSContextGetSharedData(JSContextRef ctx)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder lock(vm);
+    return globalObject->apiSharedData();
+}
+
 JSGlobalContextRef JSContextGetGlobalContext(JSContextRef ctx)
 {
     if (!ctx) {
@@ -291,13 +330,54 @@ void JSGlobalContextSetUnhandledRejectionCallback(JSGlobalContextRef ctx, JSObje
     VM& vm = globalObject->vm();
     JSLockHolder locker(vm);
 
-    JSObject* object = toJS(function);
-    if (!object->isCallable()) {
-        *exception = toRef(createTypeError(globalObject));
+    JSObject* object = function ? toJS(function) : nullptr;
+    if (!object || !object->isCallable()) {
+        if (exception)
+            *exception = toRef(createTypeError(globalObject));
         return;
     }
 
     globalObject->setUnhandledRejectionCallback(vm, object);
+}
+
+void JSGlobalContextSetUncaughtExceptionAtEventLoopCallback(JSGlobalContextRef ctx, JSUncaughtExceptionAtEventLoop callback)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder lock(vm);
+
+    auto* apiGlobalObject = dynamicDowncast<JSAPIGlobalObject>(globalObject);
+    if (!apiGlobalObject) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    apiGlobalObject->setUncaughtExceptionAtEventLoop(callback);
+}
+
+void JSGlobalContextSetUncaughtExceptionHandler(JSGlobalContextRef ctx, JSUncaughtExceptionHandler handler)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder lock(vm);
+
+    auto* apiGlobalObject = dynamicDowncast<JSAPIGlobalObject>(globalObject);
+    if (!apiGlobalObject) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    apiGlobalObject->setUncaughtExceptionHandler(handler);
 }
 
 void JSGlobalContextSetEvalEnabled(JSGlobalContextRef ctx, bool enabled, JSStringRef message)
@@ -521,4 +601,3 @@ JSStringRef JSContextGroupTakeSamplesFromSamplingProfiler(JSContextGroupRef grou
     return nullptr;
 #endif
 }
-

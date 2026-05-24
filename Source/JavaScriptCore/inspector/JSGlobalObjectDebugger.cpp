@@ -28,6 +28,8 @@
 
 #include "JSGlobalObject.h"
 #include "JSLock.h"
+#include "APICast.h"
+#include "JSAPIGlobalObject.h"
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -63,13 +65,27 @@ void JSGlobalObjectDebugger::runEventLoopWhilePaused()
 {
     JSC::Debugger::runEventLoopWhilePaused();
 
-    // Drop all locks so another thread can work in the VM while we are nested.
+    JSC::JSAPIGlobalObject* apiGlobal = dynamicDowncast<JSC::JSAPIGlobalObject>(&m_globalObject);
+    JSContextRef contextRef = toRef(&m_globalObject);
+    InspectorPauseEventCallback callback = apiGlobal ? apiGlobal->pauseEventCallback() : nullptr;
+
+    // Copy the host callback before dropping the JS lock. The callback slot is
+    // mutated under JSLock by the C API setter/disconnect paths.
     JSC::JSLock::DropAllLocks dropAllLocks(&m_globalObject.vm());
 
+    if (callback)
+        callback(contextRef, InspectorPauseEventPaused);
+
     while (!m_doneProcessingDebuggerEvents) {
+        if (callback)
+            callback(contextRef, InspectorPauseEventTick);
+
         if (RunLoop::cycle(JSGlobalObjectDebugger::runLoopModeSingleton()) == RunLoop::CycleResult::Stop)
             break;
     }
+
+    if (callback)
+        callback(contextRef, InspectorPauseEventResumed);
 }
 
 RunLoopMode JSGlobalObjectDebugger::runLoopModeSingleton()

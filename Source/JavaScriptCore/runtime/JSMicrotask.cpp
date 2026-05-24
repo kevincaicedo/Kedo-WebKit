@@ -831,6 +831,12 @@ static void moduleRegistryFetchSettled(JSGlobalObject* globalObject, VM& vm, Thr
     auto* modulePromise = uncheckedDowncast<JSPromise>(arguments[0]);
     auto status = static_cast<JSPromise::Status>(payload);
     if (status == JSPromise::Status::Fulfilled) {
+        if (auto* moduleRecord = dynamicDowncast<AbstractModuleRecord>(arguments[1])) {
+            entry->fetchComplete(globalObject, moduleRecord);
+            modulePromise->fulfill(vm, globalObject, moduleRecord);
+            return;
+        }
+
         auto* jsSourceCode = downcast<JSSourceCode>(arguments[1]);
         JSPromise* makeModulePromise = JSModuleLoader::makeModule(globalObject, entry->key(), jsSourceCode);
         if (scope.exception()) {
@@ -971,16 +977,17 @@ static void moduleLoadTopSettled(JSGlobalObject* globalObject, VM& vm, ThrowScop
     auto* intermediatePromise = uncheckedDowncast<JSPromise>(arguments[0]);
     auto status = static_cast<JSPromise::Status>(payload);
     if (status == JSPromise::Status::Fulfilled) {
-        auto* jsSourceCode = downcast<JSSourceCode>(arguments[1]);
-
         const Identifier& specifier = context->moduleRequest().m_specifier;
         auto type = context->moduleRequest().type();
         ScriptFetcher* scriptFetcher = context->scriptFetcher();
 
-        globalObject->moduleLoader()->provideFetch(globalObject, specifier, type, jsSourceCode);
-        if (scope.exception()) {
-            intermediatePromise->rejectWithCaughtException(globalObject, scope);
-            return;
+        if (!is<AbstractModuleRecord>(arguments[1])) {
+            auto* jsSourceCode = downcast<JSSourceCode>(arguments[1]);
+            globalObject->moduleLoader()->provideFetch(globalObject, specifier, type, jsSourceCode);
+            if (scope.exception()) {
+                intermediatePromise->rejectWithCaughtException(globalObject, scope);
+                return;
+            }
         }
 
         JSPromise* statePromise = JSPromise::create(vm, globalObject->promiseStructure());

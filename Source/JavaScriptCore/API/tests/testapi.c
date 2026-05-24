@@ -41,6 +41,7 @@
 #include "JSScriptRefPrivate.h"
 #include "JSStringRefPrivate.h"
 #include "JSWeakPrivate.h"
+#include "InspectorAPI.h"
 #if !OS(WINDOWS)
 #include <libgen.h>
 #endif
@@ -1059,6 +1060,285 @@ bool assertTrue(bool value, const char* message)
         failed = 1;
     }
     return value;
+}
+
+static unsigned kedoInspectorMessageCount;
+static size_t kedoInspectorLastMessageLength;
+static unsigned kedoUncaughtExceptionHandlerCount;
+static unsigned kedoUncaughtEventLoopCallbackCount;
+
+static JSStringRef kedoCreateString(const char* string)
+{
+    return JSStringCreateWithUTF8CString(string);
+}
+
+static bool kedoValueIsUTF8String(JSContextRef ctx, JSValueRef value, const char* expected)
+{
+    JSValueRef exception = NULL;
+    JSStringRef string = JSValueToStringCopy(ctx, value, &exception);
+    if (exception || !string)
+        return false;
+    bool result = JSStringIsEqualToUTF8CString(string, expected);
+    JSStringRelease(string);
+    return result;
+}
+
+static JSStringRef kedoModuleResolve(JSContextRef ctx, JSValueRef key, JSValueRef referrer, JSValueRef scriptFetcher)
+{
+    UNUSED_PARAM(referrer);
+    UNUSED_PARAM(scriptFetcher);
+
+    JSValueRef exception = NULL;
+    JSStringRef keyString = JSValueToStringCopy(ctx, key, &exception);
+    if (exception || !keyString)
+        return NULL;
+
+    if (JSStringIsEqualToUTF8CString(keyString, "./dep.js")) {
+        JSStringRelease(keyString);
+        return kedoCreateString("memory://dep.js");
+    }
+
+    return keyString;
+}
+
+static JSModuleSourceRef kedoModuleFetchSource(JSContextRef ctx, JSValueRef key, JSValueRef attributes, JSValueRef scriptFetcher)
+{
+    UNUSED_PARAM(attributes);
+    UNUSED_PARAM(scriptFetcher);
+
+    JSValueRef exception = NULL;
+    JSStringRef keyString = JSValueToStringCopy(ctx, key, &exception);
+    if (exception || !keyString)
+        return NULL;
+
+    const char* source = NULL;
+    if (JSStringIsEqualToUTF8CString(keyString, "memory://dep.js"))
+        source = "export const value = 41;";
+    else if (JSStringIsEqualToUTF8CString(keyString, "memory://main.js"))
+        source = "import { value } from './dep.js'; globalThis.kedoModuleLoadLink = String(value + 1);";
+
+    JSStringRelease(keyString);
+    if (!source)
+        return NULL;
+
+    JSStringRef sourceString = kedoCreateString(source);
+    JSModuleSourceRef moduleSource = JSModuleSourceCreateJavaScript(sourceString);
+    JSStringRelease(sourceString);
+    return moduleSource;
+}
+
+static void kedoDrainMicrotasks(JSContextRef ctx)
+{
+    for (int i = 0; i < 8; ++i)
+        JSRunMicrotasks(ctx);
+}
+
+static void testKedoModuleCAPI(void)
+{
+    JSGlobalContextRef moduleContext = JSGlobalContextCreateInGroup(NULL, NULL);
+    JSAPIModuleLoader loader = {
+        kedoModuleResolve,
+        NULL,
+        NULL,
+        kedoModuleFetchSource,
+        NULL,
+    };
+    JSModuleLoaderSetCallbacks(moduleContext, loader);
+
+    JSValueRef exception = NULL;
+    JSStringRef source = kedoCreateString("import { value } from './dep.js'; globalThis.kedoSourceModule = String(value + 1);");
+    JSStringRef sourceURL = kedoCreateString("memory://entry.js");
+    JSValueRef sourcePromise = JSModuleLoadAndEvaluateFromSource(moduleContext, source, sourceURL, 1, &exception);
+    JSStringRelease(source);
+    JSStringRelease(sourceURL);
+    assertTrue(sourcePromise && !exception, "JSModuleLoadAndEvaluateFromSource starts source module evaluation");
+    kedoDrainMicrotasks(moduleContext);
+
+    JSStringRef sourceResultScript = kedoCreateString("globalThis.kedoSourceModule");
+    JSValueRef sourceResult = JSEvaluateScript(moduleContext, sourceResultScript, NULL, NULL, 1, &exception);
+    JSStringRelease(sourceResultScript);
+    assertTrue(!exception, "source module result lookup should not throw");
+    assertTrue(kedoValueIsUTF8String(moduleContext, sourceResult, "42"), "source modules resolve relative imports from sourceURL");
+
+    JSStringRef moduleKey = kedoCreateString("memory://main.js");
+    JSValueRef loadPromise = JSModuleLoad(moduleContext, moduleKey, &exception);
+    assertTrue(loadPromise && !exception, "JSModuleLoad starts graph loading");
+    kedoDrainMicrotasks(moduleContext);
+
+    JSValueRef evaluatePromise = JSModuleLinkAndEvaluate(moduleContext, moduleKey, &exception);
+    JSStringRelease(moduleKey);
+    assertTrue(evaluatePromise && !exception, "JSModuleLinkAndEvaluate starts evaluation after JSModuleLoad");
+    kedoDrainMicrotasks(moduleContext);
+
+    JSStringRef loadLinkResultScript = kedoCreateString("globalThis.kedoModuleLoadLink");
+    JSValueRef loadLinkResult = JSEvaluateScript(moduleContext, loadLinkResultScript, NULL, NULL, 1, &exception);
+    JSStringRelease(loadLinkResultScript);
+    assertTrue(!exception, "load/link result lookup should not throw");
+    assertTrue(kedoValueIsUTF8String(moduleContext, loadLinkResult, "42"), "JSModuleLoad plus JSModuleLinkAndEvaluate evaluates dependency graph");
+
+    JSGlobalContextRelease(moduleContext);
+}
+
+static void kedoInspectorCallback(const char* message, size_t messageLength)
+{
+    if (!message || !messageLength) {
+        failed = 1;
+        return;
+    }
+
+    kedoInspectorMessageCount++;
+    kedoInspectorLastMessageLength = messageLength;
+}
+
+static void kedoUncaughtExceptionHandler(JSContextRef ctx, JSStringRef filename, JSValueRef exception)
+{
+    if (!ctx || !filename || !exception) {
+        failed = 1;
+        return;
+    }
+
+    kedoUncaughtExceptionHandlerCount++;
+}
+
+static void kedoUncaughtEventLoopCallback(JSContextRef ctx, JSValueRef exception)
+{
+    if (!ctx || !exception) {
+        failed = 1;
+        return;
+    }
+
+    kedoUncaughtEventLoopCallbackCount++;
+}
+
+static void testKedoCustomCAPI(void)
+{
+    JSValueRef exception = NULL;
+    int sharedData = 42;
+
+    JSContextSetSharedData(context, &sharedData);
+    assertTrue(JSContextGetSharedData(context) == &sharedData, "JSContext shared data round-trips through narrow accessors");
+    JSContextSetSharedData(context, NULL);
+    assertTrue(!JSContextGetSharedData(context), "JSContext shared data can be cleared");
+
+    JSValueRef arrayValues[] = {
+        JSValueMakeNumber(context, 1),
+        JSValueMakeNumber(context, 2),
+    };
+
+    JSObjectRef array = JSObjectMakeArray(context, 2, arrayValues, &exception);
+    assertTrue(!exception, "JSObjectMakeArray should not throw");
+
+    size_t length = 0;
+    assertTrue(JSObjectGetArrayLength(context, array, &length, &exception), "JSObjectGetArrayLength succeeds for arrays");
+    assertTrue(!exception, "JSObjectGetArrayLength should not throw for arrays");
+    assertTrue(length == 2, "JSObjectGetArrayLength returns exact array length");
+
+    size_t newLength = 0;
+    assertTrue(JSObjectArrayPush(context, array, JSValueMakeNumber(context, 3), &newLength, &exception), "JSObjectArrayPush succeeds for arrays");
+    assertTrue(!exception, "JSObjectArrayPush should not throw for arrays");
+    assertTrue(newLength == 3, "JSObjectArrayPush returns new exact array length");
+    assertEqualsAsNumber(JSObjectGetPropertyAtIndex(context, array, 2, &exception), 3);
+    assertTrue(!exception, "array index read after JSObjectArrayPush should not throw");
+
+    JSObjectRef plainObject = JSObjectMake(context, NULL, NULL);
+    assertTrue(!JSObjectGetArrayLength(context, plainObject, &length, &exception), "JSObjectGetArrayLength rejects non-arrays");
+    assertTrue(exception, "JSObjectGetArrayLength stores an exception for non-arrays");
+    exception = NULL;
+
+    assertTrue(!JSObjectGetTypedArrayLength(context, plainObject, &exception), "JSObjectGetTypedArrayLength rejects non-typed arrays");
+    assertTrue(exception, "JSObjectGetTypedArrayLength stores an exception for non-typed arrays");
+    exception = NULL;
+
+    JSStringRef typeErrorMessage = JSStringCreateWithUTF8CString("kedo type error");
+    JSObjectRef typeError = JSObjectMakeTypeError(context, typeErrorMessage, &exception);
+    JSStringRelease(typeErrorMessage);
+    assertTrue(typeError, "JSObjectMakeTypeError returns an object");
+    assertTrue(!exception, "JSObjectMakeTypeError should not throw for a valid message");
+
+    JSStringRef utf8String = JSStringCreateWithUTF8CString("kedo");
+    JSValueRef stringValue = JSValueMakeString(context, utf8String);
+    JSStringRelease(utf8String);
+    JSValueRef utf8BufferValue = JSValueCreateUTF8ArrayBuffer(context, stringValue, &exception);
+    assertTrue(!exception, "JSValueCreateUTF8ArrayBuffer should not throw for strings");
+    JSObjectRef utf8Buffer = JSValueToObject(context, utf8BufferValue, &exception);
+    assertTrue(!exception, "UTF-8 ArrayBuffer result should convert to object");
+    assertTrue(JSObjectGetArrayBufferByteLength(context, utf8Buffer, &exception) == 4, "JSValueCreateUTF8ArrayBuffer preserves UTF-8 byte length");
+    assertTrue(!exception, "JSObjectGetArrayBufferByteLength should not throw for UTF-8 ArrayBuffer");
+
+    JSStringRef script = JSStringCreateWithUTF8CString("({ base: 5, total(a, b) { return this.base + a + b; } })");
+    JSValueRef objectValue = JSEvaluateScript(context, script, NULL, NULL, 1, &exception);
+    JSStringRelease(script);
+    assertTrue(!exception, "method fixture evaluation should not throw");
+    JSObjectRef object = JSValueToObject(context, objectValue, &exception);
+    assertTrue(!exception, "method fixture should convert to object");
+
+    JSStringRef totalName = JSStringCreateWithUTF8CString("total");
+    JSValueRef methodArgs[] = {
+        JSValueMakeNumber(context, 6),
+        JSValueMakeNumber(context, 7),
+    };
+    JSValueRef result = JSObjectCallMethod(context, object, totalName, 2, methodArgs, &exception);
+    JSStringRelease(totalName);
+    assertTrue(!exception, "JSObjectCallMethod should not throw for callable methods");
+    assertEqualsAsNumber(result, 18);
+
+    JSStringRef iteratorFunctionScript = JSStringCreateWithUTF8CString("(function() { return { next() { return { done: true }; } }; })");
+    JSValueRef iteratorValue = JSEvaluateScript(context, iteratorFunctionScript, NULL, NULL, 1, &exception);
+    JSStringRelease(iteratorFunctionScript);
+    assertTrue(!exception, "iterator function fixture should not throw");
+
+    JSObjectSetIterator(context, object, iteratorValue, kJSPropertyAttributeNone, &exception);
+    assertTrue(!exception, "JSObjectSetIterator should accept a valid object and iterator value");
+
+    JSObjectSetAsyncIterator(context, object, iteratorValue, kJSPropertyAttributeNone, &exception);
+    assertTrue(!exception, "JSObjectSetAsyncIterator should accept a valid object and iterator value");
+
+    JSObjectSetIterator(context, NULL, iteratorValue, kJSPropertyAttributeNone, &exception);
+    assertTrue(exception, "JSObjectSetIterator stores an exception for a NULL object");
+    exception = NULL;
+
+    JSObjectSetAsyncIterator(context, object, NULL, kJSPropertyAttributeNone, &exception);
+    assertTrue(exception, "JSObjectSetAsyncIterator stores an exception for a NULL iterator value");
+    exception = NULL;
+
+    JSStringRef missingName = JSStringCreateWithUTF8CString("missing");
+    assertTrue(!JSObjectCallMethod(context, object, missingName, 0, NULL, &exception), "JSObjectCallMethod rejects missing methods");
+    JSStringRelease(missingName);
+    assertTrue(exception, "JSObjectCallMethod stores an exception for missing methods");
+    exception = NULL;
+
+    testKedoModuleCAPI();
+
+    kedoInspectorMessageCount = 0;
+    kedoInspectorLastMessageLength = 0;
+
+    JSGlobalContextRef inspectorContext = JSGlobalContextCreateInGroup(NULL, NULL);
+    JSInspectorSetCallback(inspectorContext, kedoInspectorCallback);
+    assertTrue(JSInspectorIsConnected(inspectorContext), "JSInspectorSetCallback connects the direct inspector frontend");
+    JSInspectorSendMessage(inspectorContext, "{\"id\":1,\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"1+1\"}}");
+    assertTrue(kedoInspectorMessageCount >= 1, "JSInspectorSendMessage should deliver at least one frontend response");
+    assertTrue(kedoInspectorLastMessageLength > 0, "Inspector callback receives a byte length");
+    JSInspectorDisconnect(inspectorContext);
+    assertTrue(!JSInspectorIsConnected(inspectorContext), "JSInspectorDisconnect clears the direct inspector frontend");
+    JSInspectorSetCallback(inspectorContext, kedoInspectorCallback);
+    assertTrue(JSInspectorIsConnected(inspectorContext), "JSInspectorSetCallback reconnects after disconnect");
+    JSInspectorSetCallback(inspectorContext, NULL);
+    assertTrue(!JSInspectorIsConnected(inspectorContext), "JSInspectorSetCallback(NULL) disconnects");
+    JSGlobalContextRelease(inspectorContext);
+
+    JSGlobalContextRef activeInspectorContext = JSGlobalContextCreateInGroup(NULL, NULL);
+    JSInspectorSetCallback(activeInspectorContext, kedoInspectorCallback);
+    assertTrue(JSInspectorIsConnected(activeInspectorContext), "active inspector context connects before release");
+    JSGlobalContextRelease(activeInspectorContext);
+
+    JSGlobalContextRef exceptionContext = JSGlobalContextCreateInGroup(NULL, NULL);
+    kedoUncaughtExceptionHandlerCount = 0;
+    kedoUncaughtEventLoopCallbackCount = 0;
+    JSGlobalContextSetUncaughtExceptionHandler(exceptionContext, kedoUncaughtExceptionHandler);
+    JSGlobalContextSetUncaughtExceptionAtEventLoopCallback(exceptionContext, kedoUncaughtEventLoopCallback);
+    JSGlobalContextSetUncaughtExceptionHandler(exceptionContext, NULL);
+    JSGlobalContextSetUncaughtExceptionAtEventLoopCallback(exceptionContext, NULL);
+    JSGlobalContextRelease(exceptionContext);
 }
 
 static bool checkForCycleInPrototypeChain(void)
@@ -2341,6 +2621,7 @@ int main(int argc, char* argv[])
     failed |= testGlobalContextWithFinalizer();
     failed |= testJSONParse();
     failed |= testJSObjectGetProxyTarget();
+    testKedoCustomCAPI();
 
     // Clear out local variables pointing at JSObjectRefs to allow their values to be collected
     function = NULL;

@@ -27,6 +27,32 @@
 
 #include <JavaScriptCore/JSBase.h>
 #include <JavaScriptCore/WebKitAvailability.h>
+#include <wtf/Vector.h>
+#include <wtf/text/WTFString.h>
+
+struct OpaqueJSModuleSource {
+    enum class Type {
+        JavaScript,
+        JSON,
+        WebAssembly,
+    };
+
+    OpaqueJSModuleSource(Type type, WTF::String&& source)
+        : type(type)
+        , source(WTF::move(source))
+    {
+    }
+
+    explicit OpaqueJSModuleSource(WTF::Vector<uint8_t>&& bytes)
+        : type(Type::WebAssembly)
+        , bytes(WTF::move(bytes))
+    {
+    }
+
+    Type type;
+    WTF::String source;
+    WTF::Vector<uint8_t> bytes;
+};
 
 namespace JSC {
 class CallFrame;

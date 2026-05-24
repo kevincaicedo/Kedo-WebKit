@@ -29,13 +29,23 @@
 #include "JSBasePrivate.h"
 
 #include "APICast.h"
+#include "ArgList.h"
 #include "Completion.h"
+#include "DeferredWorkTimer.h"
 #include "GCActivityCallback.h"
 #include "JSCInlines.h"
+#include "JSAPIGlobalObject.h"
 #include "JSLock.h"
+#include "JSModuleLoader.h"
+#include "JSPromise.h"
 #include "ObjectConstructor.h"
 #include "OpaqueJSString.h"
+#include "ScriptFetchParameters.h"
 #include "SourceCode.h"
+#include "SyntheticModuleRecord.h"
+#include <span>
+#include <wtf/HashSet.h>
+#include <wtf/StdLibExtras.h>
 
 #if ENABLE(REMOTE_INSPECTOR)
 #include "JSGlobalObjectInspectorController.h"
@@ -91,6 +101,291 @@ JSValueRef JSEvaluateScript(JSContextRef ctx, JSStringRef script, JSObjectRef th
     return JSEvaluateScriptInternal(locker, ctx, thisObject, source, exception);
 }
 
+namespace {
+
+static bool setCaughtException(JSGlobalObject* globalObject, ThrowScope& scope, JSValueRef* exception)
+{
+    if (Exception* caughtException = scope.exception()) {
+        if (exception)
+            *exception = toRef(globalObject, caughtException->value());
+        bool didClear = scope.tryClearException();
+        ASSERT_UNUSED(didClear, didClear);
+        return true;
+    }
+    return false;
+}
+
+static JSValueRef setTypeError(JSGlobalObject* globalObject, JSValueRef* exception, const String& message)
+{
+    if (exception)
+        *exception = toRef(createTypeError(globalObject, message));
+    return nullptr;
+}
+
+static SourceCode makeAPIModuleSource(JSStringRef module, JSStringRef sourceURLString, int startingLineNumber)
+{
+    startingLineNumber = std::max(1, startingLineNumber);
+    auto sourceURL = sourceURLString ? URL({ }, sourceURLString->string()) : URL();
+    return makeSource(module->string(), SourceOrigin { sourceURL }, SourceTaintedOrigin::Untainted, sourceURL.string(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()), SourceProviderSourceType::Module);
+}
+
+static JSValueRef promiseToRefOrSetException(JSGlobalObject* globalObject, ThrowScope& scope, JSPromise* promise, JSValueRef* exception)
+{
+    if (setCaughtException(globalObject, scope, exception))
+        return nullptr;
+
+    if (!promise)
+        return setTypeError(globalObject, exception, "Module operation did not return a promise"_s);
+
+    return toRef(globalObject, promise);
+}
+
+} // namespace
+
+JSModuleSourceRef JSModuleSourceCreateJavaScript(JSStringRef source)
+{
+    if (!source)
+        return nullptr;
+
+    return new OpaqueJSModuleSource(OpaqueJSModuleSource::Type::JavaScript, String { source->string() });
+}
+
+JSModuleSourceRef JSModuleSourceCreateJSON(JSStringRef source)
+{
+    if (!source)
+        return nullptr;
+
+    return new OpaqueJSModuleSource(OpaqueJSModuleSource::Type::JSON, String { source->string() });
+}
+
+JSModuleSourceRef JSModuleSourceCreateWebAssembly(const uint8_t* bytes, size_t byteLength)
+{
+    if (!bytes && byteLength)
+        return nullptr;
+
+    Vector<uint8_t> copiedBytes;
+    if (byteLength)
+        copiedBytes.append(std::span<const uint8_t> { bytes, byteLength });
+    return new OpaqueJSModuleSource(WTF::move(copiedBytes));
+}
+
+void JSModuleSourceRelease(JSModuleSourceRef source)
+{
+    delete source;
+}
+
+void JSModuleLoaderSetCallbacks(JSContextRef ctx, JSAPIModuleLoader moduleLoader)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+
+    auto* apiGlobalObject = dynamicDowncast<JSAPIGlobalObject>(globalObject);
+    if (!apiGlobalObject) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    apiGlobalObject->setAPIModuleLoader(moduleLoader);
+}
+
+void JSSetAPIModuleLoader(JSContextRef ctx, JSAPIModuleLoader moduleLoader)
+{
+    JSModuleLoaderSetCallbacks(ctx, moduleLoader);
+}
+
+JSValueRef JSModuleLoadFromSource(JSContextRef ctx, JSStringRef module, JSStringRef sourceURLString, int startingLineNumber, JSValueRef* exception)
+{
+    if (!ctx || !module) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    SourceCode source = makeAPIModuleSource(module, sourceURLString, startingLineNumber);
+    JSPromise* promise = loadModule(globalObject, WTF::move(source), nullptr);
+    return promiseToRefOrSetException(globalObject, scope, promise, exception);
+}
+
+JSValueRef JSModuleLoadAndEvaluateFromSource(JSContextRef ctx, JSStringRef module, JSStringRef sourceURLString, int startingLineNumber, JSValueRef* exception)
+{
+    if (!ctx || !module) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    SourceCode source = makeAPIModuleSource(module, sourceURLString, startingLineNumber);
+    JSPromise* promise = loadAndEvaluateModule(globalObject, WTF::move(source), nullptr);
+    return promiseToRefOrSetException(globalObject, scope, promise, exception);
+}
+
+JSValueRef JSModuleLoad(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception)
+{
+    if (!ctx || !moduleKey) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSPromise* promise = loadModule(globalObject, Identifier::fromString(vm, moduleKey->string()), nullptr, nullptr);
+    return promiseToRefOrSetException(globalObject, scope, promise, exception);
+}
+
+JSValueRef JSModuleLoadAndEvaluate(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception)
+{
+    if (!ctx || !moduleKey) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSPromise* promise = loadAndEvaluateModule(globalObject, moduleKey->string(), nullptr, nullptr);
+    return promiseToRefOrSetException(globalObject, scope, promise, exception);
+}
+
+JSValueRef JSModuleLinkAndEvaluate(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception)
+{
+    if (!ctx || !moduleKey) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSPromise* promise = linkAndEvaluateModule(globalObject, Identifier::fromString(vm, moduleKey->string()), nullptr);
+    return promiseToRefOrSetException(globalObject, scope, promise, exception);
+}
+
+JSValueRef JSSyntheticModuleCreate(JSContextRef ctx, JSStringRef moduleKey, size_t exportCount, const JSStringRef exportNames[], const JSValueRef exportValues[], JSValueRef* exception)
+{
+    if (!ctx || !moduleKey) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (exportCount && (!exportNames || !exportValues))
+        return setTypeError(globalObject, exception, "Synthetic module export names and values are required"_s);
+
+    Vector<Identifier, 4> exportIdentifiers;
+    MarkedArgumentBuffer exportValueBuffer;
+    HashSet<String> seenExportNames;
+
+    for (size_t index = 0; index < exportCount; ++index) {
+        JSStringRef exportNameRef = exportNames[index];
+        JSValueRef exportValueRef = exportValues[index];
+        if (!exportNameRef || !exportValueRef)
+            return setTypeError(globalObject, exception, "Synthetic module export names and values cannot contain null entries"_s);
+
+        String exportName = exportNameRef->string();
+        if (!seenExportNames.add(exportName).isNewEntry)
+            return setTypeError(globalObject, exception, makeString("Duplicate synthetic module export name '"_s, exportName, "'."_s));
+
+        if (exportName == "default"_s)
+            exportIdentifiers.append(vm.propertyNames->defaultKeyword);
+        else
+            exportIdentifiers.append(Identifier::fromString(vm, exportName));
+
+        exportValueBuffer.append(toJS(globalObject, exportValueRef));
+    }
+
+    if (exportValueBuffer.hasOverflowed())
+        return setTypeError(globalObject, exception, "Synthetic module export buffer overflowed"_s);
+
+    Identifier key = Identifier::fromString(vm, moduleKey->string());
+    auto* moduleRecord = SyntheticModuleRecord::createWithExportNamesAndValues(globalObject, key, exportIdentifiers, exportValueBuffer);
+    if (setCaughtException(globalObject, scope, exception))
+        return nullptr;
+
+    bool didRegister = globalObject->moduleLoader()->provideModule(globalObject, key, ScriptFetchParameters::Type::JavaScript, moduleRecord);
+    if (setCaughtException(globalObject, scope, exception))
+        return nullptr;
+
+    if (!didRegister)
+        return setTypeError(globalObject, exception, makeString("Module '"_s, moduleKey->string(), "' is already registered."_s));
+
+    return toRef(globalObject, moduleRecord);
+}
+
+void JSRunMicrotasks(JSContextRef ctx)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    vm.drainMicrotasks();
+}
+
+void JSRunDeferredWork(JSContextRef ctx)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    vm.deferredWorkTimer->runRunLoop();
+}
+
+void JSLoadAndEvaluateModuleFromSource(JSContextRef ctx, JSStringRef module, JSStringRef sourceURLString, int startingLineNumber, JSValueRef* exception)
+{
+    (void)JSModuleLoadAndEvaluateFromSource(ctx, module, sourceURLString, startingLineNumber, exception);
+}
+
+void JSLoadModule(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception)
+{
+    (void)JSModuleLoad(ctx, moduleKey, exception);
+}
+
+void JSLoadModuleFromSource(JSContextRef ctx, JSStringRef module, JSStringRef sourceURLString, int startingLineNumber, JSValueRef* exception)
+{
+    (void)JSModuleLoadFromSource(ctx, module, sourceURLString, startingLineNumber, exception);
+}
+
+JSValueRef JSLinkAndEvaluateModule(JSContextRef ctx, JSStringRef moduleKey)
+{
+    return JSModuleLinkAndEvaluate(ctx, moduleKey, nullptr);
+}
+
+void JSLoadAndEvaluateModule(JSContextRef ctx, JSStringRef moduleKey, JSValueRef* exception)
+{
+    (void)JSModuleLoadAndEvaluate(ctx, moduleKey, exception);
+}
+
 bool JSCheckScriptSyntax(JSContextRef ctx, JSStringRef script, JSStringRef sourceURLString, int startingLineNumber, JSValueRef* exception)
 {
     if (!ctx) {
@@ -105,7 +400,7 @@ bool JSCheckScriptSyntax(JSContextRef ctx, JSStringRef script, JSStringRef sourc
 
     auto sourceURL = sourceURLString ? URL({ }, sourceURLString->string()) : URL();
     SourceCode source = makeSource(script->string(), SourceOrigin { sourceURL }, SourceTaintedOrigin::Untainted, sourceURL.string(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()));
-    
+
     JSValue syntaxException;
     bool isValidSyntax = checkSyntax(globalObject, source, &syntaxException);
 
